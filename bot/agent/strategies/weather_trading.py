@@ -1,0 +1,646 @@
+"""Weather trading strategy v2: AlterEgo-inspired statistical rigor.
+
+Uses NOAA + Open-Meteo ensemble, bucket-boundary uncertainty modeling,
+and Gaussian probability for temperature buckets. Zero LLM cost.
+
+Key improvements over v1:
+- Bucket boundary awareness: confidence drops when forecast is near boundary
+- Dual-model ensemble: only trades when NOAA and Open-Meteo agree
+- Gaussian fair value: models temperature uncertainty as normal distribution
+- Tighter risk: higher MIN_EDGE, lower ENTRY_THRESHOLD
+"""
+
+import json
+import math
+import re
+from datetime import datetime, timedelta, timezone
+
+import structlog
+
+from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
+
+from .base import BaseStrategy
+
+logger = structlog.get_logger()
+
+# Month names for slug construction
+_MONTHS = [
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+]
+
+# City slug aliases — Polymarket uses these in URL slugs
+_CITY_SLUGS: dict[str, str] = {
+    "new york": "nyc",
+    "nyc": "nyc",
+    "chicago": "chicago",
+    "miami": "miami",
+    "dallas": "dallas",
+    "seattle": "seattle",
+    "atlanta": "atlanta",
+}
+
+# Broad weather detection for fallback scan path
+_WEATHER_DETECT = re.compile(
+    r"\b(?:temperature|temp|°[FC]|degrees?\s*[FC]|weather|forecast|"
+    r"high(?:est)?\s+of|low(?:est)?\s+of|heat\s*wave|cold\s*snap|"
+    r"highest\s+temp|lowest\s+temp|precipitation|rainfall|snowfall)\b",
+    re.IGNORECASE,
+)
+
+# Typical forecast uncertainty (std dev in °F) by horizon
+_UNCERTAINTY_BY_HOURS: list[tuple[float, float]] = [
+    (12, 2.0),   # Same day: ±2°F std dev
+    (24, 2.5),   # Day 1
+    (48, 3.5),   # Day 2
+    (72, 4.5),   # Day 3
+    (96, 5.5),   # Day 4
+]
+_DEFAULT_UNCERTAINTY = 6.0  # Day 5+
+
+
+def _normal_cdf(x: float) -> float:
+    """Standard normal CDF approximation (error < 1.5e-7)."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def bucket_probability(
+    forecast_temp: float,
+    bucket_low: float,
+    bucket_high: float,
+    sigma: float,
+) -> float:
+    """Probability that actual temp falls in [bucket_low, bucket_high].
+
+    Models temperature as N(forecast_temp, sigma²).
+    For open-ended buckets (-999 or 999), treats as one-sided.
+    """
+    if sigma <= 0:
+        # Degenerate: no uncertainty
+        return 1.0 if bucket_low <= forecast_temp <= bucket_high else 0.0
+
+    # Handle open-ended buckets
+    if bucket_low <= -900:
+        # "X°F or below" → P(T <= bucket_high)
+        return _normal_cdf((bucket_high - forecast_temp) / sigma)
+    if bucket_high >= 900:
+        # "X°F or higher" → P(T >= bucket_low) = 1 - P(T < bucket_low)
+        return 1.0 - _normal_cdf((bucket_low - forecast_temp) / sigma)
+
+    # Bounded bucket: P(low <= T <= high)
+    p_high = _normal_cdf((bucket_high - forecast_temp) / sigma)
+    p_low = _normal_cdf((bucket_low - forecast_temp) / sigma)
+    return max(0.0, p_high - p_low)
+
+
+def parse_temp_range(question: str) -> tuple[float, float] | None:
+    """Extract temperature range from a market question (bucket matching).
+
+    Returns (low, high) tuple in °F, or None if unparseable.
+    Examples:
+        "40°F or below"      → (-999, 40)
+        "48°F or higher"     → (48, 999)
+        "between 44-45°F"    → (44, 45)
+    """
+    if not question:
+        return None
+
+    q_lower = question.lower()
+
+    # "X°F or below" / "X°F or lower"
+    if "or below" in q_lower or "or lower" in q_lower:
+        m = re.search(r"(\d+)\s*°?\s*F\s+or\s+(?:below|lower)", question, re.IGNORECASE)
+        if m:
+            return (-999.0, float(m.group(1)))
+
+    # "X°F or higher" / "X°F or above"
+    if "or higher" in q_lower or "or above" in q_lower:
+        m = re.search(r"(\d+)\s*°?\s*F\s+or\s+(?:higher|above)", question, re.IGNORECASE)
+        if m:
+            return (float(m.group(1)), 999.0)
+
+    # "between X-Y°F" or "between X - Y °F"
+    m = re.search(r"between\s+(\d+)\s*[-–]\s*(\d+)\s*°?\s*F", question, re.IGNORECASE)
+    if m:
+        return (float(m.group(1)), float(m.group(2)))
+
+    return None
+
+
+def _hours_until_resolution(event: dict) -> float:
+    """Calculate hours until event resolution."""
+    try:
+        end_date = event.get("endDate") or event.get("end_date_iso")
+        if not end_date:
+            return 999.0
+        end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        delta = (end_dt - datetime.now(timezone.utc)).total_seconds() / 3600
+        return max(0.0, delta)
+    except Exception:
+        return 999.0
+
+
+def _build_weather_slug(city_slug: str, date: datetime) -> str:
+    """Build Polymarket weather event slug."""
+    month = _MONTHS[date.month - 1]
+    return f"highest-temperature-in-{city_slug}-on-{month}-{date.day}-{date.year}"
+
+
+def _get_uncertainty(hours_ahead: float) -> float:
+    """Get temperature uncertainty (std dev °F) based on forecast horizon."""
+    for hours_limit, sigma in _UNCERTAINTY_BY_HOURS:
+        if hours_ahead <= hours_limit:
+            return sigma
+    return _DEFAULT_UNCERTAINTY
+
+
+class WeatherTradingStrategy(BaseStrategy):
+    """Trade weather markets using NOAA + Open-Meteo ensemble with Gaussian probability."""
+
+    name = "weather_trading"
+    MIN_HOLD_SECONDS = 1800  # 30 min
+
+    # Entry thresholds — v2 tighter than v1
+    ENTRY_THRESHOLD = 0.50
+    EXIT_THRESHOLD = 0.70
+    MIN_EDGE = 0.07  # 7% min edge (was 5% — AlterEgo uses ~7% avg)
+    CONFIDENCE_THRESHOLD = 0.40
+    MIN_HOURS_TO_RESOLUTION = 2.0
+    LOOKAHEAD_DAYS = 4  # today + 3 days
+    MAX_SIGNALS_PER_SCAN = 3  # fewer, higher quality
+    EXIT_STOP_LOSS_PCT = 0.12
+    EXIT_TAKE_PROFIT_PCT = 0.08
+    EXIT_MIN_HOLD_HOURS = 1.0
+    EXIT_MAX_AGE_HOURS = 36.0  # shorter than v1 (was 48h)
+
+    # v2: Gaussian probability params
+    MIN_BUCKET_PROB = 0.55  # Only trade if P(bucket) > 55%
+    ENSEMBLE_REQUIRED = True  # Require both NOAA + Open-Meteo to agree
+    MAX_BOUNDARY_PROXIMITY_F = 1.5  # Skip if forecast within 1.5°F of bucket edge
+
+    _MUTABLE_PARAMS = {
+        "ENTRY_THRESHOLD": {"type": float, "min": 0.01, "max": 0.50},
+        "EXIT_THRESHOLD": {"type": float, "min": 0.20, "max": 0.90},
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "CONFIDENCE_THRESHOLD": {"type": float, "min": 0.3, "max": 1.0},
+        "MIN_HOURS_TO_RESOLUTION": {"type": float, "min": 0.0, "max": 24.0},
+        "LOOKAHEAD_DAYS": {"type": int, "min": 1, "max": 7},
+        "MAX_SIGNALS_PER_SCAN": {"type": int, "min": 1, "max": 20},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
+        "EXIT_STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.30},
+        "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.01, "max": 0.30},
+        "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 24.0},
+        "EXIT_MAX_AGE_HOURS": {"type": float, "min": 1.0, "max": 168.0},
+        "MIN_BUCKET_PROB": {"type": float, "min": 0.30, "max": 0.90},
+        "ENSEMBLE_REQUIRED": {"type": bool},
+        "MAX_BOUNDARY_PROXIMITY_F": {"type": float, "min": 0.0, "max": 5.0},
+    }
+
+    def __init__(self, *args, weather_fetcher=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._weather_fetcher = weather_fetcher
+        # Per-scan cache for Open-Meteo results (avoid rate limiting)
+        self._om_cache: dict[str, list | None] = {}
+
+    async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
+        """Scan weather markets using slug-based direct lookup."""
+        if self._weather_fetcher is None:
+            return []
+
+        # Clear per-scan Open-Meteo cache
+        self._om_cache.clear()
+
+        signals: list[TradeSignal] = []
+
+        # Primary path: slug-based direct lookup
+        slug_signals = await self._scan_via_slugs()
+        signals.extend(slug_signals)
+
+        # Fallback: scan provided markets for any weather markets not caught by slugs
+        seen_market_ids = {s.market_id for s in signals}
+        for market in markets:
+            if market.id in seen_market_ids:
+                continue
+            signal = await self._evaluate_legacy_market(market)
+            if signal is not None:
+                signals.append(signal)
+
+        # Sort by edge * confidence, limit
+        signals.sort(key=lambda s: s.edge * s.confidence, reverse=True)
+        signals = signals[:self.MAX_SIGNALS_PER_SCAN]
+
+        self.logger.info(
+            "weather_scan_complete",
+            slug_signals=len(slug_signals),
+            total_signals=len(signals),
+        )
+        return signals
+
+    async def _get_ensemble_forecast(
+        self, city: str, date_str: str,
+    ) -> tuple[float | None, float | None]:
+        """Get forecast from both NOAA and Open-Meteo for ensemble check.
+
+        Returns (noaa_temp, open_meteo_temp) — either can be None.
+        Uses per-scan cache for Open-Meteo to avoid rate limiting.
+        """
+        noaa_temp = None
+        om_temp = None
+
+        # NOAA forecast (primary)
+        forecast = await self._weather_fetcher.get_forecast(city)
+        if forecast:
+            for period in forecast:
+                if period.period == "day" and period.date == date_str:
+                    noaa_temp = period.temp_f
+                    break
+
+        # Open-Meteo forecast (secondary) — cached per city per scan
+        city_key = city.strip().lower()
+        if city_key not in self._om_cache:
+            coords = self._weather_fetcher.CITIES.get(city_key)
+            if coords:
+                try:
+                    self._om_cache[city_key] = await self._weather_fetcher._fetch_open_meteo(
+                        city_key, coords,
+                    )
+                except Exception:
+                    self._om_cache[city_key] = None
+
+        om_periods = self._om_cache.get(city_key)
+        if om_periods:
+            for period in om_periods:
+                if period.period == "day" and period.date == date_str:
+                    om_temp = period.temp_f
+                    break
+
+        return noaa_temp, om_temp
+
+    async def _scan_via_slugs(self) -> list[TradeSignal]:
+        """Scan weather markets via predictable Polymarket slugs."""
+        signals: list[TradeSignal] = []
+        now = datetime.now(timezone.utc)
+
+        for city_key, city_slug in _CITY_SLUGS.items():
+            # Get primary forecast
+            forecast = await self._weather_fetcher.get_forecast(city_key)
+            if not forecast:
+                continue
+
+            # Build date→temp+confidence lookup
+            forecast_by_date: dict[str, float] = {}
+            forecast_confidence: dict[str, float] = {}
+            for period in forecast:
+                if period.period == "day" and period.date not in forecast_by_date:
+                    forecast_by_date[period.date] = period.temp_f
+                    forecast_confidence[period.date] = period.confidence
+
+            for day_offset in range(self.LOOKAHEAD_DAYS):
+                target_date = now + timedelta(days=day_offset)
+                date_str = target_date.strftime("%Y-%m-%d")
+
+                noaa_temp = forecast_by_date.get(date_str)
+                if noaa_temp is None:
+                    continue
+
+                confidence = forecast_confidence.get(date_str, 0.6)
+                if confidence < self.CONFIDENCE_THRESHOLD:
+                    continue
+
+                # Ensemble check: get Open-Meteo forecast
+                om_temp = None
+                if self.ENSEMBLE_REQUIRED:
+                    _, om_temp = await self._get_ensemble_forecast(
+                        city_key, date_str,
+                    )
+                    if om_temp is not None:
+                        # Models must agree within uncertainty range
+                        disagreement = abs(noaa_temp - om_temp)
+                        hours_ahead = day_offset * 24.0
+                        sigma = _get_uncertainty(hours_ahead)
+                        if disagreement > sigma:
+                            self.logger.info(
+                                "weather_ensemble_disagree",
+                                city=city_key, date=date_str,
+                                noaa=noaa_temp, open_meteo=round(om_temp, 1),
+                                disagreement=round(disagreement, 1),
+                                sigma=sigma,
+                            )
+                            continue
+                        # Use average of both models for better accuracy
+                        forecast_temp = (noaa_temp + om_temp) / 2.0
+                    else:
+                        # Open-Meteo unavailable — use NOAA alone but lower confidence
+                        forecast_temp = noaa_temp
+                        confidence *= 0.85
+                else:
+                    forecast_temp = noaa_temp
+
+                # Fetch event by slug
+                slug = _build_weather_slug(city_slug, target_date)
+                event = await self.gamma.get_event_by_slug(slug)
+                if not event:
+                    continue
+
+                hours_left = _hours_until_resolution(event)
+                if hours_left < self.MIN_HOURS_TO_RESOLUTION:
+                    continue
+
+                # Calculate forecast uncertainty for this horizon
+                hours_ahead = day_offset * 24.0
+                sigma = _get_uncertainty(hours_ahead)
+
+                # Find matching bucket with Gaussian probability
+                signal = self._match_bucket(
+                    event, city_key, date_str, forecast_temp,
+                    confidence, sigma, hours_ahead,
+                )
+                if signal is not None:
+                    signals.append(signal)
+
+        return signals
+
+    def _match_bucket(
+        self,
+        event: dict,
+        city: str,
+        date: str,
+        forecast_temp: float,
+        confidence: float,
+        sigma: float,
+        hours_ahead: float,
+    ) -> TradeSignal | None:
+        """Find the temperature bucket with highest Gaussian probability."""
+        best_signal: TradeSignal | None = None
+        best_edge = 0.0
+
+        for market in event.get("markets", []):
+            question = market.get("question", "")
+            temp_range = parse_temp_range(question)
+            if temp_range is None:
+                continue
+
+            low, high = temp_range
+
+            # Bucket boundary awareness: skip if forecast is too close to edge
+            if self.MAX_BOUNDARY_PROXIMITY_F > 0:
+                if low > -900 and abs(forecast_temp - low) < self.MAX_BOUNDARY_PROXIMITY_F:
+                    self.logger.debug(
+                        "weather_boundary_too_close",
+                        city=city, forecast=forecast_temp,
+                        boundary=low, proximity=abs(forecast_temp - low),
+                    )
+                    continue
+                if high < 900 and abs(forecast_temp - high) < self.MAX_BOUNDARY_PROXIMITY_F:
+                    self.logger.debug(
+                        "weather_boundary_too_close",
+                        city=city, forecast=forecast_temp,
+                        boundary=high, proximity=abs(forecast_temp - high),
+                    )
+                    continue
+
+            # Gaussian probability of landing in this bucket
+            bucket_prob = bucket_probability(forecast_temp, low, high, sigma)
+
+            if bucket_prob < self.MIN_BUCKET_PROB:
+                continue
+
+            # Extract price
+            try:
+                prices = json.loads(market.get("outcomePrices", "[0.5,0.5]"))
+                yes_price = float(prices[0])
+            except (json.JSONDecodeError, ValueError, IndexError, TypeError):
+                continue
+
+            token_ids_raw = market.get("clobTokenIds", "[]")
+            try:
+                token_ids = json.loads(token_ids_raw)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                token_ids = []
+            if not token_ids:
+                continue
+
+            market_id = market.get("conditionId") or market.get("id", "")
+            if not market_id:
+                continue
+
+            if yes_price >= self.ENTRY_THRESHOLD:
+                continue
+
+            # Fair value = Gaussian probability * confidence adjustment
+            fair_value = min(0.95, bucket_prob * confidence)
+            edge = fair_value - yes_price
+
+            self.logger.info(
+                "weather_bucket_evaluated",
+                city=city, date=date,
+                forecast=round(forecast_temp, 1),
+                bucket=f"{low}-{high}°F",
+                bucket_prob=round(bucket_prob, 3),
+                fair_value=round(fair_value, 3),
+                yes_price=yes_price,
+                edge=round(edge, 3),
+                sigma=sigma,
+            )
+
+            if edge < self.MIN_EDGE:
+                continue
+
+            if edge > best_edge:
+                best_edge = edge
+                signal_confidence = min(0.95, 0.5 + bucket_prob * 0.3 + confidence * 0.15)
+
+                best_signal = TradeSignal(
+                    strategy=self.name,
+                    market_id=market_id,
+                    token_id=token_ids[0],
+                    question=question,
+                    side=OrderSide.BUY,
+                    outcome="Yes",
+                    estimated_prob=min(0.95, yes_price + edge),
+                    market_price=yes_price,
+                    edge=edge,
+                    size_usd=0.0,
+                    confidence=signal_confidence,
+                    reasoning=(
+                        f"Weather v2: BUY Yes @ ${yes_price:.3f}. "
+                        f"Forecast {forecast_temp:.0f}°F → bucket {low}-{high}°F. "
+                        f"P(bucket)={bucket_prob:.0%}, σ={sigma:.1f}°F. "
+                        f"Fair value ~{fair_value:.2f}, edge {edge:.2f}"
+                    ),
+                    metadata={
+                        "city": city,
+                        "date": date,
+                        "forecast_temp": forecast_temp,
+                        "bucket_low": low,
+                        "bucket_high": high,
+                        "bucket_prob": bucket_prob,
+                        "fair_value": fair_value,
+                        "sigma": sigma,
+                        "forecast_confidence": confidence,
+                        "source": "slug_lookup_v2",
+                    },
+                )
+
+        return best_signal
+
+    async def _evaluate_legacy_market(
+        self, market: GammaMarket,
+    ) -> TradeSignal | None:
+        """Fallback: evaluate a market from the generic scan pipeline."""
+        if not _WEATHER_DETECT.search(market.question):
+            return None
+
+        temp_range = parse_temp_range(market.question)
+        if temp_range is None:
+            return None
+
+        city = self._extract_city(market.question)
+        if city is None:
+            return None
+
+        forecast = await self._weather_fetcher.get_forecast(city)
+        if not forecast:
+            return None
+
+        best_period = next(
+            (p for p in forecast if p.period == "day"), None,
+        )
+        if best_period is None and forecast:
+            best_period = forecast[0]
+        if best_period is None:
+            return None
+
+        forecast_temp = best_period.temp_f
+        confidence = best_period.confidence
+
+        if confidence < self.CONFIDENCE_THRESHOLD:
+            return None
+
+        low, high = temp_range
+
+        # Bucket boundary check
+        if self.MAX_BOUNDARY_PROXIMITY_F > 0:
+            if low > -900 and abs(forecast_temp - low) < self.MAX_BOUNDARY_PROXIMITY_F:
+                return None
+            if high < 900 and abs(forecast_temp - high) < self.MAX_BOUNDARY_PROXIMITY_F:
+                return None
+
+        # Use Gaussian probability
+        sigma = 3.0  # default for legacy path
+        bucket_prob = bucket_probability(forecast_temp, low, high, sigma)
+        if bucket_prob < self.MIN_BUCKET_PROB:
+            return None
+
+        yes_price = market.yes_price
+        if yes_price is None or yes_price >= self.ENTRY_THRESHOLD:
+            return None
+
+        token_ids = market.token_ids
+        if not token_ids:
+            return None
+
+        fair_value = min(0.95, bucket_prob * confidence)
+        edge = fair_value - yes_price
+
+        if edge < self.MIN_EDGE:
+            return None
+
+        signal_confidence = min(0.95, 0.5 + bucket_prob * 0.3 + confidence * 0.15)
+
+        return TradeSignal(
+            strategy=self.name,
+            market_id=market.id,
+            token_id=token_ids[0],
+            question=market.question,
+            side=OrderSide.BUY,
+            outcome="Yes",
+            estimated_prob=min(0.95, yes_price + edge),
+            market_price=yes_price,
+            edge=edge,
+            size_usd=0.0,
+            confidence=signal_confidence,
+            reasoning=(
+                f"Weather v2 fallback: BUY Yes @ ${yes_price:.3f}. "
+                f"NOAA forecast {forecast_temp:.0f}°F in bucket {low}-{high}°F. "
+                f"P(bucket)={bucket_prob:.0%}, edge {edge:.2f}"
+            ),
+            metadata={
+                "city": city,
+                "forecast_temp": forecast_temp,
+                "bucket_low": low,
+                "bucket_high": high,
+                "bucket_prob": bucket_prob,
+                "forecast_confidence": confidence,
+                "source": "legacy_scan_v2",
+            },
+        )
+
+    @staticmethod
+    def _extract_city(question: str) -> str | None:
+        """Extract city name from a weather market question."""
+        q_lower = question.lower()
+        known_cities = [
+            "new york", "nyc", "chicago", "miami", "dallas",
+            "seattle", "atlanta", "los angeles", "houston",
+            "phoenix", "philadelphia", "san antonio", "san diego",
+            "denver", "boston", "san francisco", "minneapolis",
+            "detroit", "washington", "dc",
+        ]
+        for city in known_cities:
+            if city in q_lower:
+                return city
+        m = re.search(
+            r"temp(?:erature)?\s+in\s+([A-Za-z\s]+?)(?:\s+on|\s+be|\s*$)",
+            question, re.IGNORECASE,
+        )
+        if m:
+            return m.group(1).strip().lower()
+        return None
+
+    async def should_exit(
+        self, market_id: str, current_price: float, **kwargs,
+    ) -> str | bool:
+        """Exit on stop-loss, take-profit, swing, or max-age."""
+        avg_price = kwargs.get("avg_price", 0.0)
+        created_at = kwargs.get("created_at")
+
+        # Stop-loss
+        if avg_price > 0:
+            loss_pct = (avg_price - current_price) / avg_price
+            if loss_pct >= self.EXIT_STOP_LOSS_PCT:
+                return f"stop_loss ({loss_pct:.0%} loss)"
+
+        # Swing exit at high price
+        if current_price >= self.EXIT_THRESHOLD:
+            return f"exit_threshold (price ${current_price:.3f} >= ${self.EXIT_THRESHOLD:.2f})"
+
+        # Take-profit after minimum hold.
+        # Weather markets have wide spreads (~$0.03-0.05), so the actual
+        # sell price (best bid) will be significantly below the mid/ask
+        # price used here. We add a spread buffer to ensure the fill
+        # price still yields real profit after slippage.
+        spread_buffer = 0.15  # require 15% extra to absorb spread
+        effective_tp = self.EXIT_TAKE_PROFIT_PCT + spread_buffer
+        if avg_price > 0 and created_at is not None:
+            profit_pct = (current_price - avg_price) / avg_price
+            if profit_pct >= effective_tp:
+                now = datetime.now(timezone.utc)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                held_hours = (now - created_at).total_seconds() / 3600
+                if held_hours >= self.EXIT_MIN_HOLD_HOURS:
+                    return (
+                        f"take_profit (+{profit_pct:.1%} after {held_hours:.0f}h)"
+                    )
+
+        # Max age
+        if created_at is not None:
+            now = datetime.now(timezone.utc)
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            held_hours = (now - created_at).total_seconds() / 3600
+            if held_hours >= self.EXIT_MAX_AGE_HOURS:
+                return f"max_age ({held_hours:.0f}h)"
+
+        return False

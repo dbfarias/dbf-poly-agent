@@ -1,0 +1,238 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "scripts/**"
+      - "img/**"
+      - ".gitignore"
+      - "LICENSE"
+  pull_request:
+    # PRs only run tests (no deploy) — secrets are NOT available to fork PRs
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "scripts/**"
+      - "img/**"
+      - ".gitignore"
+      - "LICENSE"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check bot/ api/
+
+      - name: Test
+        env:
+          API_SECRET_KEY: test-key-32chars-long-enough-xx
+        run: uv run pytest tests/ -v --tb=short
+
+  # Detect which files changed to skip unnecessary builds
+  changes:
+    needs: [test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'bot/**'
+              - 'api/**'
+              - 'pyproject.toml'
+              - 'Dockerfile.bot'
+            frontend:
+              - 'frontend/**'
+              - 'Dockerfile.frontend'
+              - 'deploy/nginx/frontend.conf'
+
+  build-app:
+    needs: [changes]
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.bot
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-app:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-app:${{ github.sha }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+  build-frontend:
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # No build secrets needed — the dashboard authenticates via JWT cookie.
+      # The API key is server-side only and never baked into the frontend bundle.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-frontend:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-frontend:${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    needs: [build-app, build-frontend, changes]
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      !contains(needs.*.result, 'failure')
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check server reachability
+        id: check
+        run: |
+          if nc -z -w 10 "$SERVER_HOST" 22 2>/dev/null; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Server is not reachable on port 22 — skipping deploy"
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+
+      - name: Sync config to server (preserves local nginx.conf)
+        if: steps.check.outputs.reachable == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "deploy/scripts/,docker-compose.prod.yml"
+          target: "~/polybot"
+
+      - name: Backup DB before deploy
+        if: steps.check.outputs.reachable == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            bash ~/polybot/deploy/scripts/backup.sh || echo "Backup skipped (first deploy?)"
+
+      - name: Deploy with healthcheck and rollback
+        if: steps.check.outputs.reachable == 'true'
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 10m
+          envs: GHCR_TOKEN,GITHUB_OWNER
+          script: |
+            set -e
+            cd ~/polybot
+
+            # Save current image digests for rollback
+            PREV_APP=$(docker inspect --format='{{.Image}}' polybot-app 2>/dev/null || echo "")
+            PREV_FE=$(docker inspect --format='{{.Image}}' polybot-frontend 2>/dev/null || echo "")
+
+            # Login and pull
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u $GITHUB_OWNER --password-stdin
+            docker compose -f docker-compose.prod.yml pull
+
+            # Recreate
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
+
+            # Healthcheck with retries (5 attempts, 15s apart = 75s max)
+            HEALTHY=false
+            for i in 1 2 3 4 5; do
+              sleep 15
+              STATUS=$(docker exec polybot-app python3 -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/api/health').status)" 2>/dev/null || echo "0")
+              echo "Healthcheck attempt $i: status=$STATUS"
+              if [ "$STATUS" = "200" ]; then
+                HEALTHY=true
+                break
+              fi
+            done
+
+            if [ "$HEALTHY" = "true" ]; then
+              echo "Deploy successful"
+              docker compose -f docker-compose.prod.yml logs --tail=5 app
+            else
+              echo "::error::Healthcheck failed — rolling back"
+              if [ -n "$PREV_APP" ] && docker image inspect "$PREV_APP" >/dev/null 2>&1; then
+                docker tag "$PREV_APP" ghcr.io/$GITHUB_OWNER/polybot-app:latest
+                if [ -n "$PREV_FE" ] && docker image inspect "$PREV_FE" >/dev/null 2>&1; then
+                  docker tag "$PREV_FE" ghcr.io/$GITHUB_OWNER/polybot-frontend:latest
+                fi
+                docker compose -f docker-compose.prod.yml up -d --force-recreate
+                sleep 15
+                echo "Rolled back to previous images"
+                docker compose -f docker-compose.prod.yml logs --tail=10 app
+              else
+                echo "::error::No valid previous image for rollback"
+              fi
+              exit 1
+            fi

@@ -1,0 +1,35 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.env
+*.db
+*.db-wal
+*.db-shm
+/data/
+node_modules/
+frontend/dist/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+
+# Security — never commit secrets or keys
+.ssh/
+.claude/
+.claude/settings.local.json
+*.pem
+*.key
+
+# OS files
+.DS_Store
+
+# Local data
+*.sqlite
+db.sqlite
+scripts/
+img/
