@@ -11,9 +11,32 @@ from bot.utils.retry import async_retry
 
 logger = structlog.get_logger()
 
+# Polymarket proxy wallet constants (for Magic Link / email users)
+PROXY_FACTORY = "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052"
+PROXY_INIT_CODE_HASH = bytes.fromhex(
+    "d21df8dc65880a8606f09fe0ce3df9b8869287ab0b058be05aa9e8af6330a00b"
+)
+
 # Tick size constants for Polymarket CLOB
 TICK_SIZE = 0.01
 MIN_ORDER_SIZE_USD = 5.0
+
+
+def derive_proxy_wallet(signer_address: str) -> str:
+    """Derive the Polymarket proxy wallet address from a signer address.
+
+    Uses CREATE2: keccak256(0xff ++ factory ++ salt ++ initCodeHash)[12:]
+    where salt = keccak256(encodePacked(signer_address)).
+    """
+    from Crypto.Hash import keccak
+
+    signer_bytes = bytes.fromhex(signer_address[2:])  # 20 bytes (encodePacked)
+    salt_hash = keccak.new(digest_bits=256, data=signer_bytes).digest()
+
+    factory_bytes = bytes.fromhex(PROXY_FACTORY[2:])
+    create2_input = bytes([0xFF]) + factory_bytes + salt_hash + PROXY_INIT_CODE_HASH
+    addr_hash = keccak.new(digest_bits=256, data=create2_input).digest()
+    return "0x" + addr_hash[-20:].hex()
 
 
 class PolymarketClient:
@@ -21,12 +44,14 @@ class PolymarketClient:
 
     Connects to Polymarket CLOB API using the private key.
     API credentials are auto-derived — no need to provide them manually.
+    Proxy wallet address is derived via CREATE2 for order signing.
     Connects even in paper mode so we can display real balances.
     """
 
     def __init__(self):
         self._clob_client = None
         self._initialized = False
+        self._proxy_wallet: str | None = None
         self._paper_orders: list[dict] = []
         self._paper_order_counter = 0
 
@@ -35,21 +60,28 @@ class PolymarketClient:
 
         Always connects to Polymarket if a private key is available,
         even in paper mode (for balance display). API credentials are
-        auto-derived from the private key.
+        auto-derived from the private key. Proxy wallet is derived via
+        CREATE2 for order signing.
         """
         if settings.poly_private_key:
             try:
+                from eth_account import Account
                 from py_clob_client.client import ClobClient
 
-                # Step 1: Create Level-1 client (private key + signature type)
+                account = Account.from_key(settings.poly_private_key)
+                signer_address = account.address
+                self._proxy_wallet = derive_proxy_wallet(signer_address)
+
+                # Step 2: Create client with proxy wallet as funder
                 self._clob_client = ClobClient(
                     host="https://clob.polymarket.com",
                     chain_id=settings.poly_chain_id,
                     key=settings.poly_private_key,
                     signature_type=settings.poly_signature_type,
+                    funder=self._proxy_wallet,
                 )
 
-                # Step 2: Auto-derive API credentials from private key
+                # Step 3: Auto-derive API credentials from private key
                 creds = await asyncio.to_thread(
                     self._clob_client.create_or_derive_api_creds
                 )
@@ -57,12 +89,12 @@ class PolymarketClient:
                     self._clob_client.set_api_creds, creds
                 )
 
-                address = self._clob_client.get_address()
                 self._initialized = True
                 logger.info(
                     "clob_client_initialized",
                     mode=settings.trading_mode.value,
-                    address=address,
+                    signer=signer_address,
+                    proxy_wallet=self._proxy_wallet,
                     api_key=creds.api_key,
                 )
             except Exception as e:
@@ -86,13 +118,8 @@ class PolymarketClient:
         return self._clob_client is not None
 
     def get_address(self) -> str | None:
-        """Get the wallet address from the connected client."""
-        if self._clob_client is None:
-            return None
-        try:
-            return self._clob_client.get_address()
-        except Exception:
-            return None
+        """Get the proxy wallet address (the one holding funds on Polymarket)."""
+        return self._proxy_wallet
 
     @async_retry(max_attempts=3, min_wait=1, max_wait=15)
     async def get_balance(self) -> float | None:
