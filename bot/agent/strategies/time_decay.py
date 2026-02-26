@@ -22,9 +22,9 @@ logger = structlog.get_logger()
 # Strategy parameters
 MAX_HOURS_TO_RESOLUTION = 48.0
 MIN_IMPLIED_PROB = 0.85
-MAX_PRICE = 0.97  # Don't buy above this (too little profit)
-MIN_PRICE = 0.80  # Don't buy below this (too uncertain)
-MIN_VOLUME = 5000.0  # Minimum market volume
+MAX_PRICE = 0.99  # Don't buy above this (too little profit)
+MIN_PRICE = 0.90  # Only high-probability markets (90%+)
+MIN_VOLUME = 10000.0  # Only liquid markets
 MIN_LIQUIDITY = 1000.0  # Minimum market liquidity
 CONFIDENCE_BASE = 0.80  # Base confidence for this strategy
 
@@ -98,7 +98,7 @@ class TimeDecayStrategy(BaseStrategy):
                 continue
 
             edge_val = estimated_prob - price
-            if edge_val < 0.02:  # Need at least 2% edge
+            if edge_val < 0.015:  # Need at least 1.5% edge
                 continue
 
             # Calculate confidence based on multiple factors
@@ -124,6 +124,7 @@ class TimeDecayStrategy(BaseStrategy):
                     f"Est. prob: {estimated_prob:.1%}, Edge: {edge_val:.1%}"
                 ),
                 metadata={
+                    "category": market.category,
                     "hours_to_resolution": hours_left,
                     "volume": market.volume,
                     "liquidity": market.liquidity,
@@ -139,8 +140,8 @@ class TimeDecayStrategy(BaseStrategy):
 
         Higher volume markets are more efficient, so price ≈ probability.
         As resolution nears, remaining uncertainty decreases.
+        Near-certainty bonus for very high price + close to resolution.
         """
-        # Start with market price as base
         base_prob = market_price
 
         # Time factor: less time = price is more accurate
@@ -149,8 +150,10 @@ class TimeDecayStrategy(BaseStrategy):
         # Volume factor: higher volume = more efficient pricing
         volume_factor = min(0.02, (volume / 100000) * 0.02)
 
-        # Conservative estimate: slightly above market price
-        estimated = base_prob + time_factor + volume_factor
+        # Near-certainty bonus: very high price + close to resolution
+        near_certainty = 0.02 if (market_price >= 0.95 and hours_left <= 12) else 0.0
+
+        estimated = base_prob + time_factor + volume_factor + near_certainty
         return min(0.99, estimated)
 
     def _calculate_confidence(

@@ -82,6 +82,7 @@ class RiskManager:
             self._check_daily_loss(bankroll, config),
             self._check_drawdown(bankroll, config),
             self._check_max_positions(open_positions, config),
+            self._check_total_deployed(open_positions, bankroll, config),
             self._check_category_exposure(signal, open_positions, bankroll, config),
             self._check_min_edge(signal, config),
             self._check_min_win_prob(signal, config),
@@ -139,6 +140,23 @@ class RiskManager:
             return RiskCheckResult(
                 False,
                 f"Max positions reached: {len(open_positions)} >= {config['max_positions']}",
+            )
+        return RiskCheckResult(True)
+
+    def _check_total_deployed(
+        self,
+        open_positions: list[Position],
+        bankroll: float,
+        config: dict,
+    ) -> RiskCheckResult:
+        """Reject if total deployed capital exceeds max_deployed_pct of bankroll."""
+        deployed = sum(p.cost_basis for p in open_positions if p.is_open)
+        max_deployed = bankroll * config["max_deployed_pct"]
+        if deployed >= max_deployed:
+            return RiskCheckResult(
+                False,
+                f"Total deployed limit: ${deployed:.2f} >= ${max_deployed:.2f} "
+                f"({config['max_deployed_pct']:.0%} of bankroll)",
             )
         return RiskCheckResult(True)
 

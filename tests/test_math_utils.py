@@ -112,11 +112,19 @@ def test_position_size_capped():
     assert size == 20.0  # 100 * 0.50 = 50, but capped at 20%
 
 
-def test_position_size_minimum():
-    size = position_size_usd(10.0, 0.01, 1.0, min_order_usd=5.0)
-    assert size == 5.0  # 10 * 0.01 = 0.10, below min, bankroll >= min
+def test_position_size_below_min_skips():
+    # Kelly says $0.10, below $1.00 min → skip (never inflate)
+    size = position_size_usd(10.0, 0.01, 1.0, min_order_usd=1.0)
+    assert size == 0.0
 
 
-def test_position_size_too_small():
-    size = position_size_usd(3.0, 0.10, 1.0, min_order_usd=5.0)
-    assert size == 0.0  # bankroll < min_order
+def test_position_size_default_min_is_one():
+    # Verify default min_order_usd=1.0
+    size = position_size_usd(10.0, 0.005, 1.0)
+    assert size == 0.0  # 10 * 0.005 = 0.05, below default $1.00 min
+
+
+def test_position_size_above_min_passes():
+    # Kelly says $1.50, above $1.00 min → trade
+    size = position_size_usd(10.0, 0.15, 1.0, min_order_usd=1.0)
+    assert size == 1.5

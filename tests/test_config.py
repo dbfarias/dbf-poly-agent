@@ -14,14 +14,19 @@ def test_capital_tier_from_bankroll():
 
 def test_tier_config_values():
     t1 = TierConfig.get(CapitalTier.TIER1)
-    assert t1["max_positions"] == 1
+    assert t1["max_positions"] == 5
+    assert t1["max_per_position_pct"] == 0.20
+    assert t1["max_deployed_pct"] == 0.60
+    assert t1["max_per_category_pct"] == 0.40
     assert t1["min_win_prob"] == 0.85
 
     t2 = TierConfig.get(CapitalTier.TIER2)
     assert t2["max_positions"] == 3
+    assert t2["max_deployed_pct"] == 0.70
 
     t3 = TierConfig.get(CapitalTier.TIER3)
     assert t3["max_positions"] == 10
+    assert t3["max_deployed_pct"] == 0.80
 
 
 def test_tier_risk_increases():
@@ -29,4 +34,6 @@ def test_tier_risk_increases():
     t1 = TierConfig.get(CapitalTier.TIER1)
     t3 = TierConfig.get(CapitalTier.TIER3)
     assert t1["min_win_prob"] > t3["min_win_prob"]
-    assert t1["min_edge_pct"] > t3["min_edge_pct"]
+    # Tier 1 has more positions but stricter per-position and deployed limits
+    assert t1["max_per_position_pct"] <= t3["max_per_position_pct"]
+    assert t1["max_deployed_pct"] < t3["max_deployed_pct"]

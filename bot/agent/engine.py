@@ -9,7 +9,7 @@ from bot.agent.market_analyzer import MarketAnalyzer
 from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.risk_manager import RiskManager
-from bot.config import CapitalTier, settings
+from bot.config import settings
 from bot.data.market_cache import MarketCache
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
@@ -175,9 +175,6 @@ class TradingEngine:
                     size=trade.size,
                     price=trade.price,
                 )
-                # Only execute one trade per cycle in Tier 1
-                if tier == CapitalTier.TIER1:
-                    break
 
         # 6. Monitor pending orders
         await self.order_manager.monitor_orders()

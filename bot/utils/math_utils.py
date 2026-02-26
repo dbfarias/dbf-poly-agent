@@ -95,18 +95,18 @@ def position_size_usd(
     bankroll: float,
     kelly_frac: float,
     max_per_position_pct: float,
-    min_order_usd: float = 5.0,
+    min_order_usd: float = 1.0,
 ) -> float:
-    """Calculate position size in USD, respecting constraints."""
+    """Calculate position size in USD, respecting constraints.
+
+    Returns 0.0 if Kelly-sized position is below min_order_usd — never
+    inflates a position beyond what Kelly recommends.
+    """
     if bankroll <= 0:
         return 0.0
     size = bankroll * kelly_frac
     max_size = bankroll * max_per_position_pct
     size = min(size, max_size)
     if size < min_order_usd:
-        # If we can afford the min order, use it; otherwise, skip
-        if bankroll >= min_order_usd:
-            size = min_order_usd
-        else:
-            return 0.0
+        return 0.0
     return round(size, 2)
