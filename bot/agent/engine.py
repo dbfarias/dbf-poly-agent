@@ -10,7 +10,10 @@ from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.risk_manager import RiskManager
 from bot.config import settings
+from bot.data.database import async_session
 from bot.data.market_cache import MarketCache
+from bot.data.models import StrategyMetric
+from bot.data.repositories import StrategyMetricRepository
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.gamma import GammaClient
@@ -37,7 +40,7 @@ class TradingEngine:
         self.cache = MarketCache(default_ttl=120)
 
         # Components
-        self.portfolio = Portfolio(self.clob_client, self.data_api)
+        self.portfolio = Portfolio(self.clob_client, self.data_api, self.gamma_client)
         self.risk_manager = RiskManager()
         self.order_manager = OrderManager(self.clob_client)
 
@@ -76,6 +79,7 @@ class TradingEngine:
         await self.gamma_client.initialize()
         await self.data_api.initialize()
         await self.portfolio.sync()
+        await self._seed_strategy_metrics()
 
         logger.info(
             "engine_initialized",
@@ -217,6 +221,18 @@ class TradingEngine:
                 trades=0,
                 win_rate=0.0,
             )
+
+    async def _seed_strategy_metrics(self) -> None:
+        """Ensure all strategies have a StrategyMetric record so the page is never empty."""
+        strategy_names = [s.name for s in self.analyzer.strategies]
+        async with async_session() as session:
+            repo = StrategyMetricRepository(session)
+            existing = await repo.get_all_latest()
+            existing_names = {m.strategy for m in existing}
+            for name in strategy_names:
+                if name not in existing_names:
+                    await repo.upsert(StrategyMetric(strategy=name))
+                    logger.debug("strategy_metric_seeded", strategy=name)
 
     def register_strategy(self, strategy) -> None:
         """Dynamically register a new strategy."""

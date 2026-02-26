@@ -1,6 +1,6 @@
 """Market scanner and analyzer for identifying trading opportunities."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -104,9 +104,20 @@ class MarketAnalyzer:
     ) -> None:
         """Record scan results to database."""
         signal_map = {s.market_id: s for s in signals}
+        now = datetime.now(timezone.utc)
         scans = []
         for market in markets[:50]:  # Limit to top 50 markets
             signal = signal_map.get(market.id)
+
+            hours_to_resolution = None
+            end = market.end_date
+            if end is not None:
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
+                hours_left = (end - now).total_seconds() / 3600
+                if hours_left > 0:
+                    hours_to_resolution = round(hours_left, 1)
+
             scan = MarketScan(
                 scanned_at=datetime.utcnow(),
                 market_id=market.id,
@@ -116,6 +127,7 @@ class MarketAnalyzer:
                 volume=market.volume,
                 liquidity=market.liquidity,
                 end_date=market.end_date,
+                hours_to_resolution=hours_to_resolution,
                 signal_strategy=signal.strategy if signal else "",
                 signal_edge=signal.edge if signal else 0.0,
                 signal_confidence=signal.confidence if signal else 0.0,

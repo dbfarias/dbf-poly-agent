@@ -135,10 +135,24 @@ class MarketScanRepository:
         self.session.add_all(scans)
         await self.session.commit()
 
-    async def get_recent_opportunities(self, limit: int = 20) -> list[MarketScan]:
+    async def get_recent_opportunities(self, limit: int = 50) -> list[MarketScan]:
+        """Get latest scan per market, ordered by most recent scan."""
+        # Subquery: latest scan timestamp per market
+        latest_per_market = (
+            select(
+                MarketScan.market_id,
+                func.max(MarketScan.scanned_at).label("max_scanned"),
+            )
+            .group_by(MarketScan.market_id)
+            .subquery()
+        )
         result = await self.session.execute(
             select(MarketScan)
-            .where(MarketScan.signal_edge > 0)
+            .join(
+                latest_per_market,
+                (MarketScan.market_id == latest_per_market.c.market_id)
+                & (MarketScan.scanned_at == latest_per_market.c.max_scanned),
+            )
             .order_by(MarketScan.scanned_at.desc())
             .limit(limit)
         )

@@ -10,6 +10,7 @@ from bot.data.models import PortfolioSnapshot, Position
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
+from bot.polymarket.gamma import GammaClient
 
 logger = structlog.get_logger()
 
@@ -17,9 +18,15 @@ logger = structlog.get_logger()
 class Portfolio:
     """Tracks portfolio state: cash, positions, equity."""
 
-    def __init__(self, clob_client: PolymarketClient, data_api: DataApiClient):
+    def __init__(
+        self,
+        clob_client: PolymarketClient,
+        data_api: DataApiClient,
+        gamma_client: GammaClient | None = None,
+    ):
         self.clob = clob_client
         self.data_api = data_api
+        self.gamma = gamma_client
 
         # State
         self._cash: float = settings.initial_bankroll
@@ -63,6 +70,10 @@ class Portfolio:
         Always fetches real Polymarket balance if connected (even in paper mode)
         so the dashboard shows accurate account data.
         """
+        # Sync positions from Polymarket first
+        if self.clob.is_connected and not settings.is_paper:
+            await self._sync_from_polymarket()
+
         async with async_session() as session:
             pos_repo = PositionRepository(session)
             self._positions = await pos_repo.get_open()
@@ -91,6 +102,78 @@ class Portfolio:
             positions=self.open_position_count,
             equity=equity,
             tier=self.tier.value,
+        )
+
+    async def _sync_from_polymarket(self) -> None:
+        """Fetch positions from Polymarket and sync into local DB."""
+        address = self.clob.get_address()
+        if not address:
+            return
+
+        try:
+            remote_positions = await self.data_api.get_positions(address)
+        except Exception as e:
+            logger.error("polymarket_position_sync_failed", error=str(e))
+            return
+
+        remote_market_ids: set[str] = set()
+
+        async with async_session() as session:
+            pos_repo = PositionRepository(session)
+
+            for rp in remote_positions:
+                if rp.size <= 0:
+                    continue
+
+                remote_market_ids.add(rp.market_id)
+
+                # Fetch metadata for new positions
+                question = ""
+                category = ""
+                if self.gamma:
+                    try:
+                        market = await self.gamma.get_market(rp.market_id)
+                        if market:
+                            question = market.question[:200]
+                            category = market.category or ""
+                    except Exception as e:
+                        logger.warning(
+                            "gamma_metadata_fetch_failed",
+                            market_id=rp.market_id,
+                            error=str(e),
+                        )
+
+                position = Position(
+                    market_id=rp.market_id,
+                    token_id=rp.token_id,
+                    question=question,
+                    outcome=rp.outcome,
+                    category=category,
+                    strategy="external",
+                    side="BUY",
+                    size=rp.size,
+                    avg_price=rp.avg_price,
+                    current_price=rp.current_price,
+                    cost_basis=rp.size * rp.avg_price,
+                    unrealized_pnl=rp.unrealized_pnl,
+                    is_open=True,
+                    is_paper=False,
+                )
+                await pos_repo.upsert(position)
+
+            # Close local "external" positions no longer on Polymarket
+            local_positions = await pos_repo.get_open()
+            for lp in local_positions:
+                if lp.strategy == "external" and lp.market_id not in remote_market_ids:
+                    await pos_repo.close(lp.market_id)
+                    logger.info(
+                        "external_position_closed",
+                        market_id=lp.market_id,
+                    )
+
+        logger.debug(
+            "polymarket_positions_synced",
+            remote_count=len(remote_market_ids),
         )
 
     async def record_trade_open(
