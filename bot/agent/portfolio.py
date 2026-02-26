@@ -1,0 +1,192 @@
+"""Portfolio state tracker with sync from blockchain and paper mode."""
+
+from datetime import datetime
+
+import structlog
+
+from bot.config import CapitalTier, settings
+from bot.data.database import async_session
+from bot.data.models import PortfolioSnapshot, Position
+from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
+from bot.polymarket.client import PolymarketClient
+from bot.polymarket.data_api import DataApiClient
+
+logger = structlog.get_logger()
+
+
+class Portfolio:
+    """Tracks portfolio state: cash, positions, equity."""
+
+    def __init__(self, clob_client: PolymarketClient, data_api: DataApiClient):
+        self.clob = clob_client
+        self.data_api = data_api
+
+        # State
+        self._cash: float = settings.initial_bankroll
+        self._positions: list[Position] = []
+        self._peak_equity: float = settings.initial_bankroll
+        self._realized_pnl_today: float = 0.0
+        self._last_snapshot: datetime | None = None
+
+    @property
+    def cash(self) -> float:
+        return self._cash
+
+    @property
+    def positions(self) -> list[Position]:
+        return [p for p in self._positions if p.is_open]
+
+    @property
+    def positions_value(self) -> float:
+        return sum(p.size * p.current_price for p in self.positions)
+
+    @property
+    def total_equity(self) -> float:
+        return self._cash + self.positions_value
+
+    @property
+    def unrealized_pnl(self) -> float:
+        return sum(p.unrealized_pnl for p in self.positions)
+
+    @property
+    def tier(self) -> CapitalTier:
+        return CapitalTier.from_bankroll(self.total_equity)
+
+    @property
+    def open_position_count(self) -> int:
+        return len(self.positions)
+
+    async def sync(self) -> None:
+        """Sync portfolio state from blockchain / paper state."""
+        async with async_session() as session:
+            pos_repo = PositionRepository(session)
+            self._positions = await pos_repo.get_open()
+
+        if not settings.is_paper:
+            try:
+                balance = await self.data_api.get_balance()
+                if balance > 0:
+                    self._cash = balance
+            except Exception as e:
+                logger.error("balance_sync_failed", error=str(e))
+
+        # Update peak equity
+        equity = self.total_equity
+        if equity > self._peak_equity:
+            self._peak_equity = equity
+
+        logger.debug(
+            "portfolio_synced",
+            cash=self._cash,
+            positions=self.open_position_count,
+            equity=equity,
+            tier=self.tier.value,
+        )
+
+    async def record_trade_open(
+        self, market_id: str, token_id: str, question: str, outcome: str,
+        category: str, strategy: str, side: str, size: float, price: float,
+    ) -> None:
+        """Record a new position opening."""
+        cost = size * price
+        self._cash -= cost
+
+        position = Position(
+            market_id=market_id,
+            token_id=token_id,
+            question=question,
+            outcome=outcome,
+            category=category,
+            strategy=strategy,
+            side=side,
+            size=size,
+            avg_price=price,
+            current_price=price,
+            cost_basis=cost,
+            unrealized_pnl=0.0,
+            is_open=True,
+            is_paper=settings.is_paper,
+        )
+
+        async with async_session() as session:
+            repo = PositionRepository(session)
+            await repo.upsert(position)
+
+        await self.sync()
+
+    async def record_trade_close(self, market_id: str, close_price: float) -> float:
+        """Record a position closing. Returns realized PnL."""
+        position = next((p for p in self._positions if p.market_id == market_id), None)
+        if not position:
+            logger.warning("close_position_not_found", market_id=market_id)
+            return 0.0
+
+        pnl = (close_price - position.avg_price) * position.size
+        self._cash += position.size * close_price
+        self._realized_pnl_today += pnl
+
+        async with async_session() as session:
+            repo = PositionRepository(session)
+            await repo.close(market_id)
+
+        await self.sync()
+        return pnl
+
+    async def update_position_prices(self, prices: dict[str, float]) -> None:
+        """Update current prices for open positions."""
+        for position in self._positions:
+            if position.token_id in prices:
+                position.current_price = prices[position.token_id]
+                position.unrealized_pnl = (
+                    (position.current_price - position.avg_price) * position.size
+                )
+
+        async with async_session() as session:
+            repo = PositionRepository(session)
+            for p in self._positions:
+                if p.is_open:
+                    await repo.upsert(p)
+
+    async def take_snapshot(self) -> PortfolioSnapshot:
+        """Take and persist a portfolio snapshot."""
+        snapshot = PortfolioSnapshot(
+            timestamp=datetime.utcnow(),
+            total_equity=self.total_equity,
+            cash_balance=self._cash,
+            positions_value=self.positions_value,
+            unrealized_pnl=self.unrealized_pnl,
+            realized_pnl_today=self._realized_pnl_today,
+            open_positions=self.open_position_count,
+            daily_return_pct=0.0,
+            max_drawdown_pct=(
+                (self._peak_equity - self.total_equity) / self._peak_equity
+                if self._peak_equity > 0 else 0.0
+            ),
+        )
+
+        async with async_session() as session:
+            repo = PortfolioSnapshotRepository(session)
+            latest = await repo.get_latest()
+            if latest:
+                snapshot.daily_return_pct = (
+                    (self.total_equity - latest.total_equity) / latest.total_equity
+                    if latest.total_equity > 0 else 0.0
+                )
+            await repo.create(snapshot)
+
+        self._last_snapshot = snapshot.timestamp
+        return snapshot
+
+    def get_overview(self) -> dict:
+        """Get portfolio overview for the dashboard."""
+        return {
+            "total_equity": self.total_equity,
+            "cash_balance": self._cash,
+            "positions_value": self.positions_value,
+            "unrealized_pnl": self.unrealized_pnl,
+            "realized_pnl_today": self._realized_pnl_today,
+            "open_positions": self.open_position_count,
+            "peak_equity": self._peak_equity,
+            "tier": self.tier.value,
+            "is_paper": settings.is_paper,
+        }
