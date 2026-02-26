@@ -368,12 +368,21 @@ Push to `main` triggers GitHub Actions:
 
 ## 🧪 Testing
 
+**135 tests** across 12 test files covering bot logic and API endpoints.
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| RiskManager | 34 | 99% |
+| Strategies (base, time_decay, arbitrage) | 33 | 80–100% |
+| API routers (config, portfolio, trades, risk, markets, strategies) | 28 | 94–100% |
+| Config, math_utils, types, market_cache | 34 | 84–100% |
+
 ```bash
 # Run all tests
 pytest tests/ -v
 
 # Run with coverage
-pytest tests/ -v --cov=bot --cov-report=html
+pytest tests/ --cov=bot --cov=api --cov-report=term-missing
 
 # Lint
 ruff check bot/ api/
@@ -450,7 +459,15 @@ dbf-poly-agent/
 │   ├── nginx/                        # Reverse proxy config
 │   ├── lightsail/setup.sh            # Server provisioning
 │   └── scripts/                      # Backup + health check
-├── tests/                            # pytest test suite
+├── tests/                            # 135 pytest tests (12 files)
+│   ├── conftest.py                   # Shared fixtures (async DB, mock engine, HTTP client)
+│   ├── test_risk_manager.py          # 34 tests — cascading risk checks
+│   ├── test_base_strategy.py         # 6 tests — tier gating
+│   ├── test_time_decay_strategy.py   # 16 tests — probability & confidence
+│   ├── test_arbitrage_strategy.py    # 11 tests — arb detection
+│   ├── test_api_config.py            # 8 tests — config endpoints
+│   ├── test_api_portfolio.py         # 10 tests — portfolio endpoints
+│   └── test_api_trades_risk_markets.py # 10 tests — trades/risk/markets
 ├── docker-compose.yml                # Full stack orchestration
 ├── Dockerfile.bot                    # Python (bot + API)
 ├── Dockerfile.frontend               # React → Nginx
