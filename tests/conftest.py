@@ -1,5 +1,10 @@
 """Shared test fixtures for bot logic and API endpoint tests."""
 
+import os
+
+# Set API_SECRET_KEY before any bot.config import so the validator passes
+os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -7,6 +12,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bot.data.models import Base
+
+TEST_API_KEY = os.environ["API_SECRET_KEY"]
 
 
 @pytest.fixture
@@ -109,5 +116,9 @@ async def client(db_session, mock_engine):
     # (not via Depends). get_engine() does `from bot.main import engine`.
     with patch("bot.main.engine", mock_engine):
         transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"X-API-Key": TEST_API_KEY},
+        ) as ac:
             yield ac

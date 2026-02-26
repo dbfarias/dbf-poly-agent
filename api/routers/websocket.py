@@ -6,8 +6,11 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.dependencies import get_engine
+from bot.config import settings
 
 router = APIRouter(tags=["websocket"])
+
+MAX_CONNECTIONS = 10
 
 
 class ConnectionManager:
@@ -16,12 +19,17 @@ class ConnectionManager:
     def __init__(self):
         self.active: list[WebSocket] = []
 
-    async def connect(self, ws: WebSocket):
+    async def connect(self, ws: WebSocket) -> bool:
+        """Accept connection if under the cap. Returns False if rejected."""
+        if len(self.active) >= MAX_CONNECTIONS:
+            return False
         await ws.accept()
         self.active.append(ws)
+        return True
 
     def disconnect(self, ws: WebSocket):
-        self.active.remove(ws)
+        if ws in self.active:
+            self.active.remove(ws)
 
     async def broadcast(self, data: dict):
         dead = []
@@ -31,7 +39,8 @@ class ConnectionManager:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self.active.remove(ws)
+            if ws in self.active:
+                self.active.remove(ws)
 
 
 manager = ConnectionManager()
@@ -39,7 +48,16 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(ws: WebSocket):
-    await manager.connect(ws)
+    # Validate token query param before accepting
+    token = ws.query_params.get("token")
+    if token != settings.api_secret_key:
+        await ws.close(code=4001, reason="Unauthorized")
+        return
+
+    accepted = await manager.connect(ws)
+    if not accepted:
+        await ws.close(code=4029, reason="Too many connections")
+        return
     try:
         while True:
             # Send periodic updates

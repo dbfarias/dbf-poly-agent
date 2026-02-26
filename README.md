@@ -30,6 +30,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 - [Getting Started](#-getting-started)
 - [Configuration](#-configuration)
 - [Deployment](#-deployment)
+- [Security](#-security)
 - [Testing](#-testing)
 - [Project Structure](#-project-structure)
 - [Tech Stack](#-tech-stack)
@@ -278,7 +279,9 @@ uv pip install -e ".[dev]"
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env with your settings (paper trading works without API keys)
+# Generate an API secret key (required):
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Paste it into .env as API_SECRET_KEY=<generated-key>
 
 # 4. Start the backend (bot + API)
 uvicorn api.main:app --reload
@@ -295,11 +298,13 @@ The dashboard will be at `http://localhost:5173` and the API at `http://localhos
 
 ```bash
 cp .env.example .env
-# Edit .env with your settings
+# Set API_SECRET_KEY (required, min 16 chars):
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Edit .env with your key and other settings
 docker compose up --build
 ```
 
-Dashboard at `http://localhost:80`, API at `http://localhost:8000`.
+Dashboard at `http://localhost:80`. API and frontend ports are internal-only (Nginx proxies all traffic).
 
 ---
 
@@ -309,20 +314,22 @@ All configuration is via environment variables (`.env` file):
 
 | Variable | Default | Description |
 |:---|:---|:---|
+| `API_SECRET_KEY` | — | **Required.** Min 16 chars. Used for API auth and WS token |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated CORS origins |
 | `TRADING_MODE` | `paper` | `paper` or `live` — **paper is default** |
 | `INITIAL_BANKROLL` | `5.0` | Starting capital in USD |
-| `SCAN_INTERVAL_SECONDS` | `60` | Market scan frequency |
+| `SCAN_INTERVAL_SECONDS` | `60` | Market scan frequency (5–3600) |
 | `SNAPSHOT_INTERVAL_SECONDS` | `300` | Portfolio snapshot frequency |
-| `MAX_DAILY_LOSS_PCT` | `0.10` | Daily loss limit (10%) |
-| `MAX_DRAWDOWN_PCT` | `0.25` | Max drawdown before halt (25%) |
-| `POLY_API_KEY` | — | Polymarket API key (live mode only) |
+| `MAX_DAILY_LOSS_PCT` | `0.10` | Daily loss limit (0–50%) |
+| `MAX_DRAWDOWN_PCT` | `0.25` | Max drawdown before halt (0–50%) |
+| `POLY_API_KEY` | — | Polymarket API key (required for live mode) |
 | `POLY_API_SECRET` | — | Polymarket API secret |
 | `POLY_API_PASSPHRASE` | — | Polymarket API passphrase |
-| `POLY_PRIVATE_KEY` | — | Wallet private key (live mode only) |
+| `POLY_PRIVATE_KEY` | — | Wallet private key (required for live mode) |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | — | Telegram chat ID (optional) |
 
-> ⚠️ **Important:** The bot starts in **paper trading mode** by default. You must explicitly set `TRADING_MODE=live` to trade with real funds.
+> **Important:** The bot starts in **paper trading mode** by default. You must explicitly set `TRADING_MODE=live` to trade with real funds. Live mode requires all four `POLY_*` credentials to be set.
 
 ---
 
@@ -366,6 +373,48 @@ Push to `main` triggers GitHub Actions:
 
 ---
 
+## 🔒 Security
+
+The bot handles real money — security is enforced at every layer.
+
+### API Authentication
+
+All API endpoints (except `/api/health`) require an `X-API-Key` header matching the configured `API_SECRET_KEY`. WebSocket connections require a `?token=` query parameter with the same key.
+
+```bash
+# Authenticated request
+curl -H "X-API-Key: $API_SECRET_KEY" http://localhost:8000/api/config/
+
+# Unauthenticated → 401
+curl http://localhost:8000/api/config/
+```
+
+### Input Validation
+
+All configuration update fields are bounded by Pydantic validators:
+- `scan_interval_seconds`: 5–3600
+- `max_daily_loss_pct`: 0–50%
+- `max_drawdown_pct`: 0–50%
+
+### Secrets Management
+
+- `API_SECRET_KEY` must be at least 16 characters (app refuses to start otherwise)
+- Live mode requires all four Polymarket credentials to be set
+- No hardcoded defaults for secrets — `.env.example` ships with empty values
+- Database URLs are sanitized before logging (credentials stripped)
+
+### Infrastructure Hardening
+
+| Layer | Protection |
+|:---|:---|
+| **CORS** | Restricted to configured origins (no wildcard) |
+| **Nginx** | Rate limiting (30 req/min), security headers (X-Frame-Options, CSP, etc.) |
+| **Docker** | Non-root container user, no exposed ports (Nginx-only access) |
+| **WebSocket** | Token auth + max 10 concurrent connections |
+| **Math** | Bounds checks on Kelly criterion and position sizing inputs |
+
+---
+
 ## 🧪 Testing
 
 **135 tests** across 12 test files covering bot logic and API endpoints.
@@ -378,11 +427,11 @@ Push to `main` triggers GitHub Actions:
 | Config, math_utils, types, market_cache | 34 | 84–100% |
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run all tests (API_SECRET_KEY is set automatically in test fixtures)
+API_SECRET_KEY=test-key-32chars-long-enough-xx pytest tests/ -v
 
 # Run with coverage
-pytest tests/ --cov=bot --cov=api --cov-report=term-missing
+API_SECRET_KEY=test-key-32chars-long-enough-xx pytest tests/ --cov=bot --cov=api --cov-report=term-missing
 
 # Lint
 ruff check bot/ api/
@@ -439,7 +488,8 @@ dbf-poly-agent/
 │       └── notifications.py          # Telegram alerts
 ├── api/                              # FastAPI (same process as bot)
 │   ├── main.py                       # App + bot as background task
-│   ├── schemas.py                    # Response models
+│   ├── middleware.py                  # API key authentication
+│   ├── schemas.py                    # Response models (with validation)
 │   ├── dependencies.py               # DB session, engine access
 │   └── routers/
 │       ├── portfolio.py              # GET /api/portfolio/*
@@ -538,9 +588,11 @@ dbf-poly-agent/
 
 </div>
 
+All endpoints except `/api/health` require `X-API-Key` header. WebSocket requires `?token=` query param.
+
 | Method | Endpoint | Description |
 |:---:|:---|:---|
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health` | Health check (no auth) |
 | `GET` | `/api/status` | Full engine status |
 | `GET` | `/api/portfolio/overview` | Portfolio summary |
 | `GET` | `/api/portfolio/positions` | Open positions |
@@ -557,7 +609,7 @@ dbf-poly-agent/
 | `PUT` | `/api/config/` | Update configuration |
 | `POST` | `/api/trading/pause` | Pause trading |
 | `POST` | `/api/trading/resume` | Resume trading |
-| `WS` | `/ws/live` | Real-time updates |
+| `WS` | `/ws/live?token=KEY` | Real-time updates (token auth) |
 
 ---
 

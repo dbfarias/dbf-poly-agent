@@ -7,10 +7,13 @@ dist/
 *.db
 *.db-wal
 *.db-shm
-data/
+/data/
 node_modules/
 frontend/dist/
 .ruff_cache/
 .pytest_cache/
 .coverage
 htmlcov/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
+from api.middleware import verify_api_key
 from api.schemas import MarketOpportunity
 from bot.data.repositories import MarketScanRepository
 
@@ -11,7 +12,11 @@ router = APIRouter(prefix="/api/markets", tags=["markets"])
 
 
 @router.get("/scanner", response_model=list[MarketOpportunity])
-async def get_scanner(limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def get_scanner(
+    limit: int = 20,
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
     repo = MarketScanRepository(db)
     scans = await repo.get_recent_opportunities(limit=limit)
     return [
@@ -34,7 +39,7 @@ async def get_scanner(limit: int = 20, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/opportunities")
-async def get_opportunities():
+async def get_opportunities(_: str = Depends(verify_api_key)):
     engine = get_engine()
     cache_markets = engine.cache.get_all_markets()
     return {

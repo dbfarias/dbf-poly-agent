@@ -12,10 +12,14 @@ COPY pyproject.toml README.md ./
 COPY bot/ bot/
 COPY api/ api/
 
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create data directory and non-root user
+RUN mkdir -p /app/data \
+    && adduser --disabled-password --gecos "" --uid 1001 botuser \
+    && chown -R botuser:botuser /app/data
+
+USER botuser
 
 EXPOSE 8000
 

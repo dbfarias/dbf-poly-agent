@@ -10,6 +10,8 @@ def kelly_criterion(win_prob: float, market_price: float) -> float:
     where p = estimated real probability, c = market price (cost).
     Returns fraction of bankroll to bet (0 to 1).
     """
+    if not (0.0 <= win_prob <= 1.0):
+        return 0.0
     if market_price >= 1.0 or market_price <= 0.0:
         return 0.0
     if win_prob <= market_price:
@@ -96,6 +98,8 @@ def position_size_usd(
     min_order_usd: float = 5.0,
 ) -> float:
     """Calculate position size in USD, respecting constraints."""
+    if bankroll <= 0:
+        return 0.0
     size = bankroll * kelly_frac
     max_size = bankroll * max_per_position_pct
     size = min(size, max_size)

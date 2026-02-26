@@ -3,7 +3,7 @@
 from enum import Enum
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,7 +93,8 @@ class Settings(BaseSettings):
     # API
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    api_secret_key: str = "change-me-in-production"
+    api_secret_key: str = ""
+    allowed_origins: str = "http://localhost:3000,http://localhost:5173"
 
     # Telegram
     telegram_bot_token: str = ""
@@ -105,6 +106,26 @@ class Settings(BaseSettings):
 
     # Paths
     data_dir: Path = Field(default=Path("data"))
+
+    @model_validator(mode="after")
+    def _validate_secrets(self) -> "Settings":
+        if not self.api_secret_key or len(self.api_secret_key) < 16:
+            raise ValueError(
+                "API_SECRET_KEY must be set and at least 16 characters. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+            )
+        if self.trading_mode == TradingMode.LIVE:
+            missing = [
+                name
+                for name in (
+                    "poly_api_key", "poly_api_secret",
+                    "poly_api_passphrase", "poly_private_key",
+                )
+                if not getattr(self, name)
+            ]
+            if missing:
+                raise ValueError(f"LIVE mode requires: {', '.join(missing)}")
+        return self
 
     @property
     def is_paper(self) -> bool:

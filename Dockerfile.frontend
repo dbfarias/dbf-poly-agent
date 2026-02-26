@@ -1,6 +1,7 @@
 FROM node:20-alpine AS build
 
 WORKDIR /app
+ENV NODE_ENV=production
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .

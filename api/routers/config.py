@@ -1,8 +1,9 @@
 """Configuration API endpoints."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from api.dependencies import get_engine
+from api.middleware import verify_api_key
 from api.schemas import BotConfig, BotConfigUpdate
 from bot.config import settings
 
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 
 @router.get("/", response_model=BotConfig)
-async def get_config():
+async def get_config(_: str = Depends(verify_api_key)):
     return BotConfig(
         trading_mode=settings.trading_mode.value,
         scan_interval_seconds=settings.scan_interval_seconds,
@@ -21,7 +22,7 @@ async def get_config():
 
 
 @router.put("/")
-async def update_config(update: BotConfigUpdate):
+async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key)):
     if update.scan_interval_seconds is not None:
         settings.scan_interval_seconds = update.scan_interval_seconds
     if update.max_daily_loss_pct is not None:
@@ -32,14 +33,14 @@ async def update_config(update: BotConfigUpdate):
 
 
 @router.post("/trading/pause")
-async def pause_trading():
+async def pause_trading(_: str = Depends(verify_api_key)):
     engine = get_engine()
     engine.risk_manager.pause()
     return {"status": "paused"}
 
 
 @router.post("/trading/resume")
-async def resume_trading():
+async def resume_trading(_: str = Depends(verify_api_key)):
     engine = get_engine()
     engine.risk_manager.resume()
     return {"status": "resumed"}

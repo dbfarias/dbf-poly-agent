@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
+from api.middleware import verify_api_key
 from api.schemas import AllocationItem, EquityPoint, PortfolioOverview, PositionResponse
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
 
@@ -11,13 +12,13 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
 @router.get("/overview", response_model=PortfolioOverview)
-async def get_overview():
+async def get_overview(_: str = Depends(verify_api_key)):
     engine = get_engine()
     return PortfolioOverview(**engine.portfolio.get_overview())
 
 
 @router.get("/positions", response_model=list[PositionResponse])
-async def get_positions(db: AsyncSession = Depends(get_db)):
+async def get_positions(_: str = Depends(verify_api_key), db: AsyncSession = Depends(get_db)):
     repo = PositionRepository(db)
     positions = await repo.get_open()
     return [
@@ -43,7 +44,11 @@ async def get_positions(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/equity-curve", response_model=list[EquityPoint])
-async def get_equity_curve(days: int = 30, db: AsyncSession = Depends(get_db)):
+async def get_equity_curve(
+    days: int = 30,
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
     repo = PortfolioSnapshotRepository(db)
     snapshots = await repo.get_equity_curve(days=days)
     return [
@@ -59,7 +64,7 @@ async def get_equity_curve(days: int = 30, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/allocation", response_model=list[AllocationItem])
-async def get_allocation(db: AsyncSession = Depends(get_db)):
+async def get_allocation(_: str = Depends(verify_api_key), db: AsyncSession = Depends(get_db)):
     repo = PositionRepository(db)
     by_category = await repo.get_by_category()
     total = sum(by_category.values()) or 1.0

@@ -1,5 +1,9 @@
 """Tests for RiskManager — the most critical bot module."""
 
+import os
+
+os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
+
 from datetime import datetime
 from unittest.mock import patch
 

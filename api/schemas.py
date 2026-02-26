@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # Portfolio
@@ -143,29 +143,9 @@ class BotConfig(BaseModel):
 
 
 class BotConfigUpdate(BaseModel):
-    scan_interval_seconds: int | None = None
-    max_daily_loss_pct: float | None = None
-    max_drawdown_pct: float | None = None
-
-
-# Engine Status
-class EngineStatus(BaseModel):
-    running: bool
-    cycle_count: int
-    mode: str
-    portfolio: PortfolioOverview
-    risk: RiskMetrics
-    pending_orders: int
-
-
-# Alerts
-class AlertResponse(BaseModel):
-    id: int
-    created_at: datetime
-    level: str
-    category: str
-    message: str
-    acknowledged: bool
+    scan_interval_seconds: int | None = Field(default=None, ge=5, le=3600)
+    max_daily_loss_pct: float | None = Field(default=None, gt=0.0, le=0.5)
+    max_drawdown_pct: float | None = Field(default=None, gt=0.0, le=0.5)
 
 
 # Health

@@ -8,8 +8,8 @@ services:
     env_file: .env
     volumes:
       - bot-data:/app/data
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
@@ -23,8 +23,8 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: polybot-frontend
     restart: unless-stopped
-    ports:
-      - "3000:80"
+    expose:
+      - "80"
     depends_on:
       - app
 

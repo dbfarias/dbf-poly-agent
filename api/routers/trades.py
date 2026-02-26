@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
+from api.middleware import verify_api_key
 from api.schemas import TradeResponse, TradeStats
 from bot.data.repositories import TradeRepository
 
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/api/trades", tags=["trades"])
 async def get_trade_history(
     limit: int = 50,
     strategy: str | None = None,
+    _: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
 ):
     repo = TradeRepository(db)
@@ -46,7 +48,7 @@ async def get_trade_history(
 
 
 @router.get("/stats", response_model=TradeStats)
-async def get_trade_stats(db: AsyncSession = Depends(get_db)):
+async def get_trade_stats(_: str = Depends(verify_api_key), db: AsyncSession = Depends(get_db)):
     repo = TradeRepository(db)
     stats = await repo.get_stats()
     return TradeStats(**stats)

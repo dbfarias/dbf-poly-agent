@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
+from api.middleware import verify_api_key
 from api.schemas import StrategyPerformance
 from bot.data.repositories import StrategyMetricRepository
 
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
 
 @router.get("/performance", response_model=list[StrategyPerformance])
-async def get_performance(db: AsyncSession = Depends(get_db)):
+async def get_performance(_: str = Depends(verify_api_key), db: AsyncSession = Depends(get_db)):
     repo = StrategyMetricRepository(db)
     metrics = await repo.get_all_latest()
     return [
