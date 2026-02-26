@@ -47,13 +47,14 @@ class DataApiClient:
             for p in data:
                 positions.append(
                     PositionInfo(
-                        market_id=p.get("market", ""),
+                        market_id=p.get("conditionId", ""),
                         token_id=p.get("asset", ""),
                         outcome=p.get("outcome", ""),
+                        question=p.get("title", ""),
                         size=float(p.get("size", 0)),
                         avg_price=float(p.get("avgPrice", 0)),
                         current_price=float(p.get("curPrice", 0)),
-                        unrealized_pnl=float(p.get("unrealizedPnl", 0)),
+                        unrealized_pnl=float(p.get("cashPnl", 0)),
                     )
                 )
             return positions

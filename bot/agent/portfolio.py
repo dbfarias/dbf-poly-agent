@@ -127,28 +127,12 @@ class Portfolio:
 
                 remote_market_ids.add(rp.market_id)
 
-                # Fetch metadata for new positions
-                question = ""
-                category = ""
-                if self.gamma:
-                    try:
-                        market = await self.gamma.get_market(rp.market_id)
-                        if market:
-                            question = market.question[:200]
-                            category = market.category or ""
-                    except Exception as e:
-                        logger.warning(
-                            "gamma_metadata_fetch_failed",
-                            market_id=rp.market_id,
-                            error=str(e),
-                        )
-
                 position = Position(
                     market_id=rp.market_id,
                     token_id=rp.token_id,
-                    question=question,
+                    question=rp.question[:200],
                     outcome=rp.outcome,
-                    category=category,
+                    category="",
                     strategy="external",
                     side="BUY",
                     size=rp.size,

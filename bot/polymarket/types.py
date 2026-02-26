@@ -143,6 +143,7 @@ class PositionInfo(BaseModel):
     market_id: str = ""
     token_id: str = ""
     outcome: str = ""
+    question: str = ""
     size: float = 0.0
     avg_price: float = 0.0
     current_price: float = 0.0
