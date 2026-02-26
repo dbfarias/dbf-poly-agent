@@ -53,11 +53,6 @@ class TestCheckYesNoArb:
         signal = strategy._check_yes_no_arb(market)
         assert signal is None
 
-    def test_low_volume_returns_none(self, strategy):
-        market = _make_arb_market(volume=500.0)
-        signal = strategy._check_yes_no_arb(market)
-        assert signal is None
-
     def test_no_token_ids_returns_none(self, strategy):
         market = _make_arb_market(token_ids="[]")
         signal = strategy._check_yes_no_arb(market)

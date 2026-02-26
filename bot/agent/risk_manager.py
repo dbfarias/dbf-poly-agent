@@ -10,7 +10,6 @@ from bot.polymarket.types import TradeSignal
 from bot.utils.math_utils import (
     current_drawdown,
     position_size_usd,
-    quarter_kelly,
 )
 
 logger = structlog.get_logger()
@@ -201,8 +200,11 @@ class RiskManager:
     def _calculate_size(
         self, signal: TradeSignal, bankroll: float, config: dict
     ) -> float:
-        """Calculate position size using quarter-Kelly with tier constraints."""
-        kelly_frac = quarter_kelly(signal.estimated_prob, signal.market_price)
+        """Calculate position size using fractional Kelly with tier constraints."""
+        from bot.utils.math_utils import kelly_criterion
+
+        full_kelly = kelly_criterion(signal.estimated_prob, signal.market_price)
+        kelly_frac = config["kelly_fraction"] * full_kelly
 
         size = position_size_usd(
             bankroll=bankroll,

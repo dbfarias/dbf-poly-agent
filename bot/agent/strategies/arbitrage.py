@@ -16,7 +16,6 @@ from .base import BaseStrategy
 logger = structlog.get_logger()
 
 MIN_ARB_EDGE = 0.01  # Minimum 1% edge for arbitrage
-MIN_VOLUME = 1000.0
 
 
 class ArbitrageStrategy(BaseStrategy):
@@ -44,9 +43,6 @@ class ArbitrageStrategy(BaseStrategy):
         token_ids = market.token_ids
 
         if yes_price is None or no_price is None or len(token_ids) < 2:
-            return None
-
-        if market.volume < MIN_VOLUME:
             return None
 
         total = yes_price + no_price

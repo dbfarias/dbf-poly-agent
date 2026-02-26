@@ -16,8 +16,6 @@ logger = structlog.get_logger()
 
 MIN_SPREAD = 0.03  # Minimum 3 cent spread to make market
 MAX_SPREAD = 0.15  # Don't make market in very wide spreads
-MIN_VOLUME = 20000.0
-MIN_LIQUIDITY = 10000.0
 
 
 class MarketMakingStrategy(BaseStrategy):
@@ -31,9 +29,6 @@ class MarketMakingStrategy(BaseStrategy):
         signals = []
 
         for market in markets:
-            if market.volume < MIN_VOLUME or market.liquidity < MIN_LIQUIDITY:
-                continue
-
             signal = await self._evaluate_market(market)
             if signal:
                 signals.append(signal)

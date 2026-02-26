@@ -5,7 +5,7 @@ import os
 # Set API_SECRET_KEY before any bot.config import so the validator passes
 os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient

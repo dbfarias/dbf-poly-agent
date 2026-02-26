@@ -13,8 +13,6 @@ from .base import BaseStrategy
 
 logger = structlog.get_logger()
 
-MIN_VOLUME = 10000.0
-MIN_LIQUIDITY = 5000.0
 MIN_EDGE = 0.05  # 5% minimum edge for value bets
 IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance
 
@@ -30,9 +28,6 @@ class ValueBettingStrategy(BaseStrategy):
         signals = []
 
         for market in markets:
-            if market.volume < MIN_VOLUME or market.liquidity < MIN_LIQUIDITY:
-                continue
-
             signal = await self._evaluate_market(market)
             if signal:
                 signals.append(signal)

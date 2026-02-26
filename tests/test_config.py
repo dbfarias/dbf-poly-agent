@@ -14,11 +14,12 @@ def test_capital_tier_from_bankroll():
 
 def test_tier_config_values():
     t1 = TierConfig.get(CapitalTier.TIER1)
-    assert t1["max_positions"] == 5
-    assert t1["max_per_position_pct"] == 0.20
-    assert t1["max_deployed_pct"] == 0.60
-    assert t1["max_per_category_pct"] == 0.40
-    assert t1["min_win_prob"] == 0.85
+    assert t1["max_positions"] == 3
+    assert t1["max_per_position_pct"] == 0.80
+    assert t1["max_deployed_pct"] == 0.80
+    assert t1["max_per_category_pct"] == 0.60
+    assert t1["min_win_prob"] == 0.75
+    assert t1["kelly_fraction"] == 0.50
 
     t2 = TierConfig.get(CapitalTier.TIER2)
     assert t2["max_positions"] == 3
@@ -30,10 +31,11 @@ def test_tier_config_values():
 
 
 def test_tier_risk_increases():
-    """Lower tiers should have stricter risk limits."""
+    """Higher tiers allow more positions; Tier 1 is aggressive for small bankrolls."""
     t1 = TierConfig.get(CapitalTier.TIER1)
+    t2 = TierConfig.get(CapitalTier.TIER2)
     t3 = TierConfig.get(CapitalTier.TIER3)
-    assert t1["min_win_prob"] > t3["min_win_prob"]
-    # Tier 1 has more positions but stricter per-position and deployed limits
-    assert t1["max_per_position_pct"] <= t3["max_per_position_pct"]
-    assert t1["max_deployed_pct"] < t3["max_deployed_pct"]
+    # Tier 1 needs aggressive sizing to meet Polymarket minimums
+    assert t1["max_per_position_pct"] >= t2["max_per_position_pct"]
+    # Tier 3 allows the most positions
+    assert t3["max_positions"] >= t1["max_positions"]

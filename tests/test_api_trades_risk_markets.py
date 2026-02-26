@@ -1,11 +1,8 @@
 """Tests for trades, risk, markets, and strategies API endpoints."""
 
-from datetime import datetime
 
-import pytest
 
-from bot.data.models import MarketScan, StrategyMetric, Trade
-
+from bot.data.models import MarketScan, Trade
 
 # ---------------------------------------------------------------------------
 # Trades

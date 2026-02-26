@@ -24,8 +24,6 @@ MAX_HOURS_TO_RESOLUTION = 48.0
 MIN_IMPLIED_PROB = 0.85
 MAX_PRICE = 0.99  # Don't buy above this (too little profit)
 MIN_PRICE = 0.90  # Only high-probability markets (90%+)
-MIN_VOLUME = 10000.0  # Only liquid markets
-MIN_LIQUIDITY = 1000.0  # Minimum market liquidity
 CONFIDENCE_BASE = 0.80  # Base confidence for this strategy
 
 
@@ -66,10 +64,6 @@ class TimeDecayStrategy(BaseStrategy):
         if hours_left <= 0 or hours_left > MAX_HOURS_TO_RESOLUTION:
             return None
 
-        # Check volume and liquidity
-        if market.volume < MIN_VOLUME or market.liquidity < MIN_LIQUIDITY:
-            return None
-
         # Check token IDs
         token_ids = market.token_ids
         if not token_ids:
@@ -92,7 +86,7 @@ class TimeDecayStrategy(BaseStrategy):
             # Estimate real probability
             # Near resolution, high price = very likely outcome
             # The closer to resolution and higher the price, the more certain
-            estimated_prob = self._estimate_probability(price, hours_left, market.volume)
+            estimated_prob = self._estimate_probability(price, hours_left)
 
             if estimated_prob < MIN_IMPLIED_PROB:
                 continue
@@ -102,9 +96,7 @@ class TimeDecayStrategy(BaseStrategy):
                 continue
 
             # Calculate confidence based on multiple factors
-            confidence = self._calculate_confidence(
-                price, hours_left, market.volume, market.liquidity
-            )
+            confidence = self._calculate_confidence(price, hours_left)
 
             return TradeSignal(
                 strategy=self.name,
@@ -126,39 +118,32 @@ class TimeDecayStrategy(BaseStrategy):
                 metadata={
                     "category": market.category,
                     "hours_to_resolution": hours_left,
-                    "volume": market.volume,
-                    "liquidity": market.liquidity,
                 },
             )
 
         return None
 
     def _estimate_probability(
-        self, market_price: float, hours_left: float, volume: float
+        self, market_price: float, hours_left: float
     ) -> float:
         """Estimate real probability from market data.
 
-        Higher volume markets are more efficient, so price ≈ probability.
         As resolution nears, remaining uncertainty decreases.
         Near-certainty bonus for very high price + close to resolution.
+        Markets from the sampling endpoint are already liquid/active.
         """
         base_prob = market_price
 
         # Time factor: less time = price is more accurate
-        time_factor = max(0, 1.0 - hours_left / MAX_HOURS_TO_RESOLUTION) * 0.02
-
-        # Volume factor: higher volume = more efficient pricing
-        volume_factor = min(0.02, (volume / 100000) * 0.02)
+        time_factor = max(0, 1.0 - hours_left / MAX_HOURS_TO_RESOLUTION) * 0.03
 
         # Near-certainty bonus: very high price + close to resolution
         near_certainty = 0.02 if (market_price >= 0.95 and hours_left <= 12) else 0.0
 
-        estimated = base_prob + time_factor + volume_factor + near_certainty
+        estimated = base_prob + time_factor + near_certainty
         return min(0.99, estimated)
 
-    def _calculate_confidence(
-        self, price: float, hours_left: float, volume: float, liquidity: float
-    ) -> float:
+    def _calculate_confidence(self, price: float, hours_left: float) -> float:
         """Calculate strategy confidence (0-1)."""
         confidence = CONFIDENCE_BASE
 
@@ -172,12 +157,6 @@ class TimeDecayStrategy(BaseStrategy):
         if hours_left <= 12:
             confidence += 0.05
         elif hours_left <= 24:
-            confidence += 0.02
-
-        # Higher volume = more confident
-        if volume >= 50000:
-            confidence += 0.05
-        elif volume >= 10000:
             confidence += 0.02
 
         return min(0.99, confidence)

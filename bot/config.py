@@ -31,15 +31,15 @@ class TierConfig:
 
     CONFIGS = {
         CapitalTier.TIER1: {
-            "max_positions": 5,
-            "max_per_position_pct": 0.20,
-            "max_deployed_pct": 0.60,
-            "daily_loss_limit_pct": 0.10,
-            "max_drawdown_pct": 0.25,
-            "min_edge_pct": 0.015,
-            "min_win_prob": 0.85,
-            "max_per_category_pct": 0.40,
-            "kelly_fraction": 0.25,
+            "max_positions": 3,
+            "max_per_position_pct": 0.80,
+            "max_deployed_pct": 0.80,
+            "daily_loss_limit_pct": 0.15,
+            "max_drawdown_pct": 0.30,
+            "min_edge_pct": 0.01,
+            "min_win_prob": 0.75,
+            "max_per_category_pct": 0.60,
+            "kelly_fraction": 0.50,
         },
         CapitalTier.TIER2: {
             "max_positions": 3,
