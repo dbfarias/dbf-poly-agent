@@ -28,22 +28,19 @@ class TestGetConfig:
 
 
 class TestUpdateConfig:
-    async def test_partial_update(self, client):
-        original = settings.scan_interval_seconds
+    async def test_partial_update(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "scan_interval_seconds", settings.scan_interval_seconds)
         resp = await client.put(
             "/api/config/", json={"scan_interval_seconds": 120}
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "updated"
-        # Verify the setting changed
         get_resp = await client.get("/api/config/")
         assert get_resp.json()["scan_interval_seconds"] == 120
-        # Restore
-        settings.scan_interval_seconds = original
 
-    async def test_update_risk_params(self, client):
-        original_loss = settings.max_daily_loss_pct
-        original_dd = settings.max_drawdown_pct
+    async def test_update_risk_params(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "max_daily_loss_pct", settings.max_daily_loss_pct)
+        monkeypatch.setattr(settings, "max_drawdown_pct", settings.max_drawdown_pct)
         resp = await client.put(
             "/api/config/",
             json={"max_daily_loss_pct": 0.05, "max_drawdown_pct": 0.15},
@@ -52,14 +49,14 @@ class TestUpdateConfig:
         get_resp = await client.get("/api/config/")
         assert get_resp.json()["max_daily_loss_pct"] == pytest.approx(0.05)
         assert get_resp.json()["max_drawdown_pct"] == pytest.approx(0.15)
-        # Restore
-        settings.max_daily_loss_pct = original_loss
-        settings.max_drawdown_pct = original_dd
 
     async def test_empty_update_noop(self, client):
+        before = await client.get("/api/config/")
         resp = await client.put("/api/config/", json={})
         assert resp.status_code == 200
         assert resp.json()["status"] == "updated"
+        after = await client.get("/api/config/")
+        assert before.json() == after.json()
 
 
 class TestPauseResume:

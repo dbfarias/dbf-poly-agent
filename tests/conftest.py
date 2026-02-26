@@ -21,7 +21,11 @@ async def async_engine():
 
 @pytest.fixture
 async def db_session(async_engine):
-    """Async DB session, rolled back after each test."""
+    """Async DB session bound to a per-test in-memory engine.
+
+    Each test gets a fresh database via function-scoped engine; no explicit
+    rollback is needed since the entire in-memory DB is discarded after yield.
+    """
     session_factory = async_sessionmaker(
         async_engine, class_=AsyncSession, expire_on_commit=False
     )
