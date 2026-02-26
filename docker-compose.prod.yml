@@ -1,0 +1,40 @@
+services:
+  app:
+    image: ghcr.io/dbfarias/polybot-app:latest
+    container_name: polybot-app
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - bot-data:/app/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    image: ghcr.io/dbfarias/polybot-frontend:latest
+    container_name: polybot-frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - app
+
+  nginx:
+    image: nginx:alpine
+    container_name: polybot-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+      - frontend
+
+volumes:
+  bot-data:
