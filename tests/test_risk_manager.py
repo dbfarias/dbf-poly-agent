@@ -182,6 +182,34 @@ class TestCheckPaused:
 
 
 # ---------------------------------------------------------------------------
+# _check_duplicate_position
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDuplicatePosition:
+    def test_no_positions_passes(self, rm):
+        signal = make_signal()
+        assert rm._check_duplicate_position(signal, []).passed is True
+
+    def test_different_market_passes(self, rm):
+        signal = make_signal()  # market_id="mkt1"
+        positions = [make_position(market_id="mkt2")]
+        assert rm._check_duplicate_position(signal, positions).passed is True
+
+    def test_same_market_open_fails(self, rm):
+        signal = make_signal()  # market_id="mkt1"
+        positions = [make_position(market_id="mkt1", is_open=True)]
+        result = rm._check_duplicate_position(signal, positions)
+        assert result.passed is False
+        assert "duplicate" in result.reason.lower()
+
+    def test_same_market_closed_passes(self, rm):
+        signal = make_signal()  # market_id="mkt1"
+        positions = [make_position(market_id="mkt1", is_open=False)]
+        assert rm._check_duplicate_position(signal, positions).passed is True
+
+
+# ---------------------------------------------------------------------------
 # _check_daily_loss
 # ---------------------------------------------------------------------------
 

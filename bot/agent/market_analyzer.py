@@ -1,5 +1,6 @@
 """Market scanner and analyzer for identifying trading opportunities."""
 
+import re
 from datetime import datetime, timezone
 
 import structlog
@@ -66,6 +67,9 @@ class MarketAnalyzer:
 
         # Record scan results
         await self._record_scans(markets, all_signals)
+
+        # Deduplicate correlated markets — keep only the best signal per group
+        all_signals = self._deduplicate_correlated(all_signals)
 
         # Rank signals by edge * confidence
         all_signals.sort(key=lambda s: s.edge * s.confidence, reverse=True)
@@ -140,3 +144,45 @@ class MarketAnalyzer:
                 await repo.create_batch(scans)
         except Exception as e:
             logger.error("scan_record_failed", error=str(e))
+
+    @staticmethod
+    def _question_group_key(question: str) -> str:
+        """Extract a group key from a question to detect mutually exclusive markets.
+
+        E.g. "Will Albert Littell be the Democratic nominee for Senate in Mississippi?"
+        and  "Will Scott Colom be the Democratic nominee for Senate in Mississippi?"
+        both map to "be the democratic nominee for senate in mississippi".
+        """
+        q = question.lower().strip().rstrip("?")
+        # Remove "will <name>" prefix — name is 1-4 words before a common verb/preposition
+        q = re.sub(r"^will\s+[\w\s]{1,60}?\s+(be\s+)", r"\1", q)
+        # Remove leading articles
+        q = re.sub(r"^(the|a|an)\s+", "", q)
+        return q.strip()
+
+    def _deduplicate_correlated(self, signals: list[TradeSignal]) -> list[TradeSignal]:
+        """Keep only the best signal per group of mutually exclusive markets."""
+        if not signals:
+            return signals
+
+        groups: dict[str, TradeSignal] = {}
+        for signal in signals:
+            key = self._question_group_key(signal.question)
+            existing = groups.get(key)
+            if existing is None or (signal.edge * signal.confidence) > (
+                existing.edge * existing.confidence
+            ):
+                if existing is not None:
+                    logger.info(
+                        "correlated_market_filtered",
+                        kept=signal.question[:60],
+                        dropped=existing.question[:60],
+                        group_key=key[:40],
+                    )
+                groups[key] = signal
+
+        filtered = list(groups.values())
+        dropped = len(signals) - len(filtered)
+        if dropped > 0:
+            logger.info("correlated_dedup_complete", original=len(signals), kept=len(filtered))
+        return filtered

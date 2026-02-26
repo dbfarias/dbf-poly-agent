@@ -78,6 +78,7 @@ class RiskManager:
         # Run cascading checks
         checks = [
             self._check_paused(),
+            self._check_duplicate_position(signal, open_positions),
             self._check_daily_loss(bankroll, config),
             self._check_drawdown(bankroll, config),
             self._check_max_positions(open_positions, config),
@@ -114,6 +115,18 @@ class RiskManager:
     def _check_paused(self) -> RiskCheckResult:
         if self._is_paused:
             return RiskCheckResult(False, "Trading is paused")
+        return RiskCheckResult(True)
+
+    def _check_duplicate_position(
+        self, signal: TradeSignal, open_positions: list[Position]
+    ) -> RiskCheckResult:
+        """Reject if we already have an open position on this market."""
+        for pos in open_positions:
+            if pos.market_id == signal.market_id and pos.is_open:
+                return RiskCheckResult(
+                    False,
+                    f"Duplicate position: already holding {pos.market_id[:16]}...",
+                )
         return RiskCheckResult(True)
 
     def _check_daily_loss(self, bankroll: float, config: dict) -> RiskCheckResult:

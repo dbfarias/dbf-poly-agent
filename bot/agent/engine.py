@@ -162,6 +162,10 @@ class TradingEngine:
                 logger.debug("signal_rejected", strategy=signal.strategy, reason=reason)
                 continue
 
+            # 4b. Check order book liquidity before executing
+            if not await self._check_liquidity(signal):
+                continue
+
             # Update signal with approved size
             signal.size_usd = size
 
@@ -195,6 +199,25 @@ class TradingEngine:
             equity=self.portfolio.total_equity,
             pending_orders=self.order_manager.pending_count,
         )
+
+    async def _check_liquidity(self, signal) -> bool:
+        """Check order book spread before trading. Skip illiquid markets."""
+        max_spread = 0.05  # 5 cents max spread
+        try:
+            book = await self.clob_client.get_order_book(signal.token_id)
+            spread = book.spread
+            if spread is None or spread > max_spread:
+                logger.info(
+                    "illiquid_market_skipped",
+                    market_id=signal.market_id,
+                    spread=spread,
+                    max_spread=max_spread,
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.warning("liquidity_check_failed", error=str(e))
+            return False
 
     async def _maybe_snapshot(self) -> None:
         """Take a snapshot if enough time has passed."""
