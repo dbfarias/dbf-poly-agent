@@ -1,11 +1,21 @@
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_KEY = import.meta.env.VITE_API_KEY || "";
 
 export const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
+  headers: {
+    "X-API-Key": API_KEY,
+  },
 });
+
+export const getWsUrl = (path: string): string => {
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = API_BASE || window.location.host;
+  return `${proto}//${host}${path}?token=${encodeURIComponent(API_KEY)}`;
+};
 
 // Types matching API schemas
 export interface PortfolioOverview {
@@ -177,10 +187,10 @@ export const updateConfig = (data: Partial<BotConfig>) =>
   api.put("/api/config/", data).then((r) => r.data);
 
 export const pauseTrading = () =>
-  api.post("/api/trading/pause").then((r) => r.data);
+  api.post("/api/config/trading/pause").then((r) => r.data);
 
 export const resumeTrading = () =>
-  api.post("/api/trading/resume").then((r) => r.data);
+  api.post("/api/config/trading/resume").then((r) => r.data);
 
 export const fetchHealth = () =>
   api.get<HealthCheck>("/api/health").then((r) => r.data);

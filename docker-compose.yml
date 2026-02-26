@@ -21,6 +21,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_KEY: ${API_SECRET_KEY}
     container_name: polybot-frontend
     restart: unless-stopped
     expose:

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getWsUrl } from "../api/client";
 
 interface WSMessage {
   type: string;
@@ -7,7 +8,7 @@ interface WSMessage {
 }
 
 export function useWebSocket(url?: string) {
-  const wsUrl = url || `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/live`;
+  const wsUrl = url || getWsUrl("/ws/live");
   const ws = useRef<WebSocket | null>(null);
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null);
   const [isConnected, setIsConnected] = useState(false);

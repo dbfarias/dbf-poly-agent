@@ -1,26 +1,15 @@
 """Pydantic models for Polymarket API responses."""
 
+import json
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class OrderSide(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
-
-
-class OrderStatus(str, Enum):
-    LIVE = "LIVE"
-    MATCHED = "MATCHED"
-    CANCELLED = "CANCELLED"
-    DELAYED = "DELAYED"
-
-
-class MarketOutcome(str, Enum):
-    YES = "Yes"
-    NO = "No"
 
 
 class GammaMarket(BaseModel):
@@ -35,6 +24,17 @@ class GammaMarket(BaseModel):
     description: str = ""
     outcomes: list[str] = Field(default_factory=list)
     outcome_prices: str = Field(default="", alias="outcomePrices")
+
+    @field_validator("outcomes", mode="before")
+    @classmethod
+    def _parse_outcomes(cls, v):
+        """Gamma API returns outcomes as a JSON string, e.g. '[\"Yes\",\"No\"]'."""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return v
     volume: float = 0.0
     liquidity: float = 0.0
     active: bool = True
