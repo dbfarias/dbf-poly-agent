@@ -1,0 +1,642 @@
+"""Tests for settings persistence across restarts."""
+
+import json
+from unittest.mock import MagicMock
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from bot.config import RiskConfig, settings
+from bot.data.models import Base
+from bot.data.repositories import SettingsRepository
+
+
+@pytest.fixture
+async def settings_engine():
+    eng = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng
+    await eng.dispose()
+
+
+@pytest.fixture
+async def settings_session_factory(settings_engine):
+    return async_sessionmaker(
+        settings_engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+
+def _wire_update_param(mock_strategy, mutable_params: dict):
+    """Wire BaseStrategy.update_param onto a MagicMock strategy."""
+    from bot.agent.strategies.base import BaseStrategy
+
+    mock_strategy._MUTABLE_PARAMS = mutable_params
+    mock_strategy.update_param = lambda name, value: BaseStrategy.update_param(
+        mock_strategy, name, value
+    )
+
+
+@pytest.fixture
+def fake_engine():
+    """Fake TradingEngine with real-enough attributes for load_and_apply."""
+    engine = MagicMock()
+
+    strategy = MagicMock()
+    strategy.name = "time_decay"
+    strategy.MAX_HOURS_TO_RESOLUTION = 720.0
+    strategy.MIN_EDGE = 0.015
+    _wire_update_param(strategy, {
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+    })
+
+    strategy2 = MagicMock()
+    strategy2.name = "value_betting"
+    strategy2.MAX_HOURS_TO_RESOLUTION = 168.0
+    _wire_update_param(strategy2, {
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+    })
+
+    engine.analyzer = MagicMock()
+    engine.analyzer.strategies = [strategy, strategy2]
+    engine.analyzer.MAX_SPREAD = 0.04
+    engine.analyzer.MAX_CATEGORY_POSITIONS = 2
+    engine.analyzer.MIN_BID_RATIO = 0.50
+    engine.analyzer.MIN_VOLUME_24H = 50.0
+    engine.analyzer.STOP_LOSS_PCT = 0.15
+    engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
+    engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
+    engine.analyzer.disabled_strategies = set()
+    engine.disabled_strategies = set()
+
+    return engine
+
+
+# ── Repository tests ──
+
+
+@pytest.mark.asyncio
+async def test_set_many_and_get_all(settings_session_factory):
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "global.scan_interval_seconds": "30",
+            "global.max_daily_loss_pct": "0.08",
+        })
+        result = await repo.get_all()
+
+    assert result["global.scan_interval_seconds"] == "30"
+    assert result["global.max_daily_loss_pct"] == "0.08"
+
+
+@pytest.mark.asyncio
+async def test_upsert_overwrites(settings_session_factory):
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"global.scan_interval_seconds": "30"})
+        await repo.set_many({"global.scan_interval_seconds": "60"})
+        result = await repo.get_all()
+
+    assert result["global.scan_interval_seconds"] == "60"
+
+
+@pytest.mark.asyncio
+async def test_empty_db_returns_empty(settings_session_factory):
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        result = await repo.get_all()
+
+    assert result == {}
+
+
+# ── SettingsStore.save_from_update tests ──
+
+
+@pytest.mark.asyncio
+async def test_save_global_settings(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(scan_interval_seconds=30, max_daily_loss_pct=0.08)
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        # Patch async_session for the store
+        import bot.data.settings_store as store_mod
+
+        original = store_mod.async_session
+        store_mod.async_session = settings_session_factory
+        try:
+            count = await SettingsStore.save_from_update(update)
+        finally:
+            store_mod.async_session = original
+
+    assert count == 2
+
+    # Verify persisted
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        all_s = await repo.get_all()
+
+    assert json.loads(all_s["global.scan_interval_seconds"]) == 30
+    assert json.loads(all_s["global.max_daily_loss_pct"]) == 0.08
+
+
+@pytest.mark.asyncio
+async def test_save_risk_config(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(risk_config={"max_positions": 8, "kelly_fraction": 0.25})
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.save_from_update(update)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 2
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        all_s = await repo.get_all()
+
+    assert json.loads(all_s["risk.max_positions"]) == 8
+    assert json.loads(all_s["risk.kelly_fraction"]) == 0.25
+
+
+@pytest.mark.asyncio
+async def test_save_strategy_params(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(
+        strategy_params={"time_decay": {"MAX_HOURS_TO_RESOLUTION": 72}}
+    )
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.save_from_update(update)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        all_s = await repo.get_all()
+
+    assert json.loads(all_s["strategy.time_decay.MAX_HOURS_TO_RESOLUTION"]) == 72
+
+
+@pytest.mark.asyncio
+async def test_save_quality_params(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(quality_params={"max_spread": 0.03, "stop_loss_pct": 0.35})
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.save_from_update(update)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 2
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        all_s = await repo.get_all()
+
+    assert json.loads(all_s["quality.max_spread"]) == 0.03
+
+
+@pytest.mark.asyncio
+async def test_save_empty_update_returns_zero(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate()
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.save_from_update(update)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 0
+
+
+# ── SettingsStore.load_and_apply tests ──
+
+
+@pytest.mark.asyncio
+async def test_load_and_apply_global(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    # Seed settings
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"global.scan_interval_seconds": json.dumps(45)})
+
+    original_val = settings.scan_interval_seconds
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+        # Restore original
+        settings.scan_interval_seconds = original_val
+
+    assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_load_and_apply_tier(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"tier.tier2.max_positions": json.dumps(10)})
+
+    original_val = RiskConfig.get()["max_positions"]
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+        assert RiskConfig.get()["max_positions"] == 10
+    finally:
+        store_mod.async_session = original
+        RiskConfig.update({"max_positions": original_val})
+
+    assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_load_and_apply_strategy(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many(
+            {"strategy.time_decay.MAX_HOURS_TO_RESOLUTION": json.dumps(72)}
+        )
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+    assert fake_engine.analyzer.strategies[0].MAX_HOURS_TO_RESOLUTION == 72
+
+
+@pytest.mark.asyncio
+async def test_load_and_apply_quality(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"quality.max_spread": json.dumps(0.03)})
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+    assert fake_engine.analyzer.MAX_SPREAD == 0.03
+
+
+@pytest.mark.asyncio
+async def test_empty_db_returns_zero(settings_session_factory, fake_engine):
+    import bot.data.settings_store as store_mod
+    from bot.data.settings_store import SettingsStore
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_invalid_keys_ignored(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "tier.bogus_tier.bogus_param": json.dumps(5),
+            "strategy.nonexistent.FOO": json.dumps(99),
+            "quality.nonexistent_param": json.dumps(1),
+            "unknown_prefix.something": json.dumps(1),
+        })
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_backward_compat_tier_keys(settings_session_factory, fake_engine):
+    """Old tier.tierX.param keys are applied via backward compat path."""
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "tier.tier1.max_positions": json.dumps(4),
+            "tier.tier2.kelly_fraction": json.dumps(0.50),
+        })
+
+    orig_pos = RiskConfig.get()["max_positions"]
+    orig_kelly = RiskConfig.get()["kelly_fraction"]
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+        assert RiskConfig.get()["max_positions"] == 4
+        assert RiskConfig.get()["kelly_fraction"] == 0.50
+    finally:
+        store_mod.async_session = original
+        RiskConfig.update({"max_positions": orig_pos})
+        RiskConfig.update({"kelly_fraction": orig_kelly})
+
+    assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_save_disabled_strategies(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(disabled_strategies=["market_making", "swing_trading"])
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.save_from_update(update)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        all_s = await repo.get_all()
+
+    assert json.loads(all_s["global.disabled_strategies"]) == [
+        "market_making",
+        "swing_trading",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_load_and_apply_disabled_strategies(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many(
+            {"global.disabled_strategies": json.dumps(["time_decay"])}
+        )
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+    assert fake_engine.disabled_strategies == {"time_decay"}
+    assert fake_engine.analyzer.disabled_strategies == {"time_decay"}
+
+
+@pytest.mark.asyncio
+async def test_round_trip_save_then_load(settings_session_factory, fake_engine):
+    """Full round-trip: save via update then load on a fresh engine."""
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(
+        scan_interval_seconds=25,
+        strategy_params={"time_decay": {"MAX_HOURS_TO_RESOLUTION": 72}},
+        quality_params={"max_spread": 0.02},
+        risk_config={"kelly_fraction": 0.30},
+    )
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+
+    orig_scan = settings.scan_interval_seconds
+    try:
+        saved = await SettingsStore.save_from_update(update)
+        assert saved == 4
+
+        loaded = await SettingsStore.load_and_apply(fake_engine)
+        assert loaded == 4
+        assert settings.scan_interval_seconds == 25
+    finally:
+        store_mod.async_session = original
+        settings.scan_interval_seconds = orig_scan
+
+
+# ── _GLOBAL_RANGES validation tests ──
+
+
+@pytest.mark.asyncio
+async def test_global_out_of_range_rejected(settings_session_factory, fake_engine):
+    """Global setting with value outside allowed range is not applied."""
+    from bot.data.settings_store import SettingsStore
+
+    # max_daily_loss_pct max is 1.0 — set to 5.0 which should be rejected
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"global.max_daily_loss_pct": json.dumps(5.0)})
+
+    original_val = settings.max_daily_loss_pct
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+        settings.max_daily_loss_pct = original_val
+
+    assert count == 0  # Out-of-range value should not be applied
+    assert settings.max_daily_loss_pct == original_val
+
+
+@pytest.mark.asyncio
+async def test_global_range_coercion(settings_session_factory, fake_engine):
+    """Global setting is type-coerced before range check."""
+    from bot.data.settings_store import SettingsStore
+
+    # scan_interval_seconds stored as string "60", should be coerced to int
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"global.scan_interval_seconds": json.dumps("60")})
+
+    original_val = settings.scan_interval_seconds
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+        assert settings.scan_interval_seconds == 60
+        assert isinstance(settings.scan_interval_seconds, int)
+    finally:
+        store_mod.async_session = original
+        settings.scan_interval_seconds = original_val
+
+    assert count == 1
+
+
+# ── Settings migration tests ──
+
+
+@pytest.mark.asyncio
+async def test_migration_updates_stale_db_values(settings_session_factory):
+    """When DB has no version, migrations overwrite stale values."""
+    from bot.data.settings_store import SettingsStore
+
+    import bot.data.settings_store as store_mod
+
+    # Seed DB with stale value (old default)
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "quality.max_position_age_hours": json.dumps(168.0),
+        })
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        migrated = await SettingsStore.run_migrations()
+        assert migrated >= 1
+
+        # Verify DB now has new value
+        async with settings_session_factory() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("quality.max_position_age_hours")
+            assert json.loads(raw) == 72.0
+
+            # Version stored
+            ver_raw = await repo.get("state.settings_version")
+            assert json.loads(ver_raw) == store_mod._SETTINGS_VERSION
+    finally:
+        store_mod.async_session = original
+
+
+@pytest.mark.asyncio
+async def test_migration_skips_when_already_at_version(settings_session_factory):
+    """When DB version matches code version, no migrations run."""
+    from bot.data.settings_store import SettingsStore
+
+    import bot.data.settings_store as store_mod
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "state.settings_version": json.dumps(store_mod._SETTINGS_VERSION),
+            "quality.max_position_age_hours": json.dumps(48.0),  # admin-set value
+        })
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        migrated = await SettingsStore.run_migrations()
+        assert migrated == 0
+
+        # Admin value preserved (not overwritten)
+        async with settings_session_factory() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("quality.max_position_age_hours")
+            assert json.loads(raw) == 48.0
+    finally:
+        store_mod.async_session = original
+
+
+@pytest.mark.asyncio
+async def test_migration_runs_incrementally(settings_session_factory):
+    """Migrations only run versions newer than current DB version."""
+    from bot.data.settings_store import SettingsStore
+
+    import bot.data.settings_store as store_mod
+
+    # Pretend DB is at version 1 (before our migration at v2)
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "state.settings_version": json.dumps(1),
+            "quality.max_position_age_hours": json.dumps(168.0),
+        })
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        migrated = await SettingsStore.run_migrations()
+        assert migrated >= 1
+
+        async with settings_session_factory() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("quality.max_position_age_hours")
+            assert json.loads(raw) == 72.0
+            ver_raw = await repo.get("state.settings_version")
+            assert json.loads(ver_raw) == store_mod._SETTINGS_VERSION
+    finally:
+        store_mod.async_session = original

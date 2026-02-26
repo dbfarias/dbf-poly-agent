@@ -1,0 +1,525 @@
+"""Extracted position closing logic — handles exits, sell fills, and rebalancing."""
+
+import asyncio
+from datetime import datetime, timezone
+
+import structlog
+
+from bot.agent.events import event_bus
+from bot.config import settings
+from bot.data.activity import (
+    log_exit_triggered,
+    log_llm_post_mortem,
+    log_position_closed,
+    log_rebalance,
+)
+from bot.data.database import async_session
+from bot.data.market_cache import MarketCache
+
+logger = structlog.get_logger()
+
+
+class PositionCloser:
+    """Encapsulates all position closing and fill-handling logic.
+
+    Separated from TradingEngine to reduce engine.py size and improve cohesion.
+    """
+
+    def __init__(self, order_manager, portfolio, risk_manager, cache: MarketCache | None = None):
+        self.order_manager = order_manager
+        self.portfolio = portfolio
+        self.risk_manager = risk_manager
+        self.cache = cache
+        # Rebalance params (configurable via admin)
+        self.min_rebalance_edge = 0.015  # 1.5% edge minimum
+        self.min_hold_seconds = 120  # 2 min default (fallback)
+        # Per-strategy hold overrides: strategy_name → seconds
+        # Populated from strategy.MIN_HOLD_SECONDS by engine at init
+        self.strategy_min_hold: dict[str, int] = {}
+        # Track consecutive sell failures per market (ghost position detection)
+        self._sell_fail_count: dict[str, int] = {}
+        # Near-resolution protection: skip rebalance if market resolves
+        # within this many hours (unless loss is severe)
+        self.rebalance_resolution_shield_hours = 24.0
+        self.rebalance_resolution_max_loss_pct = 0.15  # 15% loss overrides shield
+
+    async def _fire_post_mortem(
+        self,
+        question: str,
+        strategy: str,
+        market_id: str,
+        entry_price: float,
+        exit_price: float,
+        pnl: float,
+        exit_reason: str,
+        hold_hours: float,
+    ) -> None:
+        """Fire-and-forget LLM post-mortem on a closed trade."""
+        try:
+            from bot.research.llm_debate import post_mortem_analysis
+
+            result = await post_mortem_analysis(
+                question=question,
+                strategy=strategy,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                pnl=pnl,
+                exit_reason=exit_reason,
+                hold_hours=hold_hours,
+            )
+            if result is not None:
+                await log_llm_post_mortem(
+                    strategy=strategy,
+                    market_id=market_id,
+                    question=question,
+                    pnl=pnl,
+                    outcome_quality=result.outcome_quality,
+                    key_lesson=result.key_lesson,
+                    strategy_fit=result.strategy_fit,
+                    analysis=result.analysis,
+                    exit_reason=exit_reason,
+                    cost_usd=result.cost_usd,
+                )
+        except Exception as e:
+            logger.debug("post_mortem_failed", error=str(e))
+
+    def _maybe_post_mortem(
+        self,
+        question: str,
+        strategy: str,
+        market_id: str,
+        entry_price: float,
+        exit_price: float,
+        pnl: float,
+        exit_reason: str,
+        hold_hours: float,
+    ) -> None:
+        """Schedule a post-mortem if the toggle is enabled (fire-and-forget)."""
+        if not settings.use_llm_post_mortem:
+            return
+        task = asyncio.create_task(
+            self._fire_post_mortem(
+                question=question,
+                strategy=strategy,
+                market_id=market_id,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                pnl=pnl,
+                exit_reason=exit_reason,
+                hold_hours=hold_hours,
+            ),
+        )
+        task.add_done_callback(lambda t: None)  # Suppress unhandled exception warning
+
+    async def close_position(self, pos, *, exit_reason: str = "strategy_exit") -> None:
+        """Close a position and record PnL if immediately filled.
+
+        In paper mode, the sell is always "filled" so we record immediately.
+        In live mode, the sell may be "pending" on the CLOB — PnL recording
+        is deferred to handle_sell_fill() callback when the order confirms.
+        """
+        await log_exit_triggered(
+            market_id=pos.market_id,
+            question=pos.question,
+            strategy=pos.strategy,
+            current_price=pos.current_price,
+        )
+        trade = await self.order_manager.close_position(
+            market_id=pos.market_id,
+            token_id=pos.token_id,
+            size=pos.size,
+            current_price=pos.current_price,
+            question=pos.question,
+            outcome=pos.outcome,
+            category=pos.category,
+            strategy=pos.strategy,
+            entry_price=pos.avg_price,
+        )
+        if trade is None:
+            # Track consecutive sell failures (ghost position detection)
+            count = self._sell_fail_count.get(pos.market_id, 0) + 1
+            self._sell_fail_count[pos.market_id] = count
+            if count >= 3:
+                logger.warning(
+                    "position_stuck_sell_failed_3x",
+                    market_id=pos.market_id,
+                    strategy=pos.strategy,
+                    fail_count=count,
+                )
+                # Paper mode: safe to auto-remove (no on-chain tokens)
+                # Live mode: auto-remove only near-worthless positions after many failures
+                # (tokens exist on-chain but are essentially worthless)
+                from bot.research.market_classifier import classify_market, get_policy
+                question = getattr(pos, "question", "")
+                _policy = get_policy(classify_market(question))
+                if not _policy.allow_early_exit:
+                    # Policy disallows early exits (events, economic): never auto-remove
+                    logger.info(
+                        "policy_position_kept",
+                        market_id=pos.market_id,
+                        fail_count=count,
+                        market_type=classify_market(question).value,
+                    )
+                elif settings.is_paper:
+                    await self._auto_remove_stuck(pos)
+                elif count >= 5 and pos.current_price < 0.10:
+                    await self._auto_remove_stuck(pos)
+            return
+
+        # Reset fail count on successful sell
+        self._sell_fail_count.pop(pos.market_id, None)
+
+        if trade.status == "filled":
+            # Use actual CLOB fill price for PnL, not stale market mid-price.
+            # pos.current_price is from the order book and can be wildly different
+            # from what we actually sold at (especially on 5-min markets).
+            actual_sell_price = trade.price
+            pnl = await self.portfolio.record_trade_close(pos.market_id, actual_sell_price)
+            self.risk_manager.update_daily_pnl(pnl)
+
+            from bot.data.repositories import TradeRepository
+
+            try:
+                async with async_session() as session:
+                    repo = TradeRepository(session)
+                    await repo.update_status(
+                        trade.id, "filled", pnl=pnl, filled_size=pos.size,
+                    )
+                    await repo.close_trade_for_position(
+                        pos.market_id, pnl, exit_reason,
+                        close_price=actual_sell_price,
+                        position_size=pos.size,
+                    )
+            except Exception as e:
+                logger.error("close_position_db_error", error=str(e))
+
+            await log_position_closed(
+                market_id=pos.market_id,
+                question=pos.question,
+                strategy=pos.strategy,
+                pnl=pnl,
+                exit_reason=exit_reason,
+            )
+
+            # Fire-and-forget post-mortem analysis
+            created = getattr(pos, "created_at", None)
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            hold_hours = (
+                (datetime.now(timezone.utc) - created).total_seconds() / 3600
+                if created is not None else 0.0
+            )
+            self._maybe_post_mortem(
+                question=pos.question,
+                strategy=pos.strategy,
+                market_id=pos.market_id,
+                entry_price=pos.avg_price,
+                exit_price=pos.current_price,
+                pnl=pnl,
+                exit_reason=exit_reason,
+                hold_hours=hold_hours,
+            )
+
+            await event_bus.emit(
+                "trade_filled",
+                trade_event="sell_filled",
+                market_id=pos.market_id,
+                question=pos.question,
+                strategy=pos.strategy,
+                side="SELL",
+                price=actual_sell_price,
+                size=pos.size,
+                pnl=pnl,
+            )
+        else:
+            logger.info(
+                "sell_pending_on_clob",
+                market_id=pos.market_id,
+                strategy=pos.strategy,
+            )
+
+    async def handle_sell_fill(
+        self,
+        market_id: str,
+        sell_price: float,
+        trade_id: int,
+        shares: float,
+        strategy: str = "",
+        question: str = "",
+    ) -> None:
+        """Callback when a pending live SELL order is confirmed filled."""
+        logger.info(
+            "deferred_sell_fill",
+            market_id=market_id,
+            sell_price=sell_price,
+            trade_id=trade_id,
+            strategy=strategy,
+        )
+        pnl = await self.portfolio.record_trade_close(market_id, sell_price)
+        self.risk_manager.update_daily_pnl(pnl)
+
+        from bot.data.repositories import TradeRepository
+
+        try:
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.update_status(trade_id, "filled", pnl=pnl)
+                await repo.close_trade_for_position(
+                    market_id, pnl, "deferred_sell_fill",
+                    close_price=sell_price,
+                    position_size=shares,
+                )
+        except Exception as e:
+            logger.error("sell_fill_db_error", error=str(e))
+
+        await log_position_closed(
+            market_id=market_id,
+            question=question,
+            strategy=strategy,
+            pnl=pnl,
+            exit_reason="deferred_sell_fill",
+        )
+
+        # Fire-and-forget post-mortem (no entry_price available in deferred path)
+        self._maybe_post_mortem(
+            question=question,
+            strategy=strategy,
+            market_id=market_id,
+            entry_price=0.0,
+            exit_price=sell_price,
+            pnl=pnl,
+            exit_reason="deferred_sell_fill",
+            hold_hours=0.0,
+        )
+
+        await event_bus.emit(
+            "trade_filled",
+            trade_event="sell_filled",
+            market_id=market_id,
+            question=question,
+            strategy=strategy,
+            side="SELL",
+            price=sell_price,
+            size=shares,
+            pnl=pnl,
+        )
+
+    async def handle_order_fill(self, signal, shares: float, actual_price: float) -> None:
+        """Callback when a pending live BUY order is confirmed filled.
+
+        Uses actual_price (the CLOB fill price) instead of signal.market_price
+        to ensure accurate avg_price, cost_basis, and downstream PnL calculations.
+        """
+        logger.info(
+            "deferred_fill_creating_position",
+            market_id=signal.market_id,
+            strategy=signal.strategy,
+            shares=shares,
+            actual_price=actual_price,
+        )
+        await self.portfolio.record_trade_open(
+            market_id=signal.market_id,
+            token_id=signal.token_id,
+            question=signal.question,
+            outcome=signal.outcome,
+            category=signal.metadata.get("category", ""),
+            strategy=signal.strategy,
+            side=signal.side.value,
+            size=shares,
+            price=actual_price,
+        )
+        await event_bus.emit(
+            "trade_filled",
+            trade_event="buy_filled",
+            market_id=signal.market_id,
+            question=signal.question,
+            strategy=signal.strategy,
+            side="BUY",
+            price=actual_price,
+            size=shares,
+        )
+
+    async def try_rebalance(self, signal, positions, *, urgency: float = 1.0):
+        """Close the weakest losing position to make room for a better signal.
+
+        Returns (closed_position, close_trade) if successful, None otherwise.
+        The caller should check close_trade.status to decide whether to record
+        PnL immediately (filled) or defer to handle_sell_fill (pending).
+
+        When urgency > 1.0 (behind daily target), the minimum edge threshold is
+        lowered proportionally to allow more aggressive capital rotation.
+        """
+        min_sell_notional = 1.0  # Match CLOB minimum notional
+
+        effective_min_edge = self.min_rebalance_edge / max(urgency, 1.0)
+        # Fast reject: even the most lenient per-candidate threshold (0.5x)
+        # won't be met if signal edge is below half the effective minimum
+        if signal.edge < effective_min_edge * 0.5:
+            return None
+
+        from bot.research.market_classifier import classify_market, get_policy
+
+        candidates = []
+        now = datetime.now(timezone.utc)
+        for pos in positions:
+            # Policy check: skip positions where rebalance is not allowed
+            _pos_question = getattr(pos, "question", "")
+            _pos_policy = get_policy(classify_market(_pos_question))
+            if not _pos_policy.allow_rebalance:
+                continue
+            # Skip ghost positions (3+ consecutive sell failures)
+            if self._sell_fail_count.get(pos.market_id, 0) >= 3:
+                continue
+            if not settings.is_paper and pos.size * pos.current_price < min_sell_notional:
+                continue
+            created = pos.created_at
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            hold_limit = self.strategy_min_hold.get(pos.strategy, self.min_hold_seconds)
+            if created and (now - created).total_seconds() < hold_limit:
+                continue
+            if pos.unrealized_pnl > 0:
+                continue
+            pnl_pct = (
+                (pos.current_price - pos.avg_price) / pos.avg_price
+                if pos.avg_price > 0 else 0.0
+            )
+
+            # Adaptive min_edge: deeper losers are easier to rebalance
+            loss_pct = abs(pnl_pct)
+            if loss_pct > 0.10:
+                candidate_min_edge = effective_min_edge * 0.5
+            elif loss_pct > 0.05:
+                candidate_min_edge = effective_min_edge * 0.7
+            else:
+                candidate_min_edge = effective_min_edge
+
+            if signal.edge < candidate_min_edge:
+                continue
+            # Near-resolution protection: skip if market resolves soon
+            # unless loss is severe enough to override
+            if self.cache and abs(pnl_pct) < self.rebalance_resolution_max_loss_pct:
+                market = self.cache.get_market(pos.market_id)
+                if market is not None:
+                    end = market.end_date
+                    if end is not None:
+                        if end.tzinfo is None:
+                            end = end.replace(tzinfo=timezone.utc)
+                        hours_left = (end - now).total_seconds() / 3600
+                        if hours_left <= self.rebalance_resolution_shield_hours:
+                            logger.info(
+                                "rebalance_skipped_near_resolution",
+                                market_id=pos.market_id[:40],
+                                hours_left=round(hours_left, 1),
+                                pnl_pct=round(pnl_pct, 4),
+                            )
+                            continue
+            candidates.append((pos, pnl_pct))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda x: x[1])
+
+        for idx, (candidate_pos, candidate_pnl_pct) in enumerate(candidates):
+            logger.info(
+                "rebalance_attempt",
+                closing_market=candidate_pos.market_id[:20],
+                closing_strategy=candidate_pos.strategy,
+                closing_pnl_pct=round(candidate_pnl_pct, 4),
+                new_signal_strategy=signal.strategy,
+                new_signal_edge=round(signal.edge, 4),
+            )
+
+            close_trade = await self.order_manager.close_position(
+                market_id=candidate_pos.market_id,
+                token_id=candidate_pos.token_id,
+                size=candidate_pos.size,
+                current_price=candidate_pos.current_price,
+                question=candidate_pos.question,
+                outcome=candidate_pos.outcome,
+                category=candidate_pos.category,
+                strategy=candidate_pos.strategy,
+                entry_price=candidate_pos.avg_price,
+            )
+            if close_trade is None:
+                # Track failure for ghost position detection
+                count = self._sell_fail_count.get(candidate_pos.market_id, 0) + 1
+                self._sell_fail_count[candidate_pos.market_id] = count
+                logger.warning(
+                    "rebalance_close_failed_trying_next",
+                    market_id=candidate_pos.market_id,
+                    candidates_remaining=len(candidates) - idx - 1,
+                    sell_fail_count=count,
+                )
+                continue
+
+            # Reset fail count on successful close
+            self._sell_fail_count.pop(candidate_pos.market_id, None)
+
+            await log_rebalance(
+                closed_market_id=candidate_pos.market_id,
+                closed_question=candidate_pos.question,
+                closed_strategy=candidate_pos.strategy,
+                closed_pnl=0.0,
+                new_market_id=signal.market_id,
+                new_question=signal.question,
+                new_strategy=signal.strategy,
+                new_edge=signal.edge,
+            )
+
+            logger.info(
+                "rebalance_closed_position",
+                closed_market=candidate_pos.market_id[:20],
+                new_signal=signal.market_id[:20],
+                trade_status=close_trade.status,
+            )
+            return candidate_pos, close_trade
+
+        logger.warning("rebalance_all_candidates_failed", candidates=len(candidates))
+        return None
+
+    async def _auto_remove_stuck(self, pos) -> None:
+        """Auto-remove a stuck position after 3 sell failures.
+
+        Closes the position in the portfolio and DB so it no longer
+        occupies a slot or distorts PnL calculations.
+        """
+        try:
+            pnl = await self.portfolio.record_trade_close(
+                pos.market_id, pos.current_price,
+            )
+            self.risk_manager.update_daily_pnl(pnl)
+
+            from bot.data.repositories import TradeRepository
+
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.close_trade_for_position(
+                    pos.market_id,
+                    close_price=pos.current_price,
+                    pnl=pnl,
+                    exit_reason="stuck_auto_removed",
+                )
+
+            self._sell_fail_count.pop(pos.market_id, None)
+            self.portfolio.mark_auto_removed(pos.market_id)
+
+            logger.warning(
+                "stuck_position_auto_removed",
+                market_id=pos.market_id,
+                strategy=pos.strategy,
+                size=pos.size,
+                pnl=round(pnl, 4),
+            )
+        except Exception as e:
+            logger.error(
+                "stuck_position_auto_remove_failed",
+                market_id=pos.market_id,
+                error=str(e),
+            )
+
+    @property
+    def stuck_positions(self) -> list[str]:
+        """Return market_ids with 3+ consecutive sell failures (ghost positions)."""
+        return [mid for mid, count in self._sell_fail_count.items() if count >= 3]

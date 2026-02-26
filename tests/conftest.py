@@ -1,0 +1,161 @@
+"""Shared test fixtures for bot logic and API endpoint tests."""
+
+import os
+
+# Set API_SECRET_KEY before any bot.config import so the validator passes
+os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
+# Disable slowapi rate limiting during tests
+os.environ.setdefault("TESTING", "1")
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from bot.data.models import Base
+
+TEST_API_KEY = os.environ["API_SECRET_KEY"]
+
+
+@pytest.fixture
+async def async_engine():
+    """In-memory async SQLite engine with all tables created."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(async_engine):
+    """Async DB session bound to a per-test in-memory engine.
+
+    Each test gets a fresh database via function-scoped engine; no explicit
+    rollback is needed since the entire in-memory DB is discarded after yield.
+    """
+    session_factory = async_sessionmaker(
+        async_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    async with session_factory() as session:
+        yield session
+
+
+@pytest.fixture
+def mock_engine():
+    """MagicMock trading engine with portfolio, risk_manager, and cache."""
+    engine = MagicMock()
+
+    # Portfolio
+    engine.portfolio.get_overview.return_value = {
+        "total_equity": 10.0,
+        "cash_balance": 8.0,
+        "polymarket_balance": None,
+        "positions_value": 2.0,
+        "unrealized_pnl": 0.5,
+        "realized_pnl_today": 0.1,
+        "open_positions": 1,
+        "peak_equity": 10.0,
+        "tier": "tier1",
+        "is_paper": True,
+        "wallet_address": None,
+    }
+    engine.portfolio.total_equity = 10.0
+
+    # Risk manager
+    engine.risk_manager = MagicMock()
+    engine.risk_manager.get_risk_metrics.return_value = {
+        "tier": "tier1",
+        "bankroll": 10.0,
+        "peak_equity": 10.0,
+        "current_drawdown_pct": 0.0,
+        "max_drawdown_limit_pct": 0.25,
+        "daily_pnl": 0.0,
+        "daily_loss_limit_pct": 0.10,
+        "max_positions": 1,
+        "is_paused": False,
+    }
+    engine.risk_manager.pause = MagicMock()
+    engine.risk_manager.resume = MagicMock()
+
+    # Closer (position closer)
+    engine.closer.stuck_positions = []
+
+    # Cache
+    engine.cache = MagicMock()
+    engine.cache.get_all_markets.return_value = []
+
+    # Analyzer (for config endpoint)
+    mock_strategy = MagicMock()
+    mock_strategy.name = "time_decay"
+    mock_strategy.MAX_HOURS_TO_RESOLUTION = 720.0
+    mock_strategy.MIN_IMPLIED_PROB = 0.85
+    mock_strategy.MAX_PRICE = 0.97
+    mock_strategy.MIN_PRICE = 0.82
+    mock_strategy.MIN_EDGE = 0.015
+    mock_strategy.CONFIDENCE_BASE = 0.75
+    mock_strategy._MUTABLE_PARAMS = {
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_IMPLIED_PROB": {"type": float, "min": 0.0, "max": 1.0},
+        "CONFIDENCE_BASE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+    }
+
+    # Wire in the real update_param logic from BaseStrategy
+    from bot.agent.strategies.base import BaseStrategy
+
+    mock_strategy.update_param = lambda name, value: BaseStrategy.update_param(
+        mock_strategy, name, value
+    )
+    engine.analyzer = MagicMock()
+    engine.analyzer.strategies = [mock_strategy]
+    engine.analyzer.MAX_SPREAD = 0.04
+    engine.analyzer.MAX_CATEGORY_POSITIONS = 2
+    engine.analyzer.STOP_LOSS_PCT = 0.15
+    engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
+    engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
+    engine.analyzer.disabled_strategies = set()
+    engine.analyzer.blocked_market_types = set()
+
+    # Strategy enable/disable
+    engine.disabled_strategies = set()
+
+    return engine
+
+
+@pytest.fixture
+async def client(db_session, mock_engine):
+    """Async HTTP client for API tests with mocked DB and engine."""
+    from fastapi import FastAPI
+
+    from api.dependencies import get_db, get_engine
+    from api.routers import config, markets, portfolio, risk, strategies, trades
+
+    # Build a minimal app without the lifespan (no real bot startup)
+    test_app = FastAPI()
+    test_app.include_router(portfolio.router)
+    test_app.include_router(trades.router)
+    test_app.include_router(strategies.router)
+    test_app.include_router(markets.router)
+    test_app.include_router(risk.router)
+    test_app.include_router(config.router)
+
+    # Override get_db to yield the test session
+    async def override_get_db():
+        yield db_session
+
+    test_app.dependency_overrides[get_db] = override_get_db
+    test_app.dependency_overrides[get_engine] = lambda: mock_engine
+
+    # Also patch bot.main.engine for routes that call get_engine() directly
+    # (not via Depends). get_engine() does `from bot.main import engine`.
+    with patch("bot.main.engine", mock_engine):
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"X-API-Key": TEST_API_KEY},
+        ) as ac:
+            yield ac

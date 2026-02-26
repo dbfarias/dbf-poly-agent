@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (10-50x faster than pip)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml README.md ./
+COPY bot/ bot/
+COPY api/ api/
+
+# Install heavy crypto deps first (one at a time to limit memory on 1GB instances)
+RUN uv pip install --system --no-cache py-clob-client>=0.18.0
+# Then install the rest
+RUN uv pip install --system --no-cache .
+
+# Create data directory and non-root user
+RUN mkdir -p /app/data \
+    && adduser --disabled-password --gecos "" --uid 1001 botuser \
+    && chown -R botuser:botuser /app/data
+
+USER botuser
+
+EXPOSE 8000
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

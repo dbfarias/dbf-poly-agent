@@ -1,0 +1,347 @@
+"""Response models for the API."""
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+# Portfolio
+class PortfolioOverview(BaseModel):
+    total_equity: float
+    cash_balance: float
+    polymarket_balance: float | None = None
+    positions_value: float
+    unrealized_pnl: float
+    realized_pnl_today: float
+    polymarket_pnl_today: float = 0.0
+    open_positions: int
+    peak_equity: float
+    day_start_equity: float = 0.0
+    is_paper: bool
+    daily_target_pct: float = 0.01
+    daily_target_usd: float = 0.0
+    daily_progress_pct: float = 0.0
+    stuck_positions: list[str] = []
+
+
+class PositionResponse(BaseModel):
+    id: int
+    market_id: str
+    token_id: str
+    question: str
+    outcome: str
+    category: str
+    strategy: str
+    side: str
+    size: float
+    avg_price: float
+    current_price: float
+    cost_basis: float
+    unrealized_pnl: float
+    is_open: bool
+    created_at: datetime
+
+
+class EquityPoint(BaseModel):
+    timestamp: datetime
+    total_equity: float
+    cash_balance: float
+    positions_value: float
+    daily_return_pct: float
+
+
+class AllocationItem(BaseModel):
+    category: str
+    value: float
+    percentage: float
+
+
+# Trades
+class TradeResponse(BaseModel):
+    id: int
+    created_at: datetime
+    market_id: str
+    question: str
+    outcome: str
+    side: str
+    price: float
+    size: float
+    cost_usd: float
+    strategy: str
+    edge: float
+    estimated_prob: float
+    confidence: float
+    reasoning: str
+    status: str
+    pnl: float
+    entry_price: float = 0.0
+    exit_reason: str | None = None
+    fee_rate_bps: int = 0
+    fee_amount_usd: float = 0.0
+    is_paper: bool
+
+
+class TradeStats(BaseModel):
+    total_trades: int
+    winning_trades: int
+    total_pnl: float
+    win_rate: float
+    total_fees_usd: float = 0.0
+
+
+# Strategies
+class StrategyPerformance(BaseModel):
+    strategy: str
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    win_rate: float
+    total_pnl: float
+    avg_edge: float
+    sharpe_ratio: float
+    max_drawdown: float
+    avg_hold_time_hours: float
+    profit_factor: float = 0.0
+
+
+class StrategyStatus(BaseModel):
+    """Live runtime status for a strategy, combining admin/learner state."""
+
+    name: str
+    label: str
+    is_admin_disabled: bool
+    is_learner_paused: bool
+    pause_remaining_hours: float = 0.0
+    is_active: bool  # not disabled AND not paused
+    total_trades: int = 0
+    win_rate: float = 0.0
+    total_pnl: float = 0.0
+
+
+# Markets
+class MarketOpportunity(BaseModel):
+    market_id: str
+    question: str
+    category: str
+    yes_price: float
+    no_price: float
+    volume: float
+    liquidity: float
+    end_date: datetime | None
+    hours_to_resolution: float | None
+    signal_strategy: str
+    signal_edge: float
+    signal_confidence: float
+
+
+# Risk
+class RiskMetrics(BaseModel):
+    bankroll: float
+    peak_equity: float
+    current_drawdown_pct: float
+    max_drawdown_limit_pct: float
+    daily_pnl: float
+    daily_loss_limit_pct: float
+    max_positions: int
+    is_paused: bool
+    daily_var_95: float | None = None
+    rolling_sharpe: float | None = None
+    profit_factor: float | None = None
+
+
+class RiskLimits(BaseModel):
+    max_positions: int
+    max_per_position_pct: float
+    daily_loss_limit_pct: float
+    max_drawdown_pct: float
+    min_edge_pct: float
+    min_win_prob: float
+    max_per_category_pct: float
+    kelly_fraction: float
+
+
+# Config
+class BotConfig(BaseModel):
+    trading_mode: str
+    scan_interval_seconds: int
+    snapshot_interval_seconds: int
+    max_daily_loss_pct: float
+    max_drawdown_pct: float
+    daily_target_pct: float
+    use_llm_sentiment: bool = False
+    use_llm_debate: bool = False
+    use_llm_reviewer: bool = False
+    use_multi_round_debate: bool = False
+    use_llm_keywords: bool = False
+    use_llm_post_mortem: bool = False
+    use_auto_claim: bool = False
+    llm_daily_budget: float = 3.0
+    llm_today_cost: float = 0.0
+    # Risk parameters
+    risk_config: dict
+    # Strategy parameters
+    strategy_params: dict
+    # Quality filter parameters
+    quality_params: dict
+    # Disabled strategies
+    disabled_strategies: list[str] = []
+    # Blocked market types
+    blocked_market_types: list[str] = []
+
+
+class BotConfigUpdate(BaseModel):
+    trading_mode: str | None = None
+    scan_interval_seconds: int | None = Field(default=None, ge=5, le=3600)
+    max_daily_loss_pct: float | None = Field(default=None, gt=0.0, le=0.5)
+    max_drawdown_pct: float | None = Field(default=None, gt=0.0, le=0.5)
+    daily_target_pct: float | None = Field(default=None, gt=0.0, le=0.2)
+    use_llm_sentiment: bool | None = None
+    use_llm_debate: bool | None = None
+    use_llm_reviewer: bool | None = None
+    use_multi_round_debate: bool | None = None
+    use_llm_keywords: bool | None = None
+    use_llm_post_mortem: bool | None = None
+    use_auto_claim: bool | None = None
+    llm_daily_budget: float | None = Field(default=None, gt=0.0, le=20.0)
+    # Risk config overrides
+    risk_config: dict | None = None
+    # Strategy parameter overrides
+    strategy_params: dict | None = None
+    # Quality filter overrides
+    quality_params: dict | None = None
+    # Disabled strategies (full replacement list)
+    disabled_strategies: list[str] | None = None
+    # Blocked market types (question-keyword based: "sports", "crypto", "other")
+    blocked_market_types: list[str] | None = None
+
+
+# Activity
+class ActivityEvent(BaseModel):
+    id: int
+    timestamp: datetime
+    event_type: str
+    level: str
+    title: str
+    detail: str
+    metadata: dict = {}
+    market_id: str = ""
+    strategy: str = ""
+
+
+class ActivityResponse(BaseModel):
+    events: list[ActivityEvent]
+    total: int
+    has_more: bool
+
+
+# LLM Costs
+class LlmDailyCost(BaseModel):
+    date: str
+    debate_cost: float
+    review_cost: float
+    risk_debate_cost: float = 0.0
+    total_cost: float
+    daily_pnl: float
+    net_profit: float
+
+
+# Health
+class HealthCheck(BaseModel):
+    status: str = "ok"
+    uptime_seconds: float
+    engine_running: bool = False
+    cycle_count: int = 0
+
+
+# Trade Assistant
+class AssistantRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+
+
+class AssistantResponse(BaseModel):
+    success: bool
+    log: list[str]  # Step-by-step log of what happened
+    mode: str | None = None  # "execute", "analyze", "search"
+    market_title: str | None = None
+    outcome: str | None = None  # "Yes" or "No"
+    side: str | None = None  # "BUY" or "SELL"
+    price: float | None = None
+    shares: float | None = None
+    cost: float | None = None
+    order_id: str | None = None
+    error: str | None = None
+
+
+# Sell Position
+class SellPositionRequest(BaseModel):
+    market_id: str
+    size: float | None = None  # None = sell all
+
+
+class SellPositionResponse(BaseModel):
+    success: bool
+    market_id: str
+    question: str | None = None
+    size_sold: float | None = None
+    price: float | None = None
+    proceeds: float | None = None
+    order_id: str | None = None
+    error: str | None = None
+
+
+# Watchers
+class CreateWatcherRequest(BaseModel):
+    market_id: str = Field(min_length=1, max_length=128)
+    token_id: str = Field(default="", max_length=256)
+    question: str = Field(default="", max_length=200)
+    outcome: str = Field(default="", max_length=32)
+    keywords: list[str] = Field(default_factory=list)
+    thesis: str = Field(default="", max_length=500)
+    current_price: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_exposure_usd: float = Field(default=20.0, gt=0.0, le=100.0)
+    stop_loss_pct: float = Field(default=0.25, gt=0.0, le=1.0)
+    max_age_hours: float = Field(default=168.0, gt=0.0, le=720.0)
+
+
+class WatcherResponse(BaseModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    market_id: str
+    token_id: str
+    question: str
+    outcome: str
+    keywords: str
+    thesis: str
+    max_exposure_usd: float
+    stop_loss_pct: float
+    max_age_hours: float
+    check_interval_sec: int
+    status: str
+    current_exposure: float
+    avg_entry_price: float
+    scale_count: int
+    max_scale_count: int
+    highest_price: float
+    last_check_at: datetime | None = None
+    last_news_at: datetime | None = None
+    end_date: datetime | None = None
+    source_strategy: str
+    auto_created: bool
+
+
+class WatcherDecisionResponse(BaseModel):
+    id: int
+    created_at: datetime
+    watcher_id: int
+    decision: str
+    signals_json: str
+    reasoning: str
+    action_taken: str
+    size_usd: float
+    price_at_decision: float | None = None
+
+
+class WatcherDetailResponse(BaseModel):
+    watcher: WatcherResponse
+    decisions: list[WatcherDecisionResponse]

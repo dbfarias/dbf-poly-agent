@@ -1,0 +1,666 @@
+"""Order lifecycle management: creation, monitoring, cancellation."""
+
+import math
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
+
+import structlog
+
+from bot.config import settings
+from bot.data.activity import (
+    log_order_expired,
+    log_order_filled,
+    log_order_placed,
+    log_price_adjustment,
+    log_signal_rejected,
+)
+from bot.data.database import async_session
+from bot.data.models import Trade
+from bot.data.repositories import TradeRepository
+from bot.polymarket.client import PolymarketClient
+from bot.polymarket.data_api import DataApiClient
+from bot.polymarket.orderbook_tracker import OrderbookTracker
+from bot.polymarket.types import OrderSide, TradeSignal
+from bot.utils.notifications import notify_trade
+from bot.utils.risk_metrics import polymarket_fee
+
+logger = structlog.get_logger()
+
+ORDER_TIMEOUT_SECONDS = 300  # Cancel unfilled BUY orders after 5 minutes
+SELL_ORDER_TIMEOUT_SECONDS = 600  # Give SELL orders 10 minutes (less liquid)
+
+# Callback type: (signal, shares, actual_price) -> None
+OnFillCallback = Callable[[TradeSignal, float, float], Awaitable[None]]
+
+# Callback type for sell fills:
+# (market_id, sell_price, trade_id, shares, *, strategy, question) -> None
+OnSellFillCallback = Callable[..., Awaitable[None]]
+
+
+class OrderManager:
+    """Manages the full lifecycle of orders."""
+
+    # Minimum notional value for SELL orders (CLOB constraint).
+    # Polymarket requires ~$1.00 notional minimum; we use the same floor.
+    MIN_SELL_NOTIONAL = 1.0
+
+    # Cooldown (seconds) before retrying a sell that was rejected as too small.
+    SELL_REJECT_COOLDOWN = 1800  # 30 minutes
+
+    def __init__(
+        self,
+        clob_client: PolymarketClient,
+        data_api: DataApiClient,
+        orderbook_tracker: OrderbookTracker | None = None,
+    ):
+        self.clob = clob_client
+        self.data_api = data_api
+        self._orderbook_tracker = orderbook_tracker
+        self._pending_orders: dict[str, dict] = {}
+        self._on_fill_callback: OnFillCallback | None = None
+        self._on_sell_fill_callback: OnSellFillCallback | None = None
+        self._sell_reject_cooldowns: dict[str, datetime] = {}  # market_id → last reject
+
+    def set_on_fill_callback(self, callback: OnFillCallback) -> None:
+        """Set callback invoked when a pending BUY order is confirmed filled."""
+        self._on_fill_callback = callback
+
+    def set_on_sell_fill_callback(self, callback: OnSellFillCallback) -> None:
+        """Set callback invoked when a pending SELL order is confirmed filled."""
+        self._on_sell_fill_callback = callback
+
+    @property
+    def pending_market_ids(self) -> set[str]:
+        """Market IDs with pending orders on the CLOB."""
+        return {
+            info["signal"].market_id
+            for info in self._pending_orders.values()
+            if info.get("signal") is not None
+        }
+
+    @property
+    def pending_capital(self) -> float:
+        """Total capital locked by pending CLOB orders."""
+        return sum(
+            info["signal"].size_usd
+            for info in self._pending_orders.values()
+            if info.get("signal") is not None
+        )
+
+    async def execute_signal(self, signal: TradeSignal) -> Trade | None:
+        """Execute a trade signal by placing an order."""
+        logger.info(
+            "executing_signal",
+            strategy=signal.strategy,
+            market_id=signal.market_id,
+            side=signal.side.value,
+            price=signal.market_price,
+            size=signal.size_usd,
+        )
+
+        # Calculate order size in shares
+        if signal.market_price <= 0:
+            logger.error("invalid_price", price=signal.market_price)
+            return None
+
+        # Adjust price to order book ask/bid for immediate fills
+        actual_price = await self._get_fill_price(signal)
+        if actual_price is None:
+            return None
+
+        shares = signal.size_usd / actual_price
+
+        # Ensure minimum share count AND minimum notional ($1.00)
+        from bot.polymarket.client import MIN_ORDER_SIZE_USD
+
+        # Ceil to avoid floating-point under-count (e.g. 1.28*0.78=0.998<1.0)
+        min_shares_for_notional = math.ceil(MIN_ORDER_SIZE_USD / actual_price * 100) / 100
+        effective_min = max(self.MIN_BUY_SHARES, min_shares_for_notional)
+
+        if shares < effective_min:
+            shares = effective_min
+            adjusted_size = shares * actual_price
+            signal = signal.model_copy(update={"size_usd": adjusted_size})
+            logger.info(
+                "size_bumped_to_min_notional",
+                shares=round(shares, 2),
+                actual_price=actual_price,
+                adjusted_size_usd=round(adjusted_size, 4),
+                min_notional=MIN_ORDER_SIZE_USD,
+            )
+
+        # Place the order
+        result = await self.clob.place_order(
+            token_id=signal.token_id,
+            side=signal.side,
+            price=actual_price,
+            size=round(shares, 2),
+        )
+
+        if "error" in result:
+            logger.warning("order_rejected", error=result["error"])
+            return None
+
+        # Check for API-level failure
+        if result.get("success") is False:
+            logger.warning(
+                "order_api_rejected",
+                error=result.get("errorMsg", "unknown"),
+            )
+            return None
+
+        order_id = result.get("orderID", result.get("order_id", ""))
+        if not order_id:
+            logger.warning("order_missing_id", market_id=signal.market_id)
+
+        # Determine fill status from API response
+        # Polymarket CLOB returns status: "matched" for immediate fills
+        is_filled = (
+            self.clob.is_paper
+            or str(result.get("status", "")).upper() == "MATCHED"
+        )
+
+        # Fetch fee rate and compute fee
+        fee_rate_bps = await self.clob.get_fee_rate(signal.token_id)
+        fee_rate = fee_rate_bps / 10_000.0
+        fee_usd = polymarket_fee(actual_price, round(shares, 2), fee_rate)
+
+        # Record in database
+        trade = Trade(
+            market_id=signal.market_id,
+            token_id=signal.token_id,
+            question=signal.question,
+            outcome=signal.outcome,
+            order_id=order_id,
+            side=signal.side.value,
+            price=actual_price,
+            size=shares,
+            filled_size=shares if is_filled else 0,
+            cost_usd=signal.size_usd,
+            strategy=signal.strategy,
+            edge=signal.edge,
+            estimated_prob=signal.estimated_prob,
+            confidence=signal.confidence,
+            reasoning=signal.reasoning,
+            status="filled" if is_filled else "pending",
+            fee_rate_bps=fee_rate_bps,
+            fee_amount_usd=round(fee_usd, 6),
+            is_paper=settings.is_paper,
+            category=signal.metadata.get("category", ""),
+            debate_path=signal.metadata.get("debate_path", ""),
+            research_multiplier_applied=signal.metadata.get("research_multiplier", 0.0),
+        )
+
+        async with async_session() as session:
+            repo = TradeRepository(session)
+            trade = await repo.create(trade)
+
+        # Track pending orders for monitoring (only live unfilled orders)
+        if not is_filled:
+            self._pending_orders[order_id] = {
+                "trade_id": trade.id,
+                "created_at": datetime.now(timezone.utc),
+                "signal": signal,
+                "shares": shares,
+                "actual_price": actual_price,
+            }
+
+        # Send notification
+        await notify_trade(
+            action="opened" if is_filled else "pending",
+            strategy=signal.strategy,
+            question=signal.question,
+            side=signal.side.value,
+            price=signal.market_price,
+            size=signal.size_usd,
+        )
+
+        logger.info(
+            "trade_recorded",
+            trade_id=trade.id,
+            order_id=order_id,
+            status=trade.status,
+            is_filled=is_filled,
+        )
+
+        await log_order_placed(
+            strategy=signal.strategy,
+            market_id=signal.market_id,
+            question=signal.question,
+            side=signal.side.value,
+            price=actual_price,
+            size_usd=signal.size_usd,
+            shares=shares,
+            status=trade.status,
+        )
+
+        return trade
+
+    async def monitor_orders(self) -> None:
+        """Check pending orders and verify fills against Polymarket.
+
+        Instead of assuming 'not in open orders = filled', we verify
+        by checking actual positions on Polymarket via the data API.
+        """
+        if not self._pending_orders:
+            return
+
+        # Fetch actual positions from Polymarket to verify fills
+        address = self.clob.get_address()
+        if not address:
+            logger.warning("monitor_orders_skipped_no_address")
+            return
+
+        try:
+            positions = await self.data_api.get_positions(address)
+            real_token_ids = {p.token_id for p in positions if p.size > 0}
+        except Exception as e:
+            logger.error("fill_verification_failed", error=str(e))
+            return
+
+        now = datetime.now(timezone.utc)
+        to_remove = []
+
+        for order_id, info in self._pending_orders.items():
+            signal = info["signal"]
+            is_sell = info.get("is_sell", False)
+            age = (now - info["created_at"]).total_seconds()
+
+            # Determine token_id from signal or stored field
+            token_id = info.get("token_id") or (signal.token_id if signal else None)
+            if not token_id:
+                continue
+
+            # For SELL orders: position GONE from Polymarket = filled
+            # For BUY orders: position EXISTS on Polymarket = filled
+            if is_sell:
+                fill_confirmed = token_id not in real_token_ids
+            else:
+                fill_confirmed = token_id in real_token_ids
+
+            if fill_confirmed:
+                trade_id = info["trade_id"]
+                shares = info["shares"]
+
+                # BUY: mark filled immediately (no PnL yet)
+                # SELL: mark filled; PnL is set by callback below
+                async with async_session() as session:
+                    repo = TradeRepository(session)
+                    if is_sell:
+                        await repo.update_status(
+                            trade_id, "filled", filled_size=shares,
+                        )
+                    else:
+                        await repo.update_status(trade_id, "filled")
+                to_remove.append(order_id)
+                logger.info(
+                    "order_fill_verified",
+                    order_id=order_id,
+                    trade_id=trade_id,
+                    token_id=token_id[:20],
+                    is_sell=is_sell,
+                )
+                if signal:
+                    await log_order_filled(
+                        market_id=signal.market_id,
+                        order_id=order_id,
+                        strategy=signal.strategy,
+                    )
+
+                # Create position via callback (BUY orders only)
+                if not is_sell and self._on_fill_callback and signal:
+                    fill_price = info.get("actual_price", signal.market_price)
+                    try:
+                        await self._on_fill_callback(signal, shares, fill_price)
+                    except Exception as e:
+                        logger.error(
+                            "on_fill_callback_failed",
+                            order_id=order_id,
+                            error=str(e),
+                        )
+
+                # Record close via callback (SELL orders only)
+                if is_sell and self._on_sell_fill_callback:
+                    sell_market_id = info.get("market_id", "")
+                    sell_price = info.get("sell_price", 0.0)
+                    sell_strategy = info.get("strategy", "")
+                    sell_question = info.get("question", "")
+                    try:
+                        await self._on_sell_fill_callback(
+                            sell_market_id, sell_price, trade_id, shares,
+                            strategy=sell_strategy, question=sell_question,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "on_sell_fill_callback_failed",
+                            order_id=order_id,
+                            error=str(e),
+                        )
+                continue
+
+            # Check for timeout - order not filled within time limit
+            timeout = SELL_ORDER_TIMEOUT_SECONDS if is_sell else ORDER_TIMEOUT_SECONDS
+            if age > timeout:
+                # Try to cancel (might already be gone)
+                await self.clob.cancel_order(order_id)
+                async with async_session() as session:
+                    repo = TradeRepository(session)
+                    await repo.update_status(info["trade_id"], "expired")
+                to_remove.append(order_id)
+                logger.info(
+                    "order_expired_no_fill",
+                    order_id=order_id,
+                    trade_id=info["trade_id"],
+                    age_seconds=age,
+                    is_sell=is_sell,
+                )
+                if signal:
+                    await log_order_expired(
+                        market_id=signal.market_id,
+                        order_id=order_id,
+                        age_seconds=age,
+                    )
+
+        for oid in to_remove:
+            self._pending_orders.pop(oid, None)
+
+    MIN_BUY_SHARES = 5.0   # Minimum shares for BUY (ensures positions can be sold later)
+
+    async def close_position(
+        self,
+        market_id: str,
+        token_id: str,
+        size: float,
+        current_price: float,
+        question: str = "",
+        outcome: str = "",
+        category: str = "",
+        strategy: str = "exit",
+        entry_price: float = 0.0,
+    ) -> Trade | None:
+        """Close a position by selling."""
+        now = datetime.now(timezone.utc)
+
+        # Resolved markets (price at $1.00 or $0.00) can't be sold on
+        # CLOB (only 0.001-0.999). Let Polymarket sync handle redemption.
+        if not self.clob.is_paper and current_price >= 0.999:
+            logger.info(
+                "skip_sell_resolved_market",
+                market_id=market_id,
+                current_price=current_price,
+            )
+            return None
+
+        # Skip if a sell for this market is already pending on the CLOB
+        for info in self._pending_orders.values():
+            if info.get("is_sell") and info.get("market_id") == market_id:
+                logger.debug("sell_already_pending", market_id=market_id)
+                return None
+
+        # Notional-based minimum: size * price must be >= $1.00 (CLOB floor)
+        estimated_notional = size * current_price
+        if not self.clob.is_paper and estimated_notional < self.MIN_SELL_NOTIONAL:
+            # Check cooldown — only warn once per SELL_REJECT_COOLDOWN period
+            last_reject = self._sell_reject_cooldowns.get(market_id)
+            cooldown_elapsed = (
+                last_reject is None
+                or (now - last_reject).total_seconds() >= self.SELL_REJECT_COOLDOWN
+            )
+            if cooldown_elapsed:
+                logger.warning(
+                    "position_too_small_to_sell",
+                    market_id=market_id,
+                    size=size,
+                    notional=round(estimated_notional, 2),
+                    min_notional=self.MIN_SELL_NOTIONAL,
+                )
+                self._sell_reject_cooldowns[market_id] = now
+            return None
+
+        # Get best bid for immediate fill
+        sell_price = current_price
+        if not self.clob.is_paper:
+            try:
+                book = await self.clob.get_order_book(token_id)
+                if book.best_bid is not None:
+                    sell_price = book.best_bid
+            except Exception as e:
+                logger.warning(
+                    "close_position_orderbook_failed",
+                    token_id=token_id,
+                    error=str(e),
+                )
+
+        try:
+            result = await self.clob.place_order(
+                token_id=token_id,
+                side=OrderSide.SELL,
+                price=sell_price,
+                size=size,
+            )
+        except Exception as e:
+            err_msg = str(e)
+            if (
+                "not enough balance" in err_msg
+                or "allowance" in err_msg
+                or "min: 0.001" in err_msg
+            ):
+                logger.warning(
+                    "sell_order_rejected_gracefully",
+                    market_id=market_id,
+                    size=size,
+                    price=sell_price,
+                    error=err_msg,
+                )
+                return None
+            raise
+
+        if "error" in result:
+            logger.warning("close_order_rejected", error=result["error"])
+            return None
+
+        if result.get("success") is False:
+            logger.warning(
+                "close_order_api_rejected",
+                error=result.get("errorMsg", "unknown"),
+            )
+            return None
+
+        order_id = result.get("orderID", result.get("order_id", ""))
+
+        # Determine fill status — CLOB returns "matched" for immediate fills
+        is_filled = (
+            self.clob.is_paper
+            or str(result.get("status", "")).upper() == "MATCHED"
+        )
+
+        # Fetch fee rate and compute fee for sell
+        fee_rate_bps = await self.clob.get_fee_rate(token_id)
+        fee_rate = fee_rate_bps / 10_000.0
+        fee_usd = polymarket_fee(sell_price, size, fee_rate)
+
+        trade = Trade(
+            market_id=market_id,
+            token_id=token_id,
+            question=question,
+            outcome=outcome,
+            category=category,
+            order_id=order_id,
+            side=OrderSide.SELL.value,
+            price=sell_price,
+            size=size,
+            filled_size=size if is_filled else 0,
+            cost_usd=size * sell_price,
+            strategy=strategy,
+            status="filled" if is_filled else "pending",
+            entry_price=entry_price,
+            fee_rate_bps=fee_rate_bps,
+            fee_amount_usd=round(fee_usd, 6),
+            is_paper=settings.is_paper,
+        )
+
+        async with async_session() as session:
+            repo = TradeRepository(session)
+            trade = await repo.create(trade)
+
+        # Track pending SELL orders for monitoring (live unfilled only)
+        if not is_filled and order_id:
+            self._pending_orders[order_id] = {
+                "trade_id": trade.id,
+                "created_at": datetime.now(timezone.utc),
+                "signal": None,  # No signal for SELL orders
+                "shares": size,
+                "is_sell": True,
+                "token_id": token_id,
+                "market_id": market_id,
+                "sell_price": sell_price,
+                "strategy": strategy,
+                "question": question,
+            }
+
+        return trade
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending_orders)
+
+    async def _get_fill_price(self, signal: TradeSignal) -> float | None:
+        """Get the actual price from the order book to ensure fills.
+
+        For BUY orders: use best_ask (price someone is willing to sell at).
+        For SELL orders: use best_bid (price someone is willing to buy at).
+        Falls back to signal.market_price in paper mode or on error.
+
+        Returns None if slippage too high or edge evaporates at real price.
+        """
+        if self.clob.is_paper:
+            return signal.market_price
+
+        max_slippage = 0.05  # 5 cents max slippage from signal price
+        min_edge_after_slippage = 0.005  # 0.5% minimum edge at real price
+
+        try:
+            # Try WebSocket cached orderbook first (sub-second latency)
+            book = None
+            if self._orderbook_tracker is not None:
+                age = self._orderbook_tracker.book_age_seconds(signal.token_id)
+                if age is not None and age < 30:
+                    cached_book = self._orderbook_tracker.get_book(signal.token_id)
+                    if cached_book is not None:
+                        book = cached_book
+                        logger.info(
+                            "fill_price_from_ws_cache",
+                            age_seconds=round(age, 1),
+                        )
+
+            # Fall back to REST API if WS data is stale or missing
+            if book is None:
+                book = await self.clob.get_order_book(signal.token_id)
+
+            if signal.side == OrderSide.BUY and book.best_ask is not None:
+                actual_price = book.best_ask
+                slippage = actual_price - signal.market_price
+
+                if slippage > max_slippage:
+                    logger.info(
+                        "excessive_slippage",
+                        market_id=signal.market_id,
+                        signal_price=signal.market_price,
+                        ask_price=actual_price,
+                        slippage=slippage,
+                    )
+                    await log_signal_rejected(
+                        strategy=signal.strategy,
+                        market_id=signal.market_id,
+                        question=signal.question,
+                        reason=(
+                            f"Excessive slippage: ${slippage:.3f}"
+                            f" (ask ${actual_price:.3f} vs signal"
+                            f" ${signal.market_price:.3f})"
+                        ),
+                        edge=signal.edge,
+                        price=actual_price,
+                    )
+                    return None
+
+                # Verify edge still exists at actual fill price
+                adjusted_edge = signal.estimated_prob - actual_price
+                if adjusted_edge < min_edge_after_slippage:
+                    logger.info(
+                        "edge_evaporated_at_ask",
+                        market_id=signal.market_id,
+                        signal_price=signal.market_price,
+                        ask_price=actual_price,
+                        original_edge=signal.edge,
+                        adjusted_edge=adjusted_edge,
+                    )
+                    await log_signal_rejected(
+                        strategy=signal.strategy,
+                        market_id=signal.market_id,
+                        question=signal.question,
+                        reason=(
+                            f"Edge evaporated at ask:"
+                            f" {adjusted_edge:.1%} <"
+                            f" {min_edge_after_slippage:.1%}"
+                            f" (ask ${actual_price:.3f})"
+                        ),
+                        edge=adjusted_edge,
+                        price=actual_price,
+                    )
+                    return None
+
+                logger.info(
+                    "price_adjusted_to_ask",
+                    market_id=signal.market_id,
+                    signal_price=signal.market_price,
+                    ask_price=actual_price,
+                    slippage=slippage,
+                )
+                await log_price_adjustment(
+                    market_id=signal.market_id,
+                    strategy=signal.strategy,
+                    signal_price=signal.market_price,
+                    actual_price=actual_price,
+                    reason="Adjusted to CLOB ask price",
+                )
+                return actual_price
+
+            elif signal.side == OrderSide.SELL and book.best_bid is not None:
+                actual_price = book.best_bid
+                slippage = signal.market_price - actual_price
+
+                if slippage > max_slippage:
+                    logger.info(
+                        "excessive_slippage_sell",
+                        market_id=signal.market_id,
+                        signal_price=signal.market_price,
+                        bid_price=actual_price,
+                        slippage=slippage,
+                    )
+                    return None
+
+                logger.info(
+                    "price_adjusted_to_bid",
+                    market_id=signal.market_id,
+                    signal_price=signal.market_price,
+                    bid_price=actual_price,
+                    slippage=slippage,
+                )
+                return actual_price
+
+            # No asks/bids available — illiquid market
+            logger.info(
+                "no_orderbook_depth",
+                market_id=signal.market_id,
+                side=signal.side.value,
+            )
+            return None
+
+        except Exception as e:
+            logger.warning(
+                "orderbook_price_adjustment_failed",
+                market_id=signal.market_id,
+                error=str(e),
+            )
+            # Fall back to signal price on error
+            return signal.market_price
