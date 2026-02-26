@@ -7,11 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
+# Install Python deps in two stages to limit peak memory on 1GB instances
 COPY pyproject.toml README.md ./
 COPY bot/ bot/
 COPY api/ api/
 
+# Install heavy crypto deps first (one at a time to limit memory)
+RUN pip install --no-cache-dir py-clob-client>=0.18.0
+# Then install the rest (lightweight)
 RUN pip install --no-cache-dir .
 
 # Create data directory and non-root user
