@@ -53,19 +53,31 @@ export default function Trades() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Trades" value={stats?.total_trades ?? 0} testId="total-trades" />
+        <StatCard
+          title="Total Trades"
+          value={stats?.total_trades ?? 0}
+          testId="total-trades"
+          help="Total number of trades executed by the bot since it started running."
+        />
         <StatCard
           title="Win Rate"
           value={stats ? `${(stats.win_rate * 100).toFixed(0)}%` : "—"}
           testId="trades-win-rate"
+          help="Percentage of completed trades that were profitable. A win rate above 50% with positive edge means the strategy is working."
         />
         <StatCard
           title="Total PnL"
           value={`$${stats?.total_pnl.toFixed(2) ?? "0"}`}
           trend={stats?.total_pnl ? (stats.total_pnl > 0 ? "up" : "down") : "neutral"}
           testId="total-pnl"
+          help="Total profit or loss across all completed trades. This is your cumulative realized return."
         />
-        <StatCard title="Winning" value={stats?.winning_trades ?? 0} testId="winning-trades" />
+        <StatCard
+          title="Winning"
+          value={stats?.winning_trades ?? 0}
+          testId="winning-trades"
+          help="Number of trades that closed with a profit."
+        />
       </div>
 
       {/* Filters */}

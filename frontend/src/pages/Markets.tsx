@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { fetchMarkets } from "../api/client";
+import HelpTooltip from "../components/HelpTooltip";
 
 export default function Markets() {
   const { data: markets, isLoading } = useQuery({
@@ -24,13 +25,27 @@ export default function Markets() {
               <thead>
                 <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
                   <th className="text-left py-3 px-4">Market</th>
-                  <th className="text-right py-3 px-4">YES</th>
-                  <th className="text-right py-3 px-4">NO</th>
-                  <th className="text-right py-3 px-4">Volume</th>
-                  <th className="text-right py-3 px-4">Hours Left</th>
-                  <th className="text-left py-3 px-4">Strategy</th>
-                  <th className="text-right py-3 px-4">Edge</th>
-                  <th className="text-right py-3 px-4">Confidence</th>
+                  <th className="text-right py-3 px-4">
+                    <span className="inline-flex items-center">YES <HelpTooltip text="Current price of the YES outcome. $0.90 means the market thinks there's a 90% chance of YES." size={11} /></span>
+                  </th>
+                  <th className="text-right py-3 px-4">
+                    <span className="inline-flex items-center">NO <HelpTooltip text="Current price of the NO outcome. YES + NO should roughly equal $1.00." size={11} /></span>
+                  </th>
+                  <th className="text-right py-3 px-4">
+                    <span className="inline-flex items-center">Volume <HelpTooltip text="Total amount traded on this market. Higher volume means more liquidity and tighter spreads." size={11} /></span>
+                  </th>
+                  <th className="text-right py-3 px-4">
+                    <span className="inline-flex items-center">Hours Left <HelpTooltip text="Estimated hours until the market resolves (outcome is determined). Shorter timeframes reduce uncertainty." size={11} /></span>
+                  </th>
+                  <th className="text-left py-3 px-4">
+                    <span className="inline-flex items-center">Strategy <HelpTooltip text="Which bot strategy detected this opportunity: time_decay (expiring markets), arbitrage (price gaps), value_betting (mispriced odds), market_making (spread capture)." size={11} /></span>
+                  </th>
+                  <th className="text-right py-3 px-4">
+                    <span className="inline-flex items-center">Edge <HelpTooltip text="The expected profit margin on this trade as a percentage. Higher edge = more potential profit. Only trades above the minimum edge threshold are executed." size={11} /></span>
+                  </th>
+                  <th className="text-right py-3 px-4">
+                    <span className="inline-flex items-center">Confidence <HelpTooltip text="How confident the bot is in its prediction. Based on market data, volume, and time to resolution." size={11} /></span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

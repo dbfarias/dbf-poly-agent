@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { DollarSign, Layers, Target, TrendingUp } from "lucide-react";
 import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats } from "../api/client";
 import EquityChart from "../components/EquityChart";
+import HelpTooltip from "../components/HelpTooltip";
 import StatCard from "../components/StatCard";
 import TradeTable from "../components/TradeTable";
 
@@ -33,21 +34,27 @@ export default function Dashboard() {
         <h2 className="text-xl font-bold">Dashboard</h2>
         {portfolio && (
           <div className="flex items-center gap-2">
-            <span
-              className={`px-2 py-1 rounded text-xs font-medium ${
-                portfolio.is_paper
-                  ? "bg-yellow-500/20 text-yellow-300"
-                  : "bg-green-500/20 text-green-300"
-              }`}
-              data-testid="trading-mode-badge"
-            >
-              {portfolio.is_paper ? "PAPER" : "LIVE"}
+            <span className="flex items-center gap-1">
+              <span
+                className={`px-2 py-1 rounded text-xs font-medium ${
+                  portfolio.is_paper
+                    ? "bg-yellow-500/20 text-yellow-300"
+                    : "bg-green-500/20 text-green-300"
+                }`}
+                data-testid="trading-mode-badge"
+              >
+                {portfolio.is_paper ? "PAPER" : "LIVE"}
+              </span>
+              <HelpTooltip text="PAPER mode simulates trades without using real money. LIVE mode places real orders on Polymarket with your USDC balance." />
             </span>
-            <span
-              className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium"
-              data-testid="tier-badge"
-            >
-              {portfolio.tier.toUpperCase()}
+            <span className="flex items-center gap-1">
+              <span
+                className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium"
+                data-testid="tier-badge"
+              >
+                {portfolio.tier.toUpperCase()}
+              </span>
+              <HelpTooltip text="Capital tier determines your risk limits. Tier 1: $5-$25 (1 position, conservative). Tier 2: $25-$100 (3 positions). Tier 3: $100+ (10 positions, full strategy access)." />
             </span>
           </div>
         )}
@@ -60,6 +67,7 @@ export default function Dashboard() {
           value={`$${portfolio?.total_equity.toFixed(2) ?? "—"}`}
           icon={<DollarSign size={16} />}
           testId="total-equity"
+          help="Your total portfolio value: cash balance plus the current market value of all open positions."
         />
         <StatCard
           title="Today's PnL"
@@ -75,6 +83,7 @@ export default function Dashboard() {
           }
           icon={<TrendingUp size={16} />}
           testId="todays-pnl"
+          help="Profit or loss realized today from closed trades. Green means profit, red means loss."
         />
         <StatCard
           title="Win Rate"
@@ -82,6 +91,7 @@ export default function Dashboard() {
           subtitle={stats ? `${stats.winning_trades}/${stats.total_trades} trades` : undefined}
           icon={<Target size={16} />}
           testId="win-rate"
+          help="Percentage of trades that ended in profit. Shows winning trades out of total trades completed."
         />
         <StatCard
           title="Open Positions"
@@ -89,6 +99,7 @@ export default function Dashboard() {
           subtitle={`$${portfolio?.positions_value.toFixed(2) ?? "0"} value`}
           icon={<Layers size={16} />}
           testId="open-positions"
+          help="Number of active bets currently held. The subtitle shows their total current market value."
         />
       </div>
 

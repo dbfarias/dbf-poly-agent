@@ -60,8 +60,9 @@ class GammaMarket(BaseModel):
         if not self.outcome_prices:
             return []
         try:
-            return [float(p) for p in self.outcome_prices.strip("[]").split(",")]
-        except (ValueError, AttributeError):
+            parsed = json.loads(self.outcome_prices)
+            return [float(p) for p in parsed]
+        except (json.JSONDecodeError, ValueError, TypeError):
             return []
 
     @property
@@ -69,8 +70,9 @@ class GammaMarket(BaseModel):
         if not self.clob_token_ids:
             return []
         try:
-            return [t.strip().strip('"') for t in self.clob_token_ids.strip("[]").split(",")]
-        except (ValueError, AttributeError):
+            parsed = json.loads(self.clob_token_ids)
+            return [str(t) for t in parsed]
+        except (json.JSONDecodeError, ValueError, TypeError):
             return []
 
     @property
