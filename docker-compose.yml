@@ -36,14 +36,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - certbot-data:/etc/letsencrypt:ro
     depends_on:
       - app
       - frontend
 
 volumes:
   bot-data:
-  certbot-data:

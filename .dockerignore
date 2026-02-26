@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+__pycache__
+*.pyc
+.env
+.env.*
+data/
+tests/
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+playwright-report/
