@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class PortfolioOverview(BaseModel):
     total_equity: float
     cash_balance: float
+    polymarket_balance: float | None = None
     positions_value: float
     unrealized_pnl: float
     realized_pnl_today: float
@@ -16,6 +17,7 @@ class PortfolioOverview(BaseModel):
     peak_equity: float
     tier: str
     is_paper: bool
+    wallet_address: str | None = None
 
 
 class PositionResponse(BaseModel):

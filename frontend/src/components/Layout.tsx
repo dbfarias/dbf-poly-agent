@@ -24,14 +24,15 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-[#0f1117]">
       {/* Sidebar */}
-      <nav className="w-56 bg-[#1a1d29] border-r border-[#2a2d3e] flex flex-col">
+      <nav className="w-56 bg-[#1a1d29] border-r border-[#2a2d3e] flex flex-col" data-testid="sidebar">
         <div className="p-4 border-b border-[#2a2d3e]">
-          <h1 className="text-lg font-bold text-white">PolyBot</h1>
+          <h1 className="text-lg font-bold text-white" data-testid="sidebar-title">PolyBot</h1>
           <div className="flex items-center gap-1.5 mt-1">
             <div
               className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}
+              data-testid="ws-indicator"
             />
-            <span className="text-xs text-zinc-400">
+            <span className="text-xs text-zinc-400" data-testid="ws-status-text">
               {isConnected ? "Connected" : "Disconnected"}
             </span>
           </div>
@@ -49,6 +50,7 @@ export default function Layout() {
                 }`
               }
               end={to === "/"}
+              data-testid={`nav-${label.toLowerCase()}`}
             >
               <Icon size={18} />
               {label}
@@ -58,7 +60,7 @@ export default function Layout() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto p-6">
+      <main className="flex-1 overflow-auto p-6" data-testid="main-content">
         <Outlet />
       </main>
     </div>

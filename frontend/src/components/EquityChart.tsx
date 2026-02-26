@@ -9,10 +9,24 @@ export default function EquityChart({ days = 30 }: { days?: number }) {
     refetchInterval: 60000,
   });
 
-  if (isLoading || !data?.length) {
+  if (isLoading) {
     return (
-      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4 h-64 flex items-center justify-center text-zinc-500">
-        {isLoading ? "Loading..." : "No data yet"}
+      <div
+        className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4 h-64 flex items-center justify-center text-zinc-500"
+        data-testid="equity-chart-loading"
+      >
+        Loading...
+      </div>
+    );
+  }
+
+  if (!data?.length) {
+    return (
+      <div
+        className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4 h-64 flex items-center justify-center text-zinc-500"
+        data-testid="equity-chart-empty"
+      >
+        No data yet
       </div>
     );
   }
@@ -24,8 +38,8 @@ export default function EquityChart({ days = 30 }: { days?: number }) {
   }));
 
   return (
-    <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
-      <h3 className="text-sm font-medium text-zinc-400 mb-4">Equity Curve</h3>
+    <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4" data-testid="equity-chart">
+      <h3 className="text-sm font-medium text-zinc-400 mb-4" data-testid="equity-chart-title">Equity Curve</h3>
       <ResponsiveContainer width="100%" height={240}>
         <AreaChart data={chartData}>
           <defs>

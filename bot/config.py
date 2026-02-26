@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     poly_api_passphrase: str = ""
     poly_private_key: str = ""
     poly_chain_id: int = 137
+    # 0=EOA (MetaMask), 1=POLY_PROXY (Magic Link/email users), 2=GNOSIS_SAFE
+    poly_signature_type: int = 1
 
     # Trading
     trading_mode: TradingMode = TradingMode.PAPER
@@ -115,16 +117,11 @@ class Settings(BaseSettings):
                 "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
             )
         if self.trading_mode == TradingMode.LIVE:
-            missing = [
-                name
-                for name in (
-                    "poly_api_key", "poly_api_secret",
-                    "poly_api_passphrase", "poly_private_key",
+            if not self.poly_private_key:
+                raise ValueError(
+                    "LIVE mode requires POLY_PRIVATE_KEY. "
+                    "API creds (key/secret/passphrase) will be auto-derived."
                 )
-                if not getattr(self, name)
-            ]
-            if missing:
-                raise ValueError(f"LIVE mode requires: {', '.join(missing)}")
         return self
 
     @property

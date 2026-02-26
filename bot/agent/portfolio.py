@@ -23,6 +23,7 @@ class Portfolio:
 
         # State
         self._cash: float = settings.initial_bankroll
+        self._polymarket_balance: float | None = None
         self._positions: list[Position] = []
         self._peak_equity: float = settings.initial_bankroll
         self._realized_pnl_today: float = 0.0
@@ -57,16 +58,24 @@ class Portfolio:
         return len(self.positions)
 
     async def sync(self) -> None:
-        """Sync portfolio state from blockchain / paper state."""
+        """Sync portfolio state from blockchain / paper state.
+
+        Always fetches real Polymarket balance if connected (even in paper mode)
+        so the dashboard shows accurate account data.
+        """
         async with async_session() as session:
             pos_repo = PositionRepository(session)
             self._positions = await pos_repo.get_open()
 
-        if not settings.is_paper:
+        # Fetch real balance from Polymarket (works in both modes)
+        if self.clob.is_connected:
             try:
-                balance = await self.data_api.get_balance()
-                if balance > 0:
-                    self._cash = balance
+                real_balance = await self.clob.get_balance()
+                if real_balance is not None:
+                    self._polymarket_balance = real_balance
+                    # In live mode, use real balance as cash
+                    if not settings.is_paper:
+                        self._cash = real_balance
             except Exception as e:
                 logger.error("balance_sync_failed", error=str(e))
 
@@ -78,6 +87,7 @@ class Portfolio:
         logger.debug(
             "portfolio_synced",
             cash=self._cash,
+            polymarket_balance=self._polymarket_balance,
             positions=self.open_position_count,
             equity=equity,
             tier=self.tier.value,
@@ -182,6 +192,7 @@ class Portfolio:
         return {
             "total_equity": self.total_equity,
             "cash_balance": self._cash,
+            "polymarket_balance": self._polymarket_balance,
             "positions_value": self.positions_value,
             "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl_today": self._realized_pnl_today,
@@ -189,4 +200,5 @@ class Portfolio:
             "peak_equity": self._peak_equity,
             "tier": self.tier.value,
             "is_paper": settings.is_paper,
+            "wallet_address": self.clob.get_address(),
         }

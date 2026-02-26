@@ -10,16 +10,16 @@ export default function Markets() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="markets-page">
       <h2 className="text-xl font-bold">Market Scanner</h2>
 
       <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e]">
         {isLoading ? (
-          <div className="p-8 text-center text-zinc-500">Scanning markets...</div>
+          <div className="p-8 text-center text-zinc-500" data-testid="markets-loading">Scanning markets...</div>
         ) : !markets?.length ? (
-          <div className="p-8 text-center text-zinc-500">No opportunities found</div>
+          <div className="p-8 text-center text-zinc-500" data-testid="markets-empty">No opportunities found</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" data-testid="markets-table">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
@@ -38,6 +38,7 @@ export default function Markets() {
                   <tr
                     key={`${m.market_id}-${i}`}
                     className="border-b border-[#2a2d3e]/50 hover:bg-white/5"
+                    data-testid={`market-row-${i}`}
                   >
                     <td className="py-2.5 px-4 max-w-64 truncate" title={m.question}>
                       {m.question}
@@ -67,6 +68,7 @@ export default function Markets() {
                         "text-yellow-400": m.signal_edge > 0.01,
                         "text-zinc-400": m.signal_edge <= 0.01,
                       })}
+                      data-testid={`market-edge-${i}`}
                     >
                       {m.signal_edge > 0 ? `${(m.signal_edge * 100).toFixed(1)}%` : "—"}
                     </td>

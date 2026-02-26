@@ -4,15 +4,16 @@ import type { Trade } from "../api/client";
 interface TradeTableProps {
   trades: Trade[];
   compact?: boolean;
+  testIdPrefix?: string;
 }
 
-export default function TradeTable({ trades, compact }: TradeTableProps) {
+export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: TradeTableProps) {
   if (!trades.length) {
-    return <div className="text-zinc-500 text-sm py-8 text-center">No trades yet</div>;
+    return <div className="text-zinc-500 text-sm py-8 text-center" data-testid={`${testIdPrefix}-table-empty`}>No trades yet</div>;
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" data-testid={`${testIdPrefix}-table`}>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
@@ -27,9 +28,9 @@ export default function TradeTable({ trades, compact }: TradeTableProps) {
             <th className="text-right py-2 px-3">Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-testid={`${testIdPrefix}-table-body`}>
           {trades.map((t) => (
-            <tr key={t.id} className="border-b border-[#2a2d3e]/50 hover:bg-white/5">
+            <tr key={t.id} className="border-b border-[#2a2d3e]/50 hover:bg-white/5" data-testid={`${testIdPrefix}-row-${t.id}`}>
               <td className="py-2 px-3 text-zinc-400">
                 {new Date(t.created_at).toLocaleString()}
               </td>

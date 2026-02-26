@@ -49,6 +49,7 @@ def mock_engine():
     engine.portfolio.get_overview.return_value = {
         "total_equity": 10.0,
         "cash_balance": 8.0,
+        "polymarket_balance": None,
         "positions_value": 2.0,
         "unrealized_pnl": 0.5,
         "realized_pnl_today": 0.1,
@@ -56,6 +57,7 @@ def mock_engine():
         "peak_equity": 10.0,
         "tier": "tier1",
         "is_paper": True,
+        "wallet_address": None,
     }
     engine.portfolio.total_equity = 10.0
     engine.portfolio.tier = MagicMock()

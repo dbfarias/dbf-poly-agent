@@ -21,6 +21,7 @@ class TestGetOverview:
         expected_keys = {
             "total_equity",
             "cash_balance",
+            "polymarket_balance",
             "positions_value",
             "unrealized_pnl",
             "realized_pnl_today",
@@ -28,6 +29,7 @@ class TestGetOverview:
             "peak_equity",
             "tier",
             "is_paper",
+            "wallet_address",
         }
         assert set(data.keys()) == expected_keys
 

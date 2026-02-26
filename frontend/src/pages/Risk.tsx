@@ -42,7 +42,7 @@ export default function Risk() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="risk-page">
       <h2 className="text-xl font-bold">Risk Management</h2>
 
       {/* Risk Metrics */}
@@ -58,32 +58,36 @@ export default function Risk() {
                 : "neutral"
               : "neutral"
           }
+          testId="drawdown"
         />
         <StatCard
           title="Daily PnL"
           value={risk ? `$${risk.daily_pnl.toFixed(2)}` : "—"}
           subtitle={risk ? `Limit: ${(risk.daily_loss_limit_pct * 100).toFixed(0)}%` : undefined}
           trend={risk ? (risk.daily_pnl >= 0 ? "up" : "down") : "neutral"}
+          testId="daily-pnl"
         />
         <StatCard
           title="Positions"
           value={
             risk ? `${portfolio?.open_positions ?? 0}/${risk.max_positions}` : "—"
           }
+          testId="risk-positions"
         />
         <StatCard
           title="Trading Status"
           value={risk?.is_paused ? "PAUSED" : "ACTIVE"}
           trend={risk?.is_paused ? "down" : "up"}
+          testId="trading-status"
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Category Exposure */}
-        <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
+        <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4" data-testid="category-exposure">
           <h3 className="text-sm font-medium text-zinc-400 mb-4">Category Exposure</h3>
           {pieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={200} data-testid="category-pie-chart">
               <PieChart>
                 <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}>
                   {pieData.map((_, i) => (
@@ -101,15 +105,15 @@ export default function Risk() {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[200px] flex items-center justify-center text-zinc-500 text-sm">
+            <div className="h-[200px] flex items-center justify-center text-zinc-500 text-sm" data-testid="category-exposure-empty">
               No positions
             </div>
           )}
         </div>
 
         {/* Risk Limits Table */}
-        <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
-          <h3 className="text-sm font-medium text-zinc-400 mb-4">
+        <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4" data-testid="risk-limits-section">
+          <h3 className="text-sm font-medium text-zinc-400 mb-4" data-testid="risk-limits-title">
             Risk Limits ({limits?.tier.toUpperCase()})
           </h3>
           {limits && (
@@ -123,8 +127,8 @@ export default function Risk() {
                 { label: "Min Win Prob", value: `${(limits.min_win_prob * 100).toFixed(0)}%` },
                 { label: "Max Per Category", value: `${(limits.max_per_category_pct * 100).toFixed(0)}%` },
                 { label: "Kelly Fraction", value: `${limits.kelly_fraction}x` },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between text-sm">
+              ].map(({ label, value }, i) => (
+                <div key={label} className="flex justify-between text-sm" data-testid={`risk-limit-${i}`}>
                   <span className="text-zinc-400">{label}</span>
                   <span className="text-white font-medium">{value}</span>
                 </div>

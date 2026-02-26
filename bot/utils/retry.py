@@ -5,35 +5,8 @@ import functools
 from collections.abc import Callable
 
 import structlog
-from tenacity import (
-    RetryCallState,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 logger = structlog.get_logger()
-
-
-def _log_retry(retry_state: RetryCallState) -> None:
-    """Log retry attempts."""
-    logger.warning(
-        "retry_attempt",
-        attempt=retry_state.attempt_number,
-        fn=retry_state.fn.__name__ if retry_state.fn else "unknown",
-        error=str(retry_state.outcome.exception()) if retry_state.outcome else None,
-    )
-
-
-# Retry decorator for API calls
-api_retry = retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=30),
-    retry=retry_if_exception_type((Exception,)),
-    before_sleep=_log_retry,
-    reraise=True,
-)
 
 
 def async_retry(

@@ -28,7 +28,7 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="dashboard-page">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold">Dashboard</h2>
         {portfolio && (
@@ -39,10 +39,14 @@ export default function Dashboard() {
                   ? "bg-yellow-500/20 text-yellow-300"
                   : "bg-green-500/20 text-green-300"
               }`}
+              data-testid="trading-mode-badge"
             >
               {portfolio.is_paper ? "PAPER" : "LIVE"}
             </span>
-            <span className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium">
+            <span
+              className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium"
+              data-testid="tier-badge"
+            >
               {portfolio.tier.toUpperCase()}
             </span>
           </div>
@@ -55,6 +59,7 @@ export default function Dashboard() {
           title="Total Equity"
           value={`$${portfolio?.total_equity.toFixed(2) ?? "—"}`}
           icon={<DollarSign size={16} />}
+          testId="total-equity"
         />
         <StatCard
           title="Today's PnL"
@@ -69,18 +74,21 @@ export default function Dashboard() {
               : "neutral"
           }
           icon={<TrendingUp size={16} />}
+          testId="todays-pnl"
         />
         <StatCard
           title="Win Rate"
           value={stats ? `${(stats.win_rate * 100).toFixed(0)}%` : "—"}
           subtitle={stats ? `${stats.winning_trades}/${stats.total_trades} trades` : undefined}
           icon={<Target size={16} />}
+          testId="win-rate"
         />
         <StatCard
           title="Open Positions"
           value={portfolio?.open_positions ?? 0}
           subtitle={`$${portfolio?.positions_value.toFixed(2) ?? "0"} value`}
           icon={<Layers size={16} />}
+          testId="open-positions"
         />
       </div>
 
@@ -89,13 +97,14 @@ export default function Dashboard() {
 
       {/* Active Positions */}
       {positions && positions.length > 0 && (
-        <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
+        <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4" data-testid="active-positions-section">
           <h3 className="text-sm font-medium text-zinc-400 mb-3">Active Positions</h3>
           <div className="space-y-2">
             {positions.map((p) => (
               <div
                 key={p.id}
                 className="flex items-center justify-between py-2 px-3 rounded bg-[#0f1117]/50"
+                data-testid={`position-row-${p.id}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate">{p.question}</div>
@@ -120,7 +129,7 @@ export default function Dashboard() {
       )}
 
       {/* Recent Trades */}
-      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
+      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4" data-testid="recent-trades-section">
         <h3 className="text-sm font-medium text-zinc-400 mb-3">Recent Trades</h3>
         <TradeTable trades={recentTrades ?? []} compact />
       </div>

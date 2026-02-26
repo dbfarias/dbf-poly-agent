@@ -53,22 +53,25 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl" data-testid="settings-page">
       <h2 className="text-xl font-bold">Settings</h2>
 
       {/* Trading Controls */}
-      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5">
+      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5" data-testid="trading-controls">
         <h3 className="font-medium text-white mb-4">Trading Controls</h3>
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <div className="text-sm text-zinc-400">Mode</div>
-            <div className="text-lg font-bold text-white mt-1">
+            <div className="text-lg font-bold text-white mt-1" data-testid="trading-mode">
               {config?.trading_mode.toUpperCase()}
             </div>
           </div>
           <div className="flex-1">
             <div className="text-sm text-zinc-400">Status</div>
-            <div className={`text-lg font-bold mt-1 ${risk?.is_paused ? "text-red-400" : "text-green-400"}`}>
+            <div
+              className={`text-lg font-bold mt-1 ${risk?.is_paused ? "text-red-400" : "text-green-400"}`}
+              data-testid="trading-status"
+            >
               {risk?.is_paused ? "PAUSED" : "RUNNING"}
             </div>
           </div>
@@ -77,6 +80,7 @@ export default function Settings() {
               <button
                 onClick={() => resumeMut.mutate()}
                 className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700"
+                data-testid="resume-btn"
               >
                 Resume
               </button>
@@ -84,6 +88,7 @@ export default function Settings() {
               <button
                 onClick={() => pauseMut.mutate()}
                 className="px-4 py-2 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700"
+                data-testid="pause-btn"
               >
                 Pause
               </button>
@@ -103,6 +108,7 @@ export default function Settings() {
               defaultValue={config?.scan_interval_seconds}
               onChange={(e) => setScanInterval(Number(e.target.value))}
               className="mt-1 w-full bg-[#0f1117] border border-[#2a2d3e] rounded px-3 py-2 text-white text-sm"
+              data-testid="input-scan-interval"
             />
           </div>
           <div>
@@ -113,6 +119,7 @@ export default function Settings() {
               defaultValue={config ? config.max_daily_loss_pct * 100 : 10}
               onChange={(e) => setMaxLoss(Number(e.target.value))}
               className="mt-1 w-full bg-[#0f1117] border border-[#2a2d3e] rounded px-3 py-2 text-white text-sm"
+              data-testid="input-max-daily-loss"
             />
           </div>
           <div>
@@ -123,11 +130,13 @@ export default function Settings() {
               defaultValue={config ? config.max_drawdown_pct * 100 : 25}
               onChange={(e) => setMaxDD(Number(e.target.value))}
               className="mt-1 w-full bg-[#0f1117] border border-[#2a2d3e] rounded px-3 py-2 text-white text-sm"
+              data-testid="input-max-drawdown"
             />
           </div>
           <button
             onClick={saveConfig}
             className="px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+            data-testid="save-config-btn"
           >
             Save Changes
           </button>
@@ -135,25 +144,28 @@ export default function Settings() {
       </div>
 
       {/* System Info */}
-      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5">
+      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5" data-testid="system-info">
         <h3 className="font-medium text-white mb-4">System Info</h3>
         {health && (
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-zinc-400">Status</span>
-              <span className="text-green-400">{health.status}</span>
+              <span className="text-green-400" data-testid="system-status">{health.status}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-400">Uptime</span>
-              <span className="text-white">{(health.uptime_seconds / 3600).toFixed(1)}h</span>
+              <span className="text-white" data-testid="system-uptime">{(health.uptime_seconds / 3600).toFixed(1)}h</span>
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-400">Cycle Count</span>
-              <span className="text-white">{health.cycle_count}</span>
+              <span className="text-white" data-testid="system-cycle-count">{health.cycle_count}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-zinc-400">Engine</span>
-              <span className={health.engine_running ? "text-green-400" : "text-red-400"}>
+              <span
+                className={health.engine_running ? "text-green-400" : "text-red-400"}
+                data-testid="system-engine"
+              >
                 {health.engine_running ? "Running" : "Stopped"}
               </span>
             </div>

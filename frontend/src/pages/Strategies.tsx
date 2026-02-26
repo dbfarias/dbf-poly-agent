@@ -9,7 +9,7 @@ export default function Strategies() {
     refetchInterval: 30000,
   });
 
-  if (isLoading) return <div className="text-zinc-500">Loading...</div>;
+  if (isLoading) return <div className="text-zinc-500" data-testid="strategies-loading">Loading...</div>;
 
   const all = strategies ?? [];
   const defaultStrategies = [
@@ -20,14 +20,14 @@ export default function Strategies() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="strategies-page">
       <h2 className="text-xl font-bold">Strategy Performance</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {defaultStrategies.map(({ name, label, tier }) => {
           const s = all.find((x) => x.strategy === name);
           return (
-            <div key={name} className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5">
+            <div key={name} className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5" data-testid={`strategy-card-${name}`}>
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-medium text-white">{label}</h3>
@@ -40,13 +40,14 @@ export default function Strategies() {
                       ? "bg-green-500/20 text-green-300"
                       : "bg-zinc-700/50 text-zinc-400",
                   )}
+                  data-testid={`strategy-status-${name}`}
                 >
                   {s && s.total_trades > 0 ? "Active" : "Waiting"}
                 </span>
               </div>
 
               {s && s.total_trades > 0 ? (
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-3 gap-4 text-center" data-testid={`strategy-metrics-${name}`}>
                   <div>
                     <div className="text-lg font-bold text-white">{s.total_trades}</div>
                     <div className="text-xs text-zinc-500">Trades</div>
@@ -86,7 +87,7 @@ export default function Strategies() {
                   </div>
                 </div>
               ) : (
-                <div className="text-zinc-500 text-sm py-4 text-center">
+                <div className="text-zinc-500 text-sm py-4 text-center" data-testid={`strategy-empty-${name}`}>
                   No trades yet. Strategy will activate when conditions are met.
                 </div>
               )}

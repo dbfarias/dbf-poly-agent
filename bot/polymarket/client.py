@@ -5,7 +5,7 @@ from datetime import datetime
 
 import structlog
 
-from bot.config import TradingMode, settings
+from bot.config import settings
 from bot.polymarket.types import OrderBook, OrderBookEntry, OrderSide
 from bot.utils.retry import async_retry
 
@@ -17,7 +17,12 @@ MIN_ORDER_SIZE_USD = 5.0
 
 
 class PolymarketClient:
-    """Async wrapper around py-clob-client."""
+    """Async wrapper around py-clob-client.
+
+    Connects to Polymarket CLOB API using the private key.
+    API credentials are auto-derived — no need to provide them manually.
+    Connects even in paper mode so we can display real balances.
+    """
 
     def __init__(self):
         self._clob_client = None
@@ -26,42 +31,99 @@ class PolymarketClient:
         self._paper_order_counter = 0
 
     async def initialize(self) -> None:
-        """Initialize the CLOB client. Must be called before use."""
-        if settings.trading_mode == TradingMode.LIVE and settings.poly_api_key:
+        """Initialize the CLOB client. Must be called before use.
+
+        Always connects to Polymarket if a private key is available,
+        even in paper mode (for balance display). API credentials are
+        auto-derived from the private key.
+        """
+        if settings.poly_private_key:
             try:
                 from py_clob_client.client import ClobClient
-                from py_clob_client.clob_types import ApiCreds
 
-                creds = ApiCreds(
-                    api_key=settings.poly_api_key,
-                    api_secret=settings.poly_api_secret,
-                    api_passphrase=settings.poly_api_passphrase,
-                )
+                # Step 1: Create Level-1 client (private key + signature type)
                 self._clob_client = ClobClient(
                     host="https://clob.polymarket.com",
                     chain_id=settings.poly_chain_id,
                     key=settings.poly_private_key,
-                    creds=creds,
+                    signature_type=settings.poly_signature_type,
                 )
-                # Derive API key if needed
-                await asyncio.to_thread(self._clob_client.set_api_creds, creds)
+
+                # Step 2: Auto-derive API credentials from private key
+                creds = await asyncio.to_thread(
+                    self._clob_client.create_or_derive_api_creds
+                )
+                await asyncio.to_thread(
+                    self._clob_client.set_api_creds, creds
+                )
+
+                address = self._clob_client.get_address()
                 self._initialized = True
-                logger.info("clob_client_initialized", mode="live")
+                logger.info(
+                    "clob_client_initialized",
+                    mode=settings.trading_mode.value,
+                    address=address,
+                    api_key=creds.api_key,
+                )
             except Exception as e:
                 logger.error("clob_client_init_failed", error=str(e))
-                raise
+                # In paper mode, failing to connect is non-fatal
+                if settings.is_paper:
+                    self._initialized = True
+                    logger.warning("clob_fallback_paper_only")
+                else:
+                    raise
         else:
             self._initialized = True
-            logger.info("clob_client_initialized", mode="paper")
+            logger.info("clob_client_initialized", mode="paper_no_key")
 
     @property
     def is_paper(self) -> bool:
-        return settings.is_paper or self._clob_client is None
+        return settings.is_paper
+
+    @property
+    def is_connected(self) -> bool:
+        return self._clob_client is not None
+
+    def get_address(self) -> str | None:
+        """Get the wallet address from the connected client."""
+        if self._clob_client is None:
+            return None
+        try:
+            return self._clob_client.get_address()
+        except Exception:
+            return None
+
+    @async_retry(max_attempts=3, min_wait=1, max_wait=15)
+    async def get_balance(self) -> float | None:
+        """Fetch real USDC balance from Polymarket.
+
+        Returns None if not connected (no private key).
+        Works in both paper and live mode.
+        """
+        if self._clob_client is None:
+            return None
+
+        try:
+            from py_clob_client.clob_types import BalanceAllowanceParams
+
+            params = BalanceAllowanceParams(asset_type="COLLATERAL")
+            result = await asyncio.to_thread(
+                self._clob_client.get_balance_allowance, params
+            )
+            balance = float(result.get("balance", 0))
+            # USDC has 6 decimals on Polygon
+            balance_usd = balance / 1e6
+            logger.debug("polymarket_balance_fetched", balance_usd=balance_usd)
+            return balance_usd
+        except Exception as e:
+            logger.error("get_balance_failed", error=str(e))
+            return None
 
     @async_retry(max_attempts=3, min_wait=1, max_wait=15)
     async def get_order_book(self, token_id: str) -> OrderBook:
         """Fetch order book for a token."""
-        if self.is_paper:
+        if self.is_paper or self._clob_client is None:
             return OrderBook(asset_id=token_id)
 
         raw = await asyncio.to_thread(self._clob_client.get_order_book, token_id)
@@ -92,6 +154,10 @@ class PolymarketClient:
 
         if self.is_paper:
             return self._paper_place_order(token_id, side, price, size)
+
+        if self._clob_client is None:
+            logger.error("order_failed_no_client")
+            return {"error": "clob_client_not_initialized"}
 
         from py_clob_client.clob_types import OrderArgs
 
@@ -126,6 +192,9 @@ class PolymarketClient:
             logger.info("paper_order_cancelled", order_id=order_id)
             return True
 
+        if self._clob_client is None:
+            return False
+
         try:
             await asyncio.to_thread(self._clob_client.cancel, order_id)
             logger.info("order_cancelled", order_id=order_id)
@@ -140,6 +209,9 @@ class PolymarketClient:
             self._paper_orders.clear()
             return True
 
+        if self._clob_client is None:
+            return False
+
         try:
             await asyncio.to_thread(self._clob_client.cancel_all)
             logger.info("all_orders_cancelled")
@@ -153,6 +225,9 @@ class PolymarketClient:
         """Get all open orders."""
         if self.is_paper:
             return [o for o in self._paper_orders if o["status"] == "LIVE"]
+
+        if self._clob_client is None:
+            return []
 
         try:
             orders = await asyncio.to_thread(self._clob_client.get_orders)

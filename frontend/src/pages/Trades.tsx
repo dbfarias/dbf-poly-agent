@@ -39,12 +39,13 @@ export default function Trades() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="trades-page">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold">Trade History</h2>
         <button
           onClick={exportCSV}
           className="flex items-center gap-2 px-3 py-1.5 rounded bg-[#1e2130] border border-[#2a2d3e] text-sm text-zinc-300 hover:bg-white/5"
+          data-testid="export-csv-btn"
         >
           <Download size={14} /> Export CSV
         </button>
@@ -52,17 +53,19 @@ export default function Trades() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Trades" value={stats?.total_trades ?? 0} />
+        <StatCard title="Total Trades" value={stats?.total_trades ?? 0} testId="total-trades" />
         <StatCard
           title="Win Rate"
           value={stats ? `${(stats.win_rate * 100).toFixed(0)}%` : "—"}
+          testId="trades-win-rate"
         />
         <StatCard
           title="Total PnL"
           value={`$${stats?.total_pnl.toFixed(2) ?? "0"}`}
           trend={stats?.total_pnl ? (stats.total_pnl > 0 ? "up" : "down") : "neutral"}
+          testId="total-pnl"
         />
-        <StatCard title="Winning" value={stats?.winning_trades ?? 0} />
+        <StatCard title="Winning" value={stats?.winning_trades ?? 0} testId="winning-trades" />
       </div>
 
       {/* Filters */}
@@ -71,6 +74,7 @@ export default function Trades() {
           value={strategy}
           onChange={(e) => setStrategy(e.target.value)}
           className="bg-[#1e2130] border border-[#2a2d3e] rounded px-3 py-1.5 text-sm text-zinc-300"
+          data-testid="strategy-filter"
         >
           <option value="">All strategies</option>
           <option value="time_decay">Time Decay</option>
@@ -82,6 +86,7 @@ export default function Trades() {
           value={limit}
           onChange={(e) => setLimit(Number(e.target.value))}
           className="bg-[#1e2130] border border-[#2a2d3e] rounded px-3 py-1.5 text-sm text-zinc-300"
+          data-testid="limit-filter"
         >
           <option value={25}>25 trades</option>
           <option value={50}>50 trades</option>
