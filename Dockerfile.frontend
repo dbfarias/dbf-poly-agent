@@ -6,6 +6,7 @@ ENV VITE_API_KEY=$VITE_API_KEY
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
+ENV NODE_OPTIONS="--max-old-space-size=512"
 RUN npm run build
 
 FROM nginx:alpine
