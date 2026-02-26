@@ -19,9 +19,9 @@ PROXY_INIT_CODE_HASH = bytes.fromhex(
 
 # Tick size constants for Polymarket CLOB
 TICK_SIZE = 0.01
-# Polymarket enforces $5 minimum in live mode; paper mode uses $1 to allow
-# micro-operations with small bankrolls.
-MIN_ORDER_SIZE_USD = 1.0 if settings.is_paper else 5.0
+# Minimum order size in USD. Polymarket accepts orders as low as ~$0.10,
+# but we set $1 floor to avoid dust trades with negligible profit.
+MIN_ORDER_SIZE_USD = 1.0
 
 
 def derive_proxy_wallet(signer_address: str) -> str:
