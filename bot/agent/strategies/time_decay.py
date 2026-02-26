@@ -1,11 +1,11 @@
-"""Time Decay strategy: buy near-certain outcomes close to resolution.
+"""High-probability strategy: buy outcomes with strong implied probability.
 
-Core idea: Markets that resolve within <48h with high implied probability
-(>85%) tend to resolve as expected. Buy YES tokens at 0.90-0.97, collect
-$1.00 at resolution for 3-10% profit.
+Core idea: Markets with high implied probability (>90%) tend to resolve
+as expected. Buy YES tokens at 0.90-0.97, collect $1.00 at resolution
+for 3-10% profit. Closer to resolution = higher confidence.
 
-Example: "BTC above $50K on March 1?" with BTC at $95K on Feb 28.
-YES is trading at $0.97. Buy YES, wait for resolution, collect $1.00.
+Works across all timeframes but assigns higher confidence and edge
+to markets closer to resolution.
 """
 
 from datetime import datetime, timezone
@@ -20,21 +20,22 @@ from .base import BaseStrategy
 logger = structlog.get_logger()
 
 # Strategy parameters
-MAX_HOURS_TO_RESOLUTION = 48.0
+MAX_HOURS_TO_RESOLUTION = 720.0  # 30 days — covers most active markets
 MIN_IMPLIED_PROB = 0.85
-MAX_PRICE = 0.99  # Don't buy above this (too little profit)
+MAX_PRICE = 0.97  # Don't buy above this (too little profit margin)
 MIN_PRICE = 0.90  # Only high-probability markets (90%+)
-CONFIDENCE_BASE = 0.80  # Base confidence for this strategy
+MIN_EDGE = 0.015  # 1.5% minimum edge
+CONFIDENCE_BASE = 0.75  # Base confidence for this strategy
 
 
 class TimeDecayStrategy(BaseStrategy):
-    """Buy near-certain outcomes close to market resolution."""
+    """Buy high-probability outcomes, prefer markets near resolution."""
 
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
-        """Scan for near-resolution markets with high-probability outcomes."""
+        """Scan for high-probability outcomes."""
         signals = []
         now = datetime.now(timezone.utc)
 
@@ -51,7 +52,7 @@ class TimeDecayStrategy(BaseStrategy):
     async def _evaluate_market(
         self, market: GammaMarket, now: datetime
     ) -> TradeSignal | None:
-        """Evaluate a single market for time decay opportunity."""
+        """Evaluate a single market for high-probability opportunity."""
         # Must have an end date
         end = market.end_date
         if end is None:
@@ -84,15 +85,13 @@ class TimeDecayStrategy(BaseStrategy):
                 continue
 
             # Estimate real probability
-            # Near resolution, high price = very likely outcome
-            # The closer to resolution and higher the price, the more certain
             estimated_prob = self._estimate_probability(price, hours_left)
 
             if estimated_prob < MIN_IMPLIED_PROB:
                 continue
 
             edge_val = estimated_prob - price
-            if edge_val < 0.015:  # Need at least 1.5% edge
+            if edge_val < MIN_EDGE:
                 continue
 
             # Calculate confidence based on multiple factors
@@ -111,8 +110,8 @@ class TimeDecayStrategy(BaseStrategy):
                 size_usd=0.0,  # Will be set by risk manager
                 confidence=confidence,
                 reasoning=(
-                    f"Time decay: {outcome} at ${price:.2f} with "
-                    f"{hours_left:.1f}h to resolution. "
+                    f"High-prob: {outcome} at ${price:.2f} with "
+                    f"{hours_left:.0f}h to resolution. "
                     f"Est. prob: {estimated_prob:.1%}, Edge: {edge_val:.1%}"
                 ),
                 metadata={
@@ -128,17 +127,21 @@ class TimeDecayStrategy(BaseStrategy):
     ) -> float:
         """Estimate real probability from market data.
 
-        As resolution nears, remaining uncertainty decreases.
-        Near-certainty bonus for very high price + close to resolution.
-        Markets from the sampling endpoint are already liquid/active.
+        High price on an active market = strong consensus.
+        Closer to resolution = less uncertainty remains.
         """
         base_prob = market_price
 
-        # Time factor: less time = price is more accurate
-        time_factor = max(0, 1.0 - hours_left / MAX_HOURS_TO_RESOLUTION) * 0.03
+        # Time factor: less time = price is more accurate (scales 0 to 0.04)
+        time_factor = max(0, 1.0 - hours_left / MAX_HOURS_TO_RESOLUTION) * 0.04
 
         # Near-certainty bonus: very high price + close to resolution
-        near_certainty = 0.02 if (market_price >= 0.95 and hours_left <= 12) else 0.0
+        if market_price >= 0.95 and hours_left <= 72:
+            near_certainty = 0.03
+        elif market_price >= 0.93 and hours_left <= 168:
+            near_certainty = 0.02
+        else:
+            near_certainty = 0.0
 
         estimated = base_prob + time_factor + near_certainty
         return min(0.99, estimated)
@@ -150,20 +153,23 @@ class TimeDecayStrategy(BaseStrategy):
         # Higher price = more confident
         if price >= 0.95:
             confidence += 0.10
+        elif price >= 0.92:
+            confidence += 0.06
         elif price >= 0.90:
-            confidence += 0.05
+            confidence += 0.03
 
         # Less time = more confident
-        if hours_left <= 12:
-            confidence += 0.05
-        elif hours_left <= 24:
+        if hours_left <= 48:
+            confidence += 0.08
+        elif hours_left <= 168:  # 1 week
+            confidence += 0.04
+        elif hours_left <= 336:  # 2 weeks
             confidence += 0.02
 
         return min(0.99, confidence)
 
     async def should_exit(self, market_id: str, current_price: float) -> bool:
         """Exit if price drops significantly (something unexpected happened)."""
-        # If price drops below 0.70, something is wrong — exit
         if current_price < 0.70:
             self.logger.warning(
                 "time_decay_exit_triggered",

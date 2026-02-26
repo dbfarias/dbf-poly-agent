@@ -19,7 +19,7 @@ def strategy():
 
 
 def _make_market(
-    hours_to_resolution: float = 6.0,
+    hours_to_resolution: float = 100.0,
     price: float = 0.92,
     end_date_iso: str | None = None,
     outcomes: list[str] | None = None,
@@ -54,20 +54,20 @@ def _make_market(
 
 class TestEstimateProbability:
     def test_high_price_near_resolution(self, strategy):
-        # price=0.95, hours_left=2 → base=0.95, time_factor≈0.029, near_certainty=0.02
-        prob = strategy._estimate_probability(0.95, 2.0)
+        # price=0.95, hours_left=24 → base=0.95, time_factor≈0.039, near_certainty=0.03
+        prob = strategy._estimate_probability(0.95, 24.0)
         assert prob > 0.95
         assert prob <= 0.99
 
     def test_far_from_resolution(self, strategy):
-        # 47 hours → time_factor ≈ (1 - 47/48) * 0.03 ≈ 0.0006
-        prob = strategy._estimate_probability(0.90, 47.0)
+        # 700 hours → time_factor ≈ (1 - 700/720) * 0.04 ≈ 0.001
+        prob = strategy._estimate_probability(0.90, 700.0)
         assert prob < 0.93
 
     def test_near_certainty_bonus(self, strategy):
-        # price>=0.95 and hours<=12 gives +0.02 bonus
-        prob_bonus = strategy._estimate_probability(0.95, 10.0)
-        prob_no_bonus = strategy._estimate_probability(0.95, 20.0)
+        # price>=0.95 and hours<=72 gives +0.03 bonus
+        prob_bonus = strategy._estimate_probability(0.95, 50.0)
+        prob_no_bonus = strategy._estimate_probability(0.95, 500.0)
         assert prob_bonus > prob_no_bonus
 
     def test_capped_at_099(self, strategy):
@@ -82,25 +82,25 @@ class TestEstimateProbability:
 
 class TestCalculateConfidence:
     def test_base_confidence(self, strategy):
-        # Low price (0.80), far resolution (48h) → base only
-        conf = strategy._calculate_confidence(0.80, 48.0)
-        assert conf == pytest.approx(0.80)
+        # Low price (0.80), far resolution (720h) → base only
+        conf = strategy._calculate_confidence(0.80, 720.0)
+        assert conf == pytest.approx(0.75)
 
     def test_price_ge_095_adds_010(self, strategy):
-        conf = strategy._calculate_confidence(0.96, 48.0)
-        assert conf == pytest.approx(0.90)
-
-    def test_price_ge_090_adds_005(self, strategy):
-        conf = strategy._calculate_confidence(0.91, 48.0)
+        conf = strategy._calculate_confidence(0.96, 720.0)
         assert conf == pytest.approx(0.85)
 
-    def test_hours_le_12_adds_005(self, strategy):
-        conf = strategy._calculate_confidence(0.80, 10.0)
-        assert conf == pytest.approx(0.85)
+    def test_price_ge_090_adds_003(self, strategy):
+        conf = strategy._calculate_confidence(0.91, 720.0)
+        assert conf == pytest.approx(0.78)
 
-    def test_hours_le_24_adds_002(self, strategy):
-        conf = strategy._calculate_confidence(0.80, 20.0)
-        assert conf == pytest.approx(0.82)
+    def test_hours_le_48_adds_008(self, strategy):
+        conf = strategy._calculate_confidence(0.80, 40.0)
+        assert conf == pytest.approx(0.83)
+
+    def test_hours_le_168_adds_004(self, strategy):
+        conf = strategy._calculate_confidence(0.80, 100.0)
+        assert conf == pytest.approx(0.79)
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +123,8 @@ class TestShouldExit:
 
 class TestEvaluateMarket:
     async def test_valid_market_returns_signal(self, strategy):
-        # price=0.90, hours=3 → prob≈0.95 → edge≈0.05 > 0.015
-        market = _make_market(hours_to_resolution=3.0, price=0.90)
+        # price=0.92, hours=100 → should find edge
+        market = _make_market(hours_to_resolution=100.0, price=0.92)
         now = datetime.now(timezone.utc)
         signal = await strategy._evaluate_market(market, now)
         assert signal is not None
@@ -147,6 +147,13 @@ class TestEvaluateMarket:
     async def test_expired_market_returns_none(self, strategy):
         past = datetime.now(timezone.utc) - timedelta(hours=2)
         market = _make_market(end_date_iso=past.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        now = datetime.now(timezone.utc)
+        signal = await strategy._evaluate_market(market, now)
+        assert signal is None
+
+    async def test_too_far_market_returns_none(self, strategy):
+        # 800 hours > 720 limit
+        market = _make_market(hours_to_resolution=800.0)
         now = datetime.now(timezone.utc)
         signal = await strategy._evaluate_market(market, now)
         assert signal is None
