@@ -35,6 +35,16 @@ class OrderManager:
         """Set callback invoked when a pending order is confirmed filled."""
         self._on_fill_callback = callback
 
+    @property
+    def pending_market_ids(self) -> set[str]:
+        """Market IDs with pending orders on the CLOB."""
+        return {info["signal"].market_id for info in self._pending_orders.values()}
+
+    @property
+    def pending_capital(self) -> float:
+        """Total capital locked by pending CLOB orders."""
+        return sum(info["signal"].size_usd for info in self._pending_orders.values())
+
     async def execute_signal(self, signal: TradeSignal) -> Trade | None:
         """Execute a trade signal by placing an order."""
         logger.info(
@@ -51,13 +61,18 @@ class OrderManager:
             logger.error("invalid_price", price=signal.market_price)
             return None
 
-        shares = signal.size_usd / signal.market_price
+        # Adjust price to order book ask/bid for immediate fills
+        actual_price = await self._get_fill_price(signal)
+        if actual_price is None:
+            return None
+
+        shares = signal.size_usd / actual_price
 
         # Place the order
         result = await self.clob.place_order(
             token_id=signal.token_id,
             side=signal.side,
-            price=signal.market_price,
+            price=actual_price,
             size=round(shares, 2),
         )
 
@@ -90,7 +105,7 @@ class OrderManager:
             outcome=signal.outcome,
             order_id=order_id,
             side=signal.side.value,
-            price=signal.market_price,
+            price=actual_price,
             size=shares,
             filled_size=shares if is_filled else 0,
             cost_usd=signal.size_usd,
@@ -244,3 +259,97 @@ class OrderManager:
     @property
     def pending_count(self) -> int:
         return len(self._pending_orders)
+
+    async def _get_fill_price(self, signal: TradeSignal) -> float | None:
+        """Get the actual price from the order book to ensure fills.
+
+        For BUY orders: use best_ask (price someone is willing to sell at).
+        For SELL orders: use best_bid (price someone is willing to buy at).
+        Falls back to signal.market_price in paper mode or on error.
+
+        Returns None if slippage too high or edge evaporates at real price.
+        """
+        if self.clob.is_paper:
+            return signal.market_price
+
+        max_slippage = 0.03  # 3 cents max slippage from signal price
+        min_edge_after_slippage = 0.005  # 0.5% minimum edge at real price
+
+        try:
+            book = await self.clob.get_order_book(signal.token_id)
+
+            if signal.side == OrderSide.BUY and book.best_ask is not None:
+                actual_price = book.best_ask
+                slippage = actual_price - signal.market_price
+
+                if slippage > max_slippage:
+                    logger.info(
+                        "excessive_slippage",
+                        market_id=signal.market_id,
+                        signal_price=signal.market_price,
+                        ask_price=actual_price,
+                        slippage=slippage,
+                    )
+                    return None
+
+                # Verify edge still exists at actual fill price
+                adjusted_edge = signal.estimated_prob - actual_price
+                if adjusted_edge < min_edge_after_slippage:
+                    logger.info(
+                        "edge_evaporated_at_ask",
+                        market_id=signal.market_id,
+                        signal_price=signal.market_price,
+                        ask_price=actual_price,
+                        original_edge=signal.edge,
+                        adjusted_edge=adjusted_edge,
+                    )
+                    return None
+
+                logger.info(
+                    "price_adjusted_to_ask",
+                    market_id=signal.market_id,
+                    signal_price=signal.market_price,
+                    ask_price=actual_price,
+                    slippage=slippage,
+                )
+                return actual_price
+
+            elif signal.side == OrderSide.SELL and book.best_bid is not None:
+                actual_price = book.best_bid
+                slippage = signal.market_price - actual_price
+
+                if slippage > max_slippage:
+                    logger.info(
+                        "excessive_slippage_sell",
+                        market_id=signal.market_id,
+                        signal_price=signal.market_price,
+                        bid_price=actual_price,
+                        slippage=slippage,
+                    )
+                    return None
+
+                logger.info(
+                    "price_adjusted_to_bid",
+                    market_id=signal.market_id,
+                    signal_price=signal.market_price,
+                    bid_price=actual_price,
+                    slippage=slippage,
+                )
+                return actual_price
+
+            # No asks/bids available — illiquid market
+            logger.info(
+                "no_orderbook_depth",
+                market_id=signal.market_id,
+                side=signal.side.value,
+            )
+            return None
+
+        except Exception as e:
+            logger.warning(
+                "orderbook_price_adjustment_failed",
+                market_id=signal.market_id,
+                error=str(e),
+            )
+            # Fall back to signal price on error
+            return signal.market_price

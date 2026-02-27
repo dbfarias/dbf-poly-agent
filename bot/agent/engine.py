@@ -153,12 +153,29 @@ class TradingEngine:
         signals = await self.analyzer.scan_markets(tier)
 
         # 4. Evaluate signals against risk manager
+        # Track capital committed in this cycle to prevent over-allocation
+        cycle_committed = 0.0
+        pending_count = self.order_manager.pending_count
+        pending_markets = self.order_manager.pending_market_ids
+
         for signal in signals:
+            # Skip markets with existing pending orders
+            if signal.market_id in pending_markets:
+                logger.debug(
+                    "signal_skipped_pending_order",
+                    market_id=signal.market_id,
+                    strategy=signal.strategy,
+                )
+                continue
+
+            effective_bankroll = self.portfolio.total_equity - cycle_committed
+
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
-                bankroll=self.portfolio.total_equity,
+                bankroll=effective_bankroll,
                 open_positions=self.portfolio.positions,
                 tier=tier,
+                pending_count=pending_count,
             )
 
             if not approved:
@@ -187,12 +204,18 @@ class TradingEngine:
                     size=trade.size,
                     price=trade.price,
                 )
+                cycle_committed += trade.cost_usd
             elif trade:
+                # Pending order — track committed capital for this cycle
+                cycle_committed += trade.cost_usd
+                pending_count += 1
+                pending_markets.add(signal.market_id)
                 logger.info(
                     "order_pending",
                     trade_id=trade.id,
                     market_id=signal.market_id,
                     status=trade.status,
+                    cycle_committed=cycle_committed,
                 )
 
         # 6. Monitor pending orders

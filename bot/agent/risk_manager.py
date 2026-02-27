@@ -68,10 +68,13 @@ class RiskManager:
         bankroll: float,
         open_positions: list[Position],
         tier: CapitalTier,
+        pending_count: int = 0,
     ) -> tuple[bool, float, str]:
         """Evaluate a trade signal against all risk checks.
 
         Returns (approved, adjusted_size, reason).
+        pending_count: number of pending CLOB orders (not yet filled)
+                       that should count toward position limits.
         """
         config = TierConfig.get(tier)
 
@@ -81,7 +84,7 @@ class RiskManager:
             self._check_duplicate_position(signal, open_positions),
             self._check_daily_loss(bankroll, config),
             self._check_drawdown(bankroll, config),
-            self._check_max_positions(open_positions, config),
+            self._check_max_positions(open_positions, config, pending_count),
             self._check_total_deployed(open_positions, bankroll, config),
             self._check_category_exposure(signal, open_positions, bankroll, config),
             self._check_min_edge(signal, config),
@@ -146,12 +149,14 @@ class RiskManager:
         return RiskCheckResult(True)
 
     def _check_max_positions(
-        self, open_positions: list[Position], config: dict
+        self, open_positions: list[Position], config: dict, pending_count: int = 0
     ) -> RiskCheckResult:
-        if len(open_positions) >= config["max_positions"]:
+        total = len(open_positions) + pending_count
+        if total >= config["max_positions"]:
             return RiskCheckResult(
                 False,
-                f"Max positions reached: {len(open_positions)} >= {config['max_positions']}",
+                f"Max positions reached: {total} >= {config['max_positions']} "
+                f"({len(open_positions)} open + {pending_count} pending)",
             )
         return RiskCheckResult(True)
 

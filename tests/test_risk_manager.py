@@ -285,6 +285,21 @@ class TestCheckMaxPositions:
         positions = [make_position(market_id=f"mkt{i}") for i in range(10)]
         assert rm._check_max_positions(positions, config).passed is True
 
+    def test_pending_count_added_to_total(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(3)]
+        # 3 open + 2 pending = 5 → at limit → fails
+        result = rm._check_max_positions(positions, config, pending_count=2)
+        assert result.passed is False
+        assert "pending" in result.reason.lower()
+
+    def test_pending_count_under_limit_passes(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(2)]
+        # 2 open + 2 pending = 4 → under 5 → passes
+        result = rm._check_max_positions(positions, config, pending_count=2)
+        assert result.passed is True
+
 
 # ---------------------------------------------------------------------------
 # _check_total_deployed
@@ -448,12 +463,35 @@ class TestEvaluateSignal:
         assert approved is False
         assert "edge" in reason.lower()
 
-    async def test_max_positions_blocks(self, rm):
-        signal = make_signal()
-        # Tier 1 allows 3 positions — fill all 3 to trigger rejection
+    async def test_duplicate_position_blocks(self, rm):
+        signal = make_signal()  # market_id="mkt1"
+        # mkt1 in positions matches signal → duplicate check fires
         positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(3)]
         approved, size, reason = await rm.evaluate_signal(
             signal, bankroll=100.0, open_positions=positions, tier=CapitalTier.TIER1
+        )
+        assert approved is False
+        assert "position" in reason.lower()
+
+    async def test_max_positions_with_pending_blocks(self, rm):
+        signal = make_signal(metadata={"category": ""})
+        signal = TradeSignal(
+            strategy="time_decay",
+            market_id="mkt_new",
+            token_id="token_new",
+            side=OrderSide.BUY,
+            estimated_prob=0.92,
+            market_price=0.86,
+            edge=0.06,
+            size_usd=0.0,
+            confidence=0.85,
+            metadata={},
+        )
+        # Tier 1 max_positions=5: 3 open + 2 pending = 5 → rejected
+        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(3)]
+        approved, size, reason = await rm.evaluate_signal(
+            signal, bankroll=100.0, open_positions=positions,
+            tier=CapitalTier.TIER1, pending_count=2,
         )
         assert approved is False
         assert "position" in reason.lower()
