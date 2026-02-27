@@ -424,6 +424,10 @@ class PerformanceLearner:
         }
 
         for trade in trades:
+            # Skip open trades (pnl=0, no exit) — they haven't resolved yet
+            # and would distort calibration by appearing as losses
+            if trade.pnl == 0 and not trade.exit_reason:
+                continue
             prob = trade.estimated_prob
             if 0.80 <= prob < 0.85:
                 buckets["80-85"].append(trade)

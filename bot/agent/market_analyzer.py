@@ -252,12 +252,11 @@ class MarketAnalyzer:
                     )
                     continue
 
-                # Ensure best bid is reasonable relative to fair price
-                # (prevents entering markets where bids are at $0.001)
-                fair_price = max(
-                    market.best_bid_price, market.best_ask_price,
-                    *(market.outcome_price_list or [0.0]),
-                )
+                # Ensure best bid is reasonable relative to the YES ask price.
+                # bestBid/bestAsk from Gamma are for the YES token only,
+                # so use best_ask_price as fair price (NOT outcome_price_list
+                # which includes both YES and NO sides).
+                fair_price = market.best_ask_price
                 if fair_price > 0.10 and market.best_bid_price < fair_price * self.MIN_BID_RATIO:
                     filtered_reasons["no_exit_liquidity"] = (
                         filtered_reasons.get("no_exit_liquidity", 0) + 1
