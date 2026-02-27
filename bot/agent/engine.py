@@ -81,6 +81,9 @@ class TradingEngine:
         await self.portfolio.sync()
         await self._seed_strategy_metrics()
 
+        # Wire up deferred fill callback for live orders
+        self.order_manager.set_on_fill_callback(self._handle_order_fill)
+
         logger.info(
             "engine_initialized",
             equity=self.portfolio.total_equity,
@@ -171,7 +174,8 @@ class TradingEngine:
 
             # 5. Execute trade
             trade = await self.order_manager.execute_signal(signal)
-            if trade:
+            if trade and trade.status == "filled":
+                # Immediately filled (paper mode or CLOB matched)
                 await self.portfolio.record_trade_open(
                     market_id=signal.market_id,
                     token_id=signal.token_id,
@@ -182,6 +186,13 @@ class TradingEngine:
                     side=signal.side.value,
                     size=trade.size,
                     price=trade.price,
+                )
+            elif trade:
+                logger.info(
+                    "order_pending",
+                    trade_id=trade.id,
+                    market_id=signal.market_id,
+                    status=trade.status,
                 )
 
         # 6. Monitor pending orders
@@ -198,6 +209,26 @@ class TradingEngine:
             cycle=self._cycle_count,
             equity=self.portfolio.total_equity,
             pending_orders=self.order_manager.pending_count,
+        )
+
+    async def _handle_order_fill(self, signal, shares: float) -> None:
+        """Callback when a pending live order is confirmed filled."""
+        logger.info(
+            "deferred_fill_creating_position",
+            market_id=signal.market_id,
+            strategy=signal.strategy,
+            shares=shares,
+        )
+        await self.portfolio.record_trade_open(
+            market_id=signal.market_id,
+            token_id=signal.token_id,
+            question=signal.question,
+            outcome=signal.outcome,
+            category=signal.metadata.get("category", ""),
+            strategy=signal.strategy,
+            side=signal.side.value,
+            size=shares,
+            price=signal.market_price,
         )
 
     async def _check_liquidity(self, signal) -> bool:
