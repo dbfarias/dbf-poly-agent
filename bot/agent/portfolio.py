@@ -173,8 +173,24 @@ class Portfolio:
 
             # Close local positions no longer on Polymarket
             local_positions = await pos_repo.get_open()
+            now = datetime.utcnow()
             for lp in local_positions:
                 if lp.market_id in remote_market_ids:
+                    continue
+
+                # Grace period: skip recently created positions to avoid
+                # race condition where Data API hasn't processed the order yet
+                age_seconds = (
+                    (now - lp.created_at).total_seconds()
+                    if lp.created_at else 0
+                )
+                if age_seconds < 600:  # 10 minutes
+                    logger.info(
+                        "skipping_recent_position",
+                        market_id=lp.market_id,
+                        age_seconds=round(age_seconds),
+                        strategy=lp.strategy,
+                    )
                     continue
 
                 if lp.strategy == "external":
@@ -310,7 +326,11 @@ class Portfolio:
             repo = PositionRepository(session)
             await repo.upsert(position)
 
-        await self.sync()
+        # Reload positions from DB (without full Polymarket sync to avoid
+        # race condition where Data API hasn't processed the order yet)
+        async with async_session() as session:
+            repo = PositionRepository(session)
+            self._positions = await repo.get_open()
 
     async def record_trade_close(self, market_id: str, close_price: float) -> float:
         """Record a position closing. Returns realized PnL."""

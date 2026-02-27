@@ -167,6 +167,9 @@ class PositionRepository:
         if existing_pos:
             for key in ("size", "avg_price", "current_price", "cost_basis", "unrealized_pnl"):
                 setattr(existing_pos, key, getattr(position, key))
+            # Reopen if position reappears on Polymarket after being closed
+            if position.is_open and not existing_pos.is_open:
+                existing_pos.is_open = True
             existing_pos.updated_at = datetime.utcnow()
             await self.session.commit()
             return existing_pos
