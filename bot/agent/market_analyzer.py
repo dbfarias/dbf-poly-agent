@@ -228,12 +228,13 @@ class MarketAnalyzer:
                 )
                 continue
 
-            # Skip neg_risk markets (multi-candidate primaries with thin books)
+            # Log neg_risk markets but don't filter them — they include
+            # high-volume primaries that pass spread/liquidity checks.
+            # Individual strategies apply their own criteria.
             if market.neg_risk:
-                filtered_reasons["neg_risk"] = (
-                    filtered_reasons.get("neg_risk", 0) + 1
+                filtered_reasons["neg_risk_count"] = (
+                    filtered_reasons.get("neg_risk_count", 0) + 1
                 )
-                continue
 
             # 24h volume check (from Gamma API data)
             if market.volume_24h > 0 and market.volume_24h < self.MIN_VOLUME_24H:

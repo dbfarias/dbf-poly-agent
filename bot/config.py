@@ -42,7 +42,7 @@ class TierConfig:
             "kelly_fraction": 0.20,         # Slightly more aggressive for learning
         },
         CapitalTier.TIER2: {
-            "max_positions": 4,             # Focus: few quality positions
+            "max_positions": 6,             # Enough slots for diversified short-term trades
             "max_per_position_pct": 0.20,   # ~$6 max per position
             "max_deployed_pct": 0.60,       # Keep 40% cash reserve
             "daily_loss_limit_pct": 0.08,
