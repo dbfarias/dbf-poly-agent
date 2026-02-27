@@ -23,7 +23,7 @@ def test_tier_config_values():
 
     t2 = TierConfig.get(CapitalTier.TIER2)
     assert t2["max_positions"] == 6
-    assert t2["max_deployed_pct"] == 0.60
+    assert t2["max_deployed_pct"] == 0.80
 
     t3 = TierConfig.get(CapitalTier.TIER3)
     assert t3["max_positions"] == 15

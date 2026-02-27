@@ -44,7 +44,7 @@ class TierConfig:
         CapitalTier.TIER2: {
             "max_positions": 6,             # Enough slots for diversified short-term trades
             "max_per_position_pct": 0.20,   # ~$6 max per position
-            "max_deployed_pct": 0.60,       # Keep 40% cash reserve
+            "max_deployed_pct": 0.80,       # Keep 20% cash reserve (6 positions × 20% = full use)
             "daily_loss_limit_pct": 0.08,
             "max_drawdown_pct": 0.15,
             "min_edge_pct": 0.02,
