@@ -33,6 +33,8 @@ MAX_SPREAD = 0.03           # Tighter spread than quality filter
 MIN_VOLUME_24H = 200.0      # Higher volume threshold for swing
 MIN_HOURS_LEFT = 6.0        # Need time for price movement
 PRICE_HISTORY_MAXLEN = 20   # Snapshots kept per market
+MAX_TRACKED_MARKETS = 500   # Hard ceiling on price history dict size
+MAX_MARKET_ID_LEN = 128     # Match DB column width
 
 
 class SwingTradingStrategy(BaseStrategy):
@@ -57,14 +59,33 @@ class SwingTradingStrategy(BaseStrategy):
         self._price_history: dict[str, deque[float]] = {}
 
     def _update_price_history(self, markets: list[GammaMarket]) -> None:
-        """Update bestBid snapshots for all markets with valid bid data."""
+        """Update bestBid snapshots; evict stale entries to prevent unbounded growth."""
+        active_ids = {
+            m.id
+            for m in markets
+            if m.id and m.best_bid_price is not None and m.best_bid_price > 0
+        }
+
+        # Evict market IDs no longer in current scan
+        stale = [mid for mid in self._price_history if mid not in active_ids]
+        for mid in stale:
+            del self._price_history[mid]
+
         for market in markets:
-            if market.best_bid_price is not None and market.best_bid_price > 0:
-                if market.id not in self._price_history:
-                    self._price_history[market.id] = deque(
-                        maxlen=PRICE_HISTORY_MAXLEN
+            mid = market.id
+            if not mid or len(mid) > MAX_MARKET_ID_LEN:
+                continue
+            if market.best_bid_price is None or market.best_bid_price <= 0:
+                continue
+            if mid not in self._price_history:
+                if len(self._price_history) >= MAX_TRACKED_MARKETS:
+                    self.logger.warning(
+                        "price_history_cap_reached",
+                        size=len(self._price_history),
                     )
-                self._price_history[market.id].append(market.best_bid_price)
+                    continue
+                self._price_history[mid] = deque(maxlen=PRICE_HISTORY_MAXLEN)
+            self._price_history[mid].append(market.best_bid_price)
 
     def _detect_momentum(
         self, market_id: str
@@ -136,6 +157,10 @@ class SwingTradingStrategy(BaseStrategy):
         self, market: GammaMarket, now: datetime
     ) -> TradeSignal | None:
         """Evaluate a single market for swing entry."""
+        # Must have a valid market ID
+        if not market.id:
+            return None
+
         # Must have end date and enough time
         end = market.end_date
         if end is None:
@@ -208,7 +233,7 @@ class SwingTradingStrategy(BaseStrategy):
                 question=market.question,
                 side=OrderSide.BUY,
                 outcome=outcome,
-                estimated_prob=price + momentum_pct,
+                estimated_prob=min(0.99, price + momentum_pct),
                 market_price=price,
                 edge=momentum_pct,
                 size_usd=0.0,  # Set by risk manager
@@ -236,8 +261,8 @@ class SwingTradingStrategy(BaseStrategy):
         avg_price = kwargs.get("avg_price")
         created_at = kwargs.get("created_at")
 
-        # Take profit
-        if avg_price and avg_price > 0:
+        # Take profit / stop loss
+        if isinstance(avg_price, (int, float)) and avg_price > 0:
             profit_pct = (current_price - avg_price) / avg_price
             if profit_pct >= self.TAKE_PROFIT_PCT:
                 self.logger.info(
@@ -261,7 +286,7 @@ class SwingTradingStrategy(BaseStrategy):
                 return True
 
         # Time expiry
-        if created_at:
+        if isinstance(created_at, datetime):
             now = datetime.now(timezone.utc)
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=timezone.utc)

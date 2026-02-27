@@ -105,7 +105,7 @@ export default function Dashboard() {
                   : `${(portfolio.daily_progress_pct * 100).toFixed(0)}% progress`}
             </span>
             <span>
-              {portfolio.daily_progress_pct >= 0
+              {(portfolio.polymarket_pnl_today ?? 0) >= 0
                 ? `$${(portfolio.daily_target_usd - (portfolio.polymarket_pnl_today ?? 0)).toFixed(2)} remaining`
                 : `$${Math.abs(portfolio.polymarket_pnl_today ?? 0).toFixed(2)} in the red`}
             </span>
