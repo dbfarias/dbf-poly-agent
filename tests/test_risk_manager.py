@@ -270,14 +270,14 @@ class TestCheckMaxPositions:
         assert rm._check_max_positions([], config).passed is True
 
     def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=8
-        positions = [make_position(market_id=f"mkt{i}") for i in range(8)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
+        positions = [make_position(market_id=f"mkt{i}") for i in range(3)]
         result = rm._check_max_positions(positions, config)
         assert result.passed is False
 
     def test_under_tier1_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=8
-        positions = [make_position(market_id=f"mkt{i}") for i in range(7)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
+        positions = [make_position(market_id=f"mkt{i}") for i in range(2)]
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_tier3_higher_limit(self, rm):
@@ -286,18 +286,18 @@ class TestCheckMaxPositions:
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_pending_count_added_to_total(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=8
-        positions = [make_position(market_id=f"mkt{i}") for i in range(6)]
-        # 6 open + 2 pending = 8 → at limit → fails
-        result = rm._check_max_positions(positions, config, pending_count=2)
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
+        positions = [make_position(market_id=f"mkt{i}") for i in range(2)]
+        # 2 open + 1 pending = 3 → at limit → fails
+        result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is False
         assert "pending" in result.reason.lower()
 
     def test_pending_count_under_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=8
-        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
-        # 5 open + 2 pending = 7 → under 8 → passes
-        result = rm._check_max_positions(positions, config, pending_count=2)
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
+        positions = [make_position(market_id=f"mkt{i}") for i in range(1)]
+        # 1 open + 1 pending = 2 → under 3 → passes
+        result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is True
 
 

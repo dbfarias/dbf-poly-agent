@@ -31,15 +31,15 @@ class TierConfig:
 
     _DEFAULTS = {
         CapitalTier.TIER1: {
-            "max_positions": 8,
-            "max_per_position_pct": 0.15,
-            "max_deployed_pct": 0.85,
+            "max_positions": 3,             # Few focused positions (each ~$5 min)
+            "max_per_position_pct": 0.55,   # Allow $5 trades on $10 bankroll
+            "max_deployed_pct": 0.80,       # Keep 20% cash reserve
             "daily_loss_limit_pct": 0.10,
             "max_drawdown_pct": 0.25,
             "min_edge_pct": 0.01,
             "min_win_prob": 0.65,
-            "max_per_category_pct": 0.30,
-            "kelly_fraction": 0.15,
+            "max_per_category_pct": 0.55,   # Match position pct (1 trade = 1 category)
+            "kelly_fraction": 0.20,         # Slightly more aggressive for learning
         },
         CapitalTier.TIER2: {
             "max_positions": 12,
