@@ -212,6 +212,10 @@ class PolymarketClient:
                 side=side.value,
                 price=price,
                 size=size,
+                clob_status=signed_order.get("status", ""),
+                clob_success=signed_order.get("success"),
+                clob_error=signed_order.get("errorMsg", ""),
+                tx_hashes=signed_order.get("transactionsHashes", []),
             )
             return signed_order
         except Exception as e:

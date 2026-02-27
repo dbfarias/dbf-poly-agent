@@ -42,7 +42,7 @@ class TradingEngine:
         # Components
         self.portfolio = Portfolio(self.clob_client, self.data_api, self.gamma_client)
         self.risk_manager = RiskManager()
-        self.order_manager = OrderManager(self.clob_client)
+        self.order_manager = OrderManager(self.clob_client, self.data_api)
 
         # WebSocket + Heartbeat
         self.ws_manager = WebSocketManager(self.cache)

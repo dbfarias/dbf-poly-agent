@@ -10,6 +10,7 @@ from bot.data.database import async_session
 from bot.data.models import Trade
 from bot.data.repositories import TradeRepository
 from bot.polymarket.client import PolymarketClient
+from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.types import OrderSide, TradeSignal
 from bot.utils.notifications import notify_trade
 
@@ -24,8 +25,9 @@ OnFillCallback = Callable[[TradeSignal, float], Awaitable[None]]
 class OrderManager:
     """Manages the full lifecycle of orders."""
 
-    def __init__(self, clob_client: PolymarketClient):
+    def __init__(self, clob_client: PolymarketClient, data_api: DataApiClient):
         self.clob = clob_client
+        self.data_api = data_api
         self._pending_orders: dict[str, dict] = {}
         self._on_fill_callback: OnFillCallback | None = None
 
@@ -134,41 +136,49 @@ class OrderManager:
         return trade
 
     async def monitor_orders(self) -> None:
-        """Check pending orders and update their status.
+        """Check pending orders and verify fills against Polymarket.
 
-        Uses CLOB API open orders list to determine order state:
-        - Still in open orders → pending, wait
-        - Gone from open orders → likely filled, verify via callback
-        - Timed out → cancel
+        Instead of assuming 'not in open orders = filled', we verify
+        by checking actual positions on Polymarket via the data API.
         """
         if not self._pending_orders:
             return
 
-        try:
-            open_orders = await self.clob.get_open_orders()
-            open_order_ids = {o.get("orderID", o.get("order_id", "")) for o in open_orders}
-        except Exception as e:
-            logger.error("order_monitor_failed", error=str(e))
-            return
+        # Fetch actual positions from Polymarket to verify fills
+        address = self.clob.get_address()
+        real_token_ids: set[str] = set()
+        if address:
+            try:
+                positions = await self.data_api.get_positions(address)
+                real_token_ids = {p.token_id for p in positions if p.size > 0}
+            except Exception as e:
+                logger.error("fill_verification_failed", error=str(e))
+                return
 
         now = datetime.utcnow()
         to_remove = []
 
         for order_id, info in self._pending_orders.items():
-            # Check if order disappeared from open orders (likely filled)
-            if order_id not in open_order_ids:
+            signal = info["signal"]
+            age = (now - info["created_at"]).total_seconds()
+
+            # Check if position actually exists on Polymarket
+            if signal.token_id in real_token_ids:
                 async with async_session() as session:
                     repo = TradeRepository(session)
                     await repo.update_status(info["trade_id"], "filled")
                 to_remove.append(order_id)
-                logger.info("order_filled", order_id=order_id, trade_id=info["trade_id"])
+                logger.info(
+                    "order_fill_verified",
+                    order_id=order_id,
+                    trade_id=info["trade_id"],
+                    token_id=signal.token_id[:20],
+                )
 
-                # Create position via callback (verified by next sync cycle)
+                # Create position via callback
                 if self._on_fill_callback:
                     try:
-                        await self._on_fill_callback(
-                            info["signal"], info["shares"]
-                        )
+                        await self._on_fill_callback(signal, info["shares"])
                     except Exception as e:
                         logger.error(
                             "on_fill_callback_failed",
@@ -177,15 +187,20 @@ class OrderManager:
                         )
                 continue
 
-            # Check for timeout
-            age = (now - info["created_at"]).total_seconds()
+            # Check for timeout - order not filled within time limit
             if age > ORDER_TIMEOUT_SECONDS:
+                # Try to cancel (might already be gone)
                 await self.clob.cancel_order(order_id)
                 async with async_session() as session:
                     repo = TradeRepository(session)
-                    await repo.update_status(info["trade_id"], "cancelled")
+                    await repo.update_status(info["trade_id"], "expired")
                 to_remove.append(order_id)
-                logger.info("order_timed_out", order_id=order_id, age_seconds=age)
+                logger.info(
+                    "order_expired_no_fill",
+                    order_id=order_id,
+                    trade_id=info["trade_id"],
+                    age_seconds=age,
+                )
 
         for oid in to_remove:
             self._pending_orders.pop(oid, None)
