@@ -9,7 +9,8 @@ from bot.config import CapitalTier
 from bot.data.database import async_session
 from bot.data.market_cache import MarketCache
 from bot.data.models import MarketScan
-from bot.data.repositories import MarketScanRepository
+from bot.data.repositories import MarketScanRepository, PositionRepository
+from bot.polymarket.client import PolymarketClient
 from bot.polymarket.gamma import GammaClient
 from bot.polymarket.types import GammaMarket, TradeSignal
 
@@ -21,15 +22,21 @@ logger = structlog.get_logger()
 class MarketAnalyzer:
     """Scans markets and runs strategies to find opportunities."""
 
+    # Quality filter thresholds
+    MAX_SPREAD = 0.04  # 4 cents max spread
+    MAX_CATEGORY_POSITIONS = 2  # Max pending+open per category
+
     def __init__(
         self,
         gamma_client: GammaClient,
         cache: MarketCache,
         strategies: list[BaseStrategy],
+        clob_client: PolymarketClient | None = None,
     ):
         self.gamma = gamma_client
         self.cache = cache
         self.strategies = strategies
+        self.clob = clob_client
 
     async def scan_markets(self, tier: CapitalTier) -> list[TradeSignal]:
         """Scan all markets and return ranked signals from all enabled strategies."""
@@ -43,6 +50,9 @@ class MarketAnalyzer:
             markets = self.cache.get_all_markets()
             if not markets:
                 return []
+
+        # Apply quality filter before strategy evaluation
+        markets = await self._filter_quality(markets)
 
         # Run enabled strategies
         all_signals: list[TradeSignal] = []
@@ -103,6 +113,85 @@ class MarketAnalyzer:
                         )
         return exits
 
+    async def _filter_quality(
+        self, markets: list[GammaMarket]
+    ) -> list[GammaMarket]:
+        """Filter markets by quality before passing to strategies.
+
+        Checks: binary-only, token IDs present, order book depth/spread,
+        and category diversification.
+        """
+        # Get current open positions per category for diversification check
+        category_counts: dict[str, int] = {}
+        try:
+            async with async_session() as session:
+                pos_repo = PositionRepository(session)
+                open_positions = await pos_repo.get_open()
+                for pos in open_positions:
+                    if pos.category:
+                        category_counts[pos.category] = (
+                            category_counts.get(pos.category, 0) + 1
+                        )
+        except Exception as e:
+            logger.warning("quality_filter_position_fetch_failed", error=str(e))
+
+        quality: list[GammaMarket] = []
+        filtered_reasons: dict[str, int] = {}
+
+        for market in markets:
+            # Binary markets only (2 outcomes)
+            if len(market.outcomes) != 2:
+                filtered_reasons["not_binary"] = (
+                    filtered_reasons.get("not_binary", 0) + 1
+                )
+                continue
+
+            # Must have token IDs for both outcomes
+            if not market.token_ids or len(market.token_ids) < 2:
+                filtered_reasons["no_token_ids"] = (
+                    filtered_reasons.get("no_token_ids", 0) + 1
+                )
+                continue
+
+            # Category diversification check
+            if market.category and category_counts.get(
+                market.category, 0
+            ) >= self.MAX_CATEGORY_POSITIONS:
+                filtered_reasons["category_limit"] = (
+                    filtered_reasons.get("category_limit", 0) + 1
+                )
+                continue
+
+            # Order book quality check (requires CLOB client)
+            if self.clob:
+                try:
+                    book = await self.clob.get_order_book(market.token_ids[0])
+                    if not book.bids or not book.asks:
+                        filtered_reasons["no_liquidity"] = (
+                            filtered_reasons.get("no_liquidity", 0) + 1
+                        )
+                        continue
+                    if book.spread is not None and book.spread > self.MAX_SPREAD:
+                        filtered_reasons["wide_spread"] = (
+                            filtered_reasons.get("wide_spread", 0) + 1
+                        )
+                        continue
+                except Exception:
+                    # If order book fetch fails, still allow — don't block on API errors
+                    pass
+
+            quality.append(market)
+
+        if filtered_reasons:
+            logger.info(
+                "quality_filter_applied",
+                original=len(markets),
+                passed=len(quality),
+                reasons=filtered_reasons,
+            )
+
+        return quality
+
     async def _record_scans(
         self, markets: list[GammaMarket], signals: list[TradeSignal]
     ) -> None:
@@ -126,6 +215,7 @@ class MarketAnalyzer:
                 scanned_at=datetime.utcnow(),
                 market_id=market.id,
                 question=market.question[:200],
+                category=market.category or "",
                 yes_price=market.yes_price or 0.0,
                 no_price=market.no_price or 0.0,
                 volume=market.volume,

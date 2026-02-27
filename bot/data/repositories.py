@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.data.models import (
@@ -57,6 +57,65 @@ class TradeRepository:
             "total_pnl": float(total_pnl),
             "win_rate": (wins / total) if total else 0.0,
         }
+
+    async def get_strategy_category_stats(
+        self, days: int = 30
+    ) -> list[dict]:
+        """Get aggregated stats grouped by (strategy, category).
+
+        Returns list of dicts with: strategy, category, total_trades,
+        winning_trades, total_pnl, avg_edge, avg_estimated_prob.
+        """
+        since = datetime.utcnow() - timedelta(days=days)
+        result = await self.session.execute(
+            select(
+                Trade.strategy,
+                Trade.category,
+                func.count(Trade.id).label("total_trades"),
+                func.sum(
+                    case((Trade.pnl > 0, 1), else_=0)
+                ).label("winning_trades"),
+                func.sum(Trade.pnl).label("total_pnl"),
+                func.avg(Trade.edge).label("avg_edge"),
+                func.avg(Trade.estimated_prob).label("avg_estimated_prob"),
+            )
+            .where(Trade.status == "completed", Trade.created_at >= since)
+            .group_by(Trade.strategy, Trade.category)
+        )
+        return [
+            {
+                "strategy": row.strategy,
+                "category": row.category,
+                "total_trades": row.total_trades,
+                "winning_trades": int(row.winning_trades or 0),
+                "total_pnl": float(row.total_pnl or 0.0),
+                "avg_edge": float(row.avg_edge or 0.0),
+                "avg_estimated_prob": float(row.avg_estimated_prob or 0.0),
+            }
+            for row in result.all()
+        ]
+
+    async def mark_scan_traded(self, market_id: str, strategy: str) -> None:
+        """Mark the most recent scan for a market as traded."""
+        from bot.data.models import MarketScan
+
+        latest = await self.session.execute(
+            select(MarketScan.id)
+            .where(
+                MarketScan.market_id == market_id,
+                MarketScan.signal_strategy == strategy,
+            )
+            .order_by(MarketScan.scanned_at.desc())
+            .limit(1)
+        )
+        scan_id = latest.scalar_one_or_none()
+        if scan_id is not None:
+            await self.session.execute(
+                update(MarketScan)
+                .where(MarketScan.id == scan_id)
+                .values(was_traded=True)
+            )
+            await self.session.commit()
 
 
 class PositionRepository:

@@ -69,12 +69,15 @@ class RiskManager:
         open_positions: list[Position],
         tier: CapitalTier,
         pending_count: int = 0,
+        edge_multiplier: float = 1.0,
     ) -> tuple[bool, float, str]:
         """Evaluate a trade signal against all risk checks.
 
         Returns (approved, adjusted_size, reason).
         pending_count: number of pending CLOB orders (not yet filled)
                        that should count toward position limits.
+        edge_multiplier: from learner — adjusts min_edge threshold.
+                         >1.0 = stricter (losing strategy), <1.0 = relaxed (winning).
         """
         config = TierConfig.get(tier)
 
@@ -87,7 +90,7 @@ class RiskManager:
             self._check_max_positions(open_positions, config, pending_count),
             self._check_total_deployed(open_positions, bankroll, config),
             self._check_category_exposure(signal, open_positions, bankroll, config),
-            self._check_min_edge(signal, config),
+            self._check_min_edge(signal, config, edge_multiplier),
             self._check_min_win_prob(signal, config),
         ]
 
@@ -200,10 +203,15 @@ class RiskManager:
             )
         return RiskCheckResult(True)
 
-    def _check_min_edge(self, signal: TradeSignal, config: dict) -> RiskCheckResult:
-        if signal.edge < config["min_edge_pct"]:
+    def _check_min_edge(
+        self, signal: TradeSignal, config: dict, edge_multiplier: float = 1.0
+    ) -> RiskCheckResult:
+        adjusted_min = config["min_edge_pct"] * edge_multiplier
+        if signal.edge < adjusted_min:
             return RiskCheckResult(
-                False, f"Edge too low: {signal.edge:.1%} < {config['min_edge_pct']:.1%}"
+                False,
+                f"Edge too low: {signal.edge:.1%} < {adjusted_min:.1%} "
+                f"(base {config['min_edge_pct']:.1%} x {edge_multiplier:.1f})",
             )
         return RiskCheckResult(True)
 

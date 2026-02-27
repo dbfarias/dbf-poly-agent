@@ -5,6 +5,7 @@ from datetime import datetime
 
 import structlog
 
+from bot.agent.learner import PerformanceLearner
 from bot.agent.market_analyzer import MarketAnalyzer
 from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
@@ -43,6 +44,7 @@ class TradingEngine:
         self.portfolio = Portfolio(self.clob_client, self.data_api, self.gamma_client)
         self.risk_manager = RiskManager()
         self.order_manager = OrderManager(self.clob_client, self.data_api)
+        self.learner = PerformanceLearner()
 
         # WebSocket + Heartbeat
         self.ws_manager = WebSocketManager(self.cache)
@@ -55,13 +57,16 @@ class TradingEngine:
             ValueBettingStrategy(self.clob_client, self.gamma_client, self.cache),
             MarketMakingStrategy(self.clob_client, self.gamma_client, self.cache),
         ]
-        self.analyzer = MarketAnalyzer(self.gamma_client, self.cache, strategies)
+        self.analyzer = MarketAnalyzer(
+            self.gamma_client, self.cache, strategies, self.clob_client
+        )
 
         # State
         self._running = False
         self._cycle_count = 0
         self._last_snapshot: datetime | None = None
         self._last_daily_summary: str = ""
+        self._learner_adjustments = None
 
     @property
     def is_running(self) -> bool:
@@ -135,7 +140,26 @@ class TradingEngine:
         await self.portfolio.sync()
         self.risk_manager.update_peak_equity(self.portfolio.total_equity)
 
-        # 2. Check for exits on open positions
+        # 2. Update learner stats (lightweight — queries recent trades)
+        try:
+            self._learner_adjustments = await self.learner.compute_stats()
+            if self._learner_adjustments.paused_strategies:
+                logger.info(
+                    "learner_paused_strategies",
+                    strategies=list(self._learner_adjustments.paused_strategies),
+                )
+            # Apply adjustments to strategies
+            adj_dict = {
+                "edge_multipliers": self._learner_adjustments.edge_multipliers,
+                "category_confidences": self._learner_adjustments.category_confidences,
+                "calibration": self._learner_adjustments.calibration,
+            }
+            for strategy in self.analyzer.strategies:
+                strategy.adjust_params(adj_dict)
+        except Exception as e:
+            logger.error("learner_compute_failed", error=str(e))
+
+        # 3. Check for exits on open positions
         exits = await self.analyzer.check_exits(self.portfolio.positions, tier)
         for market_id in exits:
             pos = next((p for p in self.portfolio.positions if p.market_id == market_id), None)
@@ -149,16 +173,28 @@ class TradingEngine:
                 pnl = await self.portfolio.record_trade_close(market_id, pos.current_price)
                 self.risk_manager.update_daily_pnl(pnl)
 
-        # 3. Scan markets for new opportunities
+        # 4. Scan markets for new opportunities
         signals = await self.analyzer.scan_markets(tier)
 
-        # 4. Evaluate signals against risk manager
+        # 5. Evaluate signals against risk manager
         # Track capital committed in this cycle to prevent over-allocation
         cycle_committed = 0.0
         pending_count = self.order_manager.pending_count
         pending_markets = self.order_manager.pending_market_ids
 
         for signal in signals:
+            # Skip strategies paused by learner
+            if (
+                self._learner_adjustments
+                and signal.strategy in self._learner_adjustments.paused_strategies
+            ):
+                logger.info(
+                    "signal_skipped_strategy_paused",
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                )
+                continue
+
             # Skip markets with existing pending orders
             if signal.market_id in pending_markets:
                 logger.debug(
@@ -170,28 +206,39 @@ class TradingEngine:
 
             effective_bankroll = self.portfolio.total_equity - cycle_committed
 
+            # Get edge multiplier from learner
+            category = signal.metadata.get("category", "")
+            edge_multiplier = (
+                self.learner.get_edge_multiplier(signal.strategy, category)
+                if self._learner_adjustments
+                else 1.0
+            )
+
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
                 bankroll=effective_bankroll,
                 open_positions=self.portfolio.positions,
                 tier=tier,
                 pending_count=pending_count,
+                edge_multiplier=edge_multiplier,
             )
 
             if not approved:
                 logger.debug("signal_rejected", strategy=signal.strategy, reason=reason)
                 continue
 
-            # 4b. Check order book liquidity before executing
+            # 5b. Check order book liquidity before executing
             if not await self._check_liquidity(signal):
                 continue
 
             # Update signal with approved size
             signal.size_usd = size
 
-            # 5. Execute trade
+            # 6. Execute trade
             trade = await self.order_manager.execute_signal(signal)
             if trade and trade.status == "filled":
+                # Mark scan as traded for signal quality feedback
+                await self._mark_scan_traded(signal)
                 # Immediately filled (paper mode or CLOB matched)
                 await self.portfolio.record_trade_open(
                     market_id=signal.market_id,
@@ -206,6 +253,8 @@ class TradingEngine:
                 )
                 cycle_committed += trade.cost_usd
             elif trade:
+                # Mark scan as traded for signal quality feedback
+                await self._mark_scan_traded(signal)
                 # Pending order — track committed capital for this cycle
                 cycle_committed += trade.cost_usd
                 pending_count += 1
@@ -218,13 +267,13 @@ class TradingEngine:
                     cycle_committed=cycle_committed,
                 )
 
-        # 6. Monitor pending orders
+        # 7. Monitor pending orders
         await self.order_manager.monitor_orders()
 
-        # 7. Take periodic snapshot
+        # 8. Take periodic snapshot
         await self._maybe_snapshot()
 
-        # 8. Daily summary
+        # 9. Daily summary
         await self._maybe_daily_summary()
 
         logger.info(
@@ -253,6 +302,17 @@ class TradingEngine:
             size=shares,
             price=signal.market_price,
         )
+
+    async def _mark_scan_traded(self, signal) -> None:
+        """Mark the most recent scan for this signal as traded."""
+        try:
+            async with async_session() as session:
+                from bot.data.repositories import TradeRepository
+
+                repo = TradeRepository(session)
+                await repo.mark_scan_traded(signal.market_id, signal.strategy)
+        except Exception as e:
+            logger.debug("mark_scan_traded_failed", error=str(e))
 
     async def _check_liquidity(self, signal) -> bool:
         """Check order book spread before trading. Skip illiquid markets."""

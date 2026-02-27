@@ -34,6 +34,39 @@ class TimeDecayStrategy(BaseStrategy):
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Adaptive parameters (adjusted by learner)
+        self._min_edge = MIN_EDGE
+        self._max_price = MAX_PRICE
+        self._confidence_adjustment: dict[str, float] = {}
+
+    def adjust_params(self, adjustments: dict) -> None:
+        """Apply learner adjustments to time decay parameters.
+
+        Accepts:
+        - edge_multipliers: dict[(strategy, category), float]
+        - category_confidences: dict[category, float]
+        - calibration: dict[bucket, float]
+        """
+        calibration = adjustments.get("calibration", {})
+
+        # If high-confidence trades are poorly calibrated, tighten MAX_PRICE
+        high_cal = calibration.get("95-99", 1.0)
+        if high_cal < 0.7:
+            # Overconfident at high prices — lower max to avoid near-certainty traps
+            self._max_price = 0.96
+            self.logger.info(
+                "time_decay_max_price_adjusted",
+                max_price=self._max_price,
+                calibration_95_99=high_cal,
+            )
+        else:
+            self._max_price = MAX_PRICE
+
+        # Store category confidences for use in scan
+        self._confidence_adjustment = adjustments.get("category_confidences", {})
+
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan for high-probability outcomes."""
         signals = []
@@ -81,7 +114,7 @@ class TimeDecayStrategy(BaseStrategy):
                 break
 
             # Is this a high-probability outcome?
-            if price < MIN_PRICE or price > MAX_PRICE:
+            if price < MIN_PRICE or price > self._max_price:
                 continue
 
             # Estimate real probability
@@ -96,6 +129,12 @@ class TimeDecayStrategy(BaseStrategy):
 
             # Calculate confidence based on multiple factors
             confidence = self._calculate_confidence(price, hours_left)
+
+            # Apply category confidence from learner
+            cat_confidence = self._confidence_adjustment.get(
+                market.category, 1.0
+            )
+            confidence = min(0.99, confidence * cat_confidence)
 
             return TradeSignal(
                 strategy=self.name,

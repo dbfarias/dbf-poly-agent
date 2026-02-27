@@ -391,6 +391,35 @@ class TestCheckMinEdge:
         result = rm._check_min_edge(signal, config)
         assert result.passed is False
 
+    def test_edge_multiplier_tightens_threshold(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        # Edge of 0.014 normally passes (> 0.01), but with 1.5x multiplier
+        # required edge = 0.015, so 0.014 should fail
+        signal = make_signal(edge=0.014)
+        result = rm._check_min_edge(signal, config, edge_multiplier=1.5)
+        assert result.passed is False
+
+    def test_edge_multiplier_relaxes_threshold(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        # With 0.8x multiplier, required edge = 0.008
+        signal = make_signal(edge=0.009)
+        result = rm._check_min_edge(signal, config, edge_multiplier=0.8)
+        assert result.passed is True
+
+    def test_edge_multiplier_default_is_one(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        signal = make_signal(edge=0.011)
+        # Without multiplier (default 1.0), should pass
+        result = rm._check_min_edge(signal, config)
+        assert result.passed is True
+
+    def test_edge_multiplier_in_reason_message(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        signal = make_signal(edge=0.005)
+        result = rm._check_min_edge(signal, config, edge_multiplier=1.5)
+        assert result.passed is False
+        assert "1.5" in result.reason
+
 
 # ---------------------------------------------------------------------------
 # _check_min_win_prob
@@ -474,7 +503,6 @@ class TestEvaluateSignal:
         assert "position" in reason.lower()
 
     async def test_max_positions_with_pending_blocks(self, rm):
-        signal = make_signal(metadata={"category": ""})
         signal = TradeSignal(
             strategy="time_decay",
             market_id="mkt_new",
@@ -495,6 +523,17 @@ class TestEvaluateSignal:
         )
         assert approved is False
         assert "position" in reason.lower()
+
+    async def test_edge_multiplier_applied(self, rm):
+        """Edge multiplier from learner should tighten/relax edge threshold."""
+        signal = make_signal(edge=0.015, estimated_prob=0.92, market_price=0.86)
+        # With edge_multiplier=1.5, required edge = 0.01*1.5 = 0.015
+        # edge of 0.015 == adjusted threshold → should just pass (not strictly <)
+        approved, size, reason = await rm.evaluate_signal(
+            signal, bankroll=100.0, open_positions=[], tier=CapitalTier.TIER1,
+            edge_multiplier=1.5,
+        )
+        assert approved is True
 
 
 # ---------------------------------------------------------------------------

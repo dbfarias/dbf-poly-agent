@@ -35,6 +35,19 @@ class BaseStrategy(ABC):
         tier_order = {CapitalTier.TIER1: 1, CapitalTier.TIER2: 2, CapitalTier.TIER3: 3}
         return tier_order.get(tier, 0) >= tier_order.get(self.min_tier, 0)
 
+    def adjust_params(self, adjustments: dict) -> None:
+        """Apply learner adjustments to strategy parameters.
+
+        Subclasses can override for strategy-specific tuning.
+        Default implementation is a no-op.
+
+        Args:
+            adjustments: dict with keys:
+                - 'edge_multipliers': dict[tuple[str, str], float]
+                - 'category_confidences': dict[str, float]
+                - 'calibration': dict[str, float]
+        """
+
     @abstractmethod
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan markets and return trade signals.

@@ -44,6 +44,7 @@ class Trade(Base):
     # Result
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    exit_reason: Mapped[str] = mapped_column(String(64), default="")
     is_paper: Mapped[bool] = mapped_column(Boolean, default=True)
 
     __table_args__ = (Index("idx_trades_strategy_status", "strategy", "status"),)
