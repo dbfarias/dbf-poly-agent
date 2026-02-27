@@ -72,7 +72,7 @@ class MarketAnalyzer:
         """Scan all markets and return ranked signals from all enabled strategies."""
         # Fetch active markets
         try:
-            markets = await self.gamma.get_active_markets(limit=200)
+            markets = await self.gamma.get_active_markets(limit=500)
             self.cache.set_markets_bulk(markets, ttl=120)
             logger.info("markets_fetched", count=len(markets))
         except Exception as e:

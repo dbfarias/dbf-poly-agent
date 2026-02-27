@@ -199,6 +199,15 @@ class TradingEngine:
         pending_markets = self.order_manager.pending_market_ids
 
         for signal in signals:
+            logger.info(
+                "evaluating_signal",
+                strategy=signal.strategy,
+                market_id=signal.market_id[:20],
+                edge=round(signal.edge, 4),
+                price=signal.market_price,
+                question=signal.question[:50],
+            )
+
             # Skip strategies paused by learner
             if (
                 self._learner_adjustments
@@ -213,9 +222,9 @@ class TradingEngine:
 
             # Skip markets with existing pending orders
             if signal.market_id in pending_markets:
-                logger.debug(
+                logger.info(
                     "signal_skipped_pending_order",
-                    market_id=signal.market_id,
+                    market_id=signal.market_id[:20],
                     strategy=signal.strategy,
                 )
                 continue
