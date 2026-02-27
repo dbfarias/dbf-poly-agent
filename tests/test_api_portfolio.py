@@ -29,7 +29,6 @@ class TestGetOverview:
             "peak_equity",
             "tier",
             "is_paper",
-            "wallet_address",
         }
         assert set(data.keys()) == expected_keys
 

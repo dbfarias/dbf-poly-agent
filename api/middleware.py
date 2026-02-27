@@ -1,5 +1,7 @@
 """API authentication middleware — supports API key and JWT."""
 
+import hmac
+
 from fastapi import Header, HTTPException, Request
 
 from api.auth import decode_jwt
@@ -18,8 +20,8 @@ async def verify_api_key(
 
     Exempt routes (e.g. /api/health, /api/auth/login) should NOT use this.
     """
-    # Check API key first
-    if x_api_key and x_api_key == settings.api_secret_key:
+    # Check API key first (constant-time comparison to prevent timing attacks)
+    if x_api_key and hmac.compare_digest(x_api_key, settings.api_secret_key):
         return x_api_key
 
     # Check JWT Bearer token

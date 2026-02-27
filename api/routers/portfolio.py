@@ -1,6 +1,6 @@
 """Portfolio API endpoints."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
@@ -45,7 +45,7 @@ async def get_positions(_: str = Depends(verify_api_key), db: AsyncSession = Dep
 
 @router.get("/equity-curve", response_model=list[EquityPoint])
 async def get_equity_curve(
-    days: int = 30,
+    days: int = Query(default=30, ge=1, le=365),
     _: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
 ):

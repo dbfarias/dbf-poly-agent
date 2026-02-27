@@ -17,3 +17,9 @@ htmlcov/
 frontend/test-results/
 frontend/playwright-report/
 frontend/blob-report/
+
+# Security — never commit secrets or keys
+.ssh/
+.claude/settings.local.json
+*.pem
+*.key

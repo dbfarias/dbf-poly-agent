@@ -1,6 +1,6 @@
 """Markets API endpoints."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/markets", tags=["markets"])
 
 @router.get("/scanner", response_model=list[MarketOpportunity])
 async def get_scanner(
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=200),
     _: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
 ):

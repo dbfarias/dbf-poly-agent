@@ -1,7 +1,8 @@
 """WebSocket endpoint for real-time dashboard updates."""
 
 import asyncio
-from datetime import datetime
+import hmac
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -49,9 +50,9 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(ws: WebSocket):
-    # Validate token query param — accept API key or JWT
+    # Validate token query param — accept API key or JWT (constant-time comparison)
     token = ws.query_params.get("token", "")
-    is_api_key = token == settings.api_secret_key
+    is_api_key = hmac.compare_digest(token, settings.api_secret_key) if token else False
     is_jwt = not is_api_key and decode_jwt(token) is not None
     if not is_api_key and not is_jwt:
         await ws.close(code=4001, reason="Unauthorized")
@@ -70,7 +71,7 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.send_json({
                     "type": "status",
                     "data": _serialize(status),
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             except RuntimeError:
                 await ws.send_json({"type": "error", "message": "Engine not ready"})

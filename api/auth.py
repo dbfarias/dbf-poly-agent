@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from bot.config import settings
 
@@ -17,8 +17,8 @@ JWT_EXPIRY_HOURS = 24
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1, max_length=200)
 
 
 class LoginResponse(BaseModel):
@@ -62,10 +62,11 @@ async def login(req: LoginRequest):
             detail="Dashboard login not configured. Set DASHBOARD_PASSWORD in .env",
         )
 
-    if (
-        req.username != settings.dashboard_user
-        or not _verify_password(req.password, settings.dashboard_password)
-    ):
+    # Constant-time comparison for both username and password to prevent timing attacks.
+    # Always check both to avoid leaking which field is wrong.
+    username_ok = hmac.compare_digest(req.username, settings.dashboard_user)
+    password_ok = _verify_password(req.password, settings.dashboard_password)
+    if not (username_ok and password_ok):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token, expires = create_jwt(req.username)

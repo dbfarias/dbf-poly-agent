@@ -154,11 +154,9 @@ export interface BotConfig {
 
 export interface HealthCheck {
   status: string;
-  mode: string;
   uptime_seconds: number;
   engine_running: boolean;
   cycle_count: number;
-  equity: number;
 }
 
 // API functions

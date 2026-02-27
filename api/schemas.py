@@ -17,7 +17,6 @@ class PortfolioOverview(BaseModel):
     peak_equity: float
     tier: str
     is_paper: bool
-    wallet_address: str | None = None
 
 
 class PositionResponse(BaseModel):
@@ -153,8 +152,6 @@ class BotConfigUpdate(BaseModel):
 # Health
 class HealthCheck(BaseModel):
     status: str = "ok"
-    mode: str
     uptime_seconds: float
     engine_running: bool
     cycle_count: int
-    equity: float

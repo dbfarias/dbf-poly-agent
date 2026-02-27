@@ -47,6 +47,9 @@ app = FastAPI(
     title="Polymarket Trading Bot",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.add_middleware(
@@ -75,11 +78,9 @@ async def health_check():
 
     return HealthCheck(
         status="ok",
-        mode=settings.trading_mode.value,
         uptime_seconds=time.time() - _start_time,
         engine_running=engine.is_running if engine else False,
         cycle_count=engine._cycle_count if engine else 0,
-        equity=engine.portfolio.total_equity if engine else 0,
     )
 
 

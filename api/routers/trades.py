@@ -1,6 +1,6 @@
 """Trades API endpoints."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/trades", tags=["trades"])
 
 @router.get("/history", response_model=list[TradeResponse])
 async def get_trade_history(
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=500),
     strategy: str | None = None,
     _: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
