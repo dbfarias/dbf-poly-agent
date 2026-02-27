@@ -151,6 +151,17 @@ class Portfolio:
                 if rp.size <= 0:
                     continue
 
+                # Skip resolved positions worth $0 (e.g. losing side of
+                # binary market, still "redeemable" on-chain but valueless)
+                if rp.current_price <= 0:
+                    logger.debug(
+                        "skipping_zero_value_position",
+                        market_id=rp.market_id,
+                        outcome=rp.outcome,
+                        size=rp.size,
+                    )
+                    continue
+
                 remote_market_ids.add(rp.market_id)
 
                 position = Position(

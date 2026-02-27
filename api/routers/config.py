@@ -147,3 +147,35 @@ async def resume_trading(_: str = Depends(verify_api_key)):
     engine = get_engine()
     engine.risk_manager.resume()
     return {"status": "resumed"}
+
+
+@router.post("/risk/reset")
+async def reset_risk_state(_: str = Depends(verify_api_key)):
+    """Reset corrupted risk manager and portfolio PnL state.
+
+    Use after bugs that cause phantom PnL accumulation.
+    Resets daily PnL counters to zero and peak equity to current.
+    """
+    engine = get_engine()
+    equity = engine.portfolio.total_equity
+
+    # Reset risk manager
+    engine.risk_manager._daily_pnl = 0.0
+    engine.risk_manager._peak_equity = equity
+
+    # Reset portfolio PnL counters
+    engine.portfolio._realized_pnl_today = 0.0
+    engine.portfolio._day_start_equity = equity
+    engine.portfolio._peak_equity = equity
+
+    logger.info(
+        "risk_state_reset",
+        equity=equity,
+        tier=engine.portfolio.tier.value,
+    )
+    return {
+        "status": "reset",
+        "equity": equity,
+        "daily_pnl": 0.0,
+        "peak_equity": equity,
+    }
