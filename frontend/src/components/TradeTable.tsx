@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { Trade } from "../api/client";
 
 interface TradeTableProps {
@@ -37,9 +37,8 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
         </thead>
         <tbody data-testid={`${testIdPrefix}-table-body`}>
           {trades.map((t) => (
-            <>
+            <Fragment key={t.id}>
               <tr
-                key={t.id}
                 className="border-b border-[#2a2d3e]/50 hover:bg-white/5 cursor-pointer"
                 data-testid={`${testIdPrefix}-row-${t.id}`}
                 onClick={() => toggle(t.id)}
@@ -99,7 +98,7 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>

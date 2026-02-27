@@ -1,6 +1,6 @@
 """Tests for Gamma API client transformations."""
 
-from bot.polymarket.gamma import _transform_clob_market, _transform_gamma_api_market
+from bot.polymarket.gamma import _best_category, _transform_clob_market, _transform_gamma_api_market
 
 
 class TestTransformGammaApiMarket:
@@ -92,3 +92,25 @@ class TestTransformClobMarket:
         raw = {"condition_id": "0x1", "tokens": [], "tags": [], "neg_risk": True}
         result = _transform_clob_market(raw)
         assert result["negRisk"] is True
+
+
+class TestBestCategory:
+    """Tests for _best_category tag selection."""
+
+    def test_returns_first_non_generic_tag(self):
+        assert _best_category(["Crypto", "Politics"]) == "Crypto"
+
+    def test_skips_generic_returns_specific(self):
+        assert _best_category(["Politics", "Crypto"]) == "Crypto"
+
+    def test_all_generic_returns_empty(self):
+        assert _best_category(["Politics", "Elections"]) == ""
+
+    def test_empty_list_returns_empty(self):
+        assert _best_category([]) == ""
+
+    def test_single_non_generic_tag(self):
+        assert _best_category(["Sports"]) == "Sports"
+
+    def test_single_generic_tag(self):
+        assert _best_category(["Politics"]) == ""

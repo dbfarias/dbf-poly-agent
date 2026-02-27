@@ -200,14 +200,16 @@ class OrderManager:
 
         # Fetch actual positions from Polymarket to verify fills
         address = self.clob.get_address()
-        real_token_ids: set[str] = set()
-        if address:
-            try:
-                positions = await self.data_api.get_positions(address)
-                real_token_ids = {p.token_id for p in positions if p.size > 0}
-            except Exception as e:
-                logger.error("fill_verification_failed", error=str(e))
-                return
+        if not address:
+            logger.warning("monitor_orders_skipped_no_address")
+            return
+
+        try:
+            positions = await self.data_api.get_positions(address)
+            real_token_ids = {p.token_id for p in positions if p.size > 0}
+        except Exception as e:
+            logger.error("fill_verification_failed", error=str(e))
+            return
 
         now = datetime.utcnow()
         to_remove = []
@@ -316,8 +318,12 @@ class OrderManager:
                 book = await self.clob.get_order_book(token_id)
                 if book.best_bid is not None:
                     sell_price = book.best_bid
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "close_position_orderbook_failed",
+                    token_id=token_id,
+                    error=str(e),
+                )
 
         result = await self.clob.place_order(
             token_id=token_id,
@@ -328,6 +334,13 @@ class OrderManager:
 
         if "error" in result:
             logger.warning("close_order_rejected", error=result["error"])
+            return None
+
+        if result.get("success") is False:
+            logger.warning(
+                "close_order_api_rejected",
+                error=result.get("errorMsg", "unknown"),
+            )
             return None
 
         order_id = result.get("orderID", result.get("order_id", ""))
