@@ -223,6 +223,20 @@ class RiskManager:
         self, signal: TradeSignal, config: dict, edge_multiplier: float = 1.0
     ) -> RiskCheckResult:
         adjusted_min = config["min_edge_pct"] * edge_multiplier
+
+        # Time-adjusted edge: near-resolution markets need less edge
+        # because there's less uncertainty and the capital is tied up briefly
+        hours = signal.metadata.get("hours_to_resolution")
+        if hours is not None:
+            if hours <= 12:
+                adjusted_min *= 0.3   # 12h: ~0.6% edge OK
+            elif hours <= 24:
+                adjusted_min *= 0.4   # 24h: ~0.8% edge OK
+            elif hours <= 48:
+                adjusted_min *= 0.5   # 48h: ~1.0% edge OK
+            elif hours <= 96:
+                adjusted_min *= 0.7   # 4 days: ~1.4% edge OK
+
         if signal.edge < adjusted_min:
             return RiskCheckResult(
                 False,

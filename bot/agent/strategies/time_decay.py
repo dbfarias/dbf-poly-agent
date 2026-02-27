@@ -130,6 +130,24 @@ class TimeDecayStrategy(BaseStrategy):
         )
         return signals
 
+    @staticmethod
+    def _dynamic_max_price(hours_left: float) -> float:
+        """Compute max acceptable price based on time to resolution.
+
+        Closer to resolution → higher max price acceptable because
+        less uncertainty remains and the position resolves quickly.
+        """
+        if hours_left <= 12:
+            return 0.995  # Resolves in hours — near certainty OK
+        elif hours_left <= 24:
+            return 0.99   # Resolves today
+        elif hours_left <= 48:
+            return 0.985  # Resolves tomorrow
+        elif hours_left <= 96:
+            return 0.98   # Resolves in 2-4 days
+        else:
+            return 0.97   # Longer term — keep original cap
+
     async def _evaluate_market(
         self, market: GammaMarket, now: datetime, max_hours: float
     ) -> TradeSignal | None:
@@ -157,12 +175,15 @@ class TimeDecayStrategy(BaseStrategy):
         if not prices or not outcomes:
             return None
 
+        # Dynamic max price: allow higher prices for near-resolution markets
+        max_price = self._dynamic_max_price(hours_left)
+
         for i, (outcome, price) in enumerate(zip(outcomes, prices)):
             if i >= len(token_ids):
                 break
 
             # Is this a high-probability outcome?
-            if price < MIN_PRICE or price > self._max_price:
+            if price < MIN_PRICE or price > max_price:
                 continue
 
             # Estimate real probability

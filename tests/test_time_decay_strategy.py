@@ -274,3 +274,33 @@ class TestAdjustParams:
     def test_good_calibration_keeps_max_price(self, strategy):
         strategy.adjust_params({"calibration": {"95-99": 0.9}})
         assert strategy._max_price == 0.97
+
+
+# ---------------------------------------------------------------------------
+# _dynamic_max_price
+# ---------------------------------------------------------------------------
+
+
+class TestDynamicMaxPrice:
+    def test_12h_allows_high_price(self, strategy):
+        assert strategy._dynamic_max_price(10.0) == 0.995
+
+    def test_24h_allows_099(self, strategy):
+        assert strategy._dynamic_max_price(20.0) == 0.99
+
+    def test_48h_allows_0985(self, strategy):
+        assert strategy._dynamic_max_price(40.0) == 0.985
+
+    def test_80h_allows_098(self, strategy):
+        assert strategy._dynamic_max_price(80.0) == 0.98
+
+    def test_120h_keeps_097(self, strategy):
+        assert strategy._dynamic_max_price(120.0) == 0.97
+
+    async def test_high_price_near_resolution_accepted(self, strategy):
+        """Market at $0.975 resolving in 80h should now be accepted."""
+        market = _make_market(hours_to_resolution=80.0, price=0.975)
+        now = datetime.now(timezone.utc)
+        signal = await strategy._evaluate_market(market, now, HOURS_MEDIUM)
+        assert signal is not None
+        assert signal.market_price == 0.975
