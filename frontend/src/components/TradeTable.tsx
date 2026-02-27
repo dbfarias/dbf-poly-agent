@@ -24,13 +24,13 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
         <thead>
           <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
             <th className="w-6"></th>
-            <th className="text-left py-2 px-3">Time</th>
+            <th className="text-left py-2 px-3 hidden sm:table-cell">Time</th>
             <th className="text-left py-2 px-3">Market</th>
-            <th className="text-left py-2 px-3">Strategy</th>
+            <th className="text-left py-2 px-3 hidden md:table-cell">Strategy</th>
             <th className="text-right py-2 px-3">Side</th>
-            <th className="text-right py-2 px-3">Price</th>
-            <th className="text-right py-2 px-3">Size</th>
-            {!compact && <th className="text-right py-2 px-3">Edge</th>}
+            <th className="text-right py-2 px-3 hidden sm:table-cell">Price</th>
+            <th className="text-right py-2 px-3 hidden md:table-cell">Size</th>
+            {!compact && <th className="text-right py-2 px-3 hidden lg:table-cell">Edge</th>}
             <th className="text-right py-2 px-3">PnL</th>
             <th className="text-right py-2 px-3">Status</th>
           </tr>
@@ -47,13 +47,13 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
                 <td className="py-2 pl-2 text-zinc-500">
                   {expandedId === t.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </td>
-                <td className="py-2 px-3 text-zinc-400">
+                <td className="py-2 px-3 text-zinc-400 hidden sm:table-cell">
                   {new Date(t.created_at).toLocaleString()}
                 </td>
-                <td className="py-2 px-3 max-w-48 truncate" title={t.question}>
+                <td className="py-2 px-3 max-w-32 sm:max-w-48 truncate" title={t.question}>
                   {t.question}
                 </td>
-                <td className="py-2 px-3">
+                <td className="py-2 px-3 hidden md:table-cell">
                   <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-xs">
                     {t.strategy}
                   </span>
@@ -66,10 +66,10 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
                 >
                   {t.side}
                 </td>
-                <td className="py-2 px-3 text-right">${t.price.toFixed(3)}</td>
-                <td className="py-2 px-3 text-right">${t.cost_usd.toFixed(2)}</td>
+                <td className="py-2 px-3 text-right hidden sm:table-cell">${t.price.toFixed(3)}</td>
+                <td className="py-2 px-3 text-right hidden md:table-cell">${t.cost_usd.toFixed(2)}</td>
                 {!compact && (
-                  <td className="py-2 px-3 text-right">{(t.edge * 100).toFixed(1)}%</td>
+                  <td className="py-2 px-3 text-right hidden lg:table-cell">{(t.edge * 100).toFixed(1)}%</td>
                 )}
                 <td
                   className={clsx("py-2 px-3 text-right font-medium", {
@@ -94,7 +94,7 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
               </tr>
               {expandedId === t.id && (
                 <tr key={`${t.id}-detail`} className="bg-[#161825]">
-                  <td colSpan={compact ? 9 : 10} className="px-6 py-4">
+                  <td colSpan={compact ? 9 : 10} className="px-4 sm:px-6 py-4">
                     <TradeDetail trade={t} />
                   </td>
                 </tr>

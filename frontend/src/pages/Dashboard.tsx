@@ -110,7 +110,7 @@ export default function Dashboard() {
                 : `$${Math.abs(portfolio.polymarket_pnl_today ?? 0).toFixed(2)} in the red`}
             </span>
           </div>
-          <div className="flex justify-between mt-2 text-xs text-zinc-600 border-t border-[#2a2d3e] pt-2">
+          <div className="flex flex-col sm:flex-row justify-between mt-2 text-xs text-zinc-600 border-t border-[#2a2d3e] pt-2 gap-1 sm:gap-0">
             <span>Realized: ${portfolio.realized_pnl_today.toFixed(2)}</span>
             <span>Unrealized: ${portfolio.unrealized_pnl.toFixed(2)}</span>
             <span className={`font-medium ${(portfolio.polymarket_pnl_today ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -121,7 +121,7 @@ export default function Dashboard() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
         <StatCard
           title="Total Equity"
           value={`$${portfolio?.total_equity.toFixed(2) ?? "—"}`}

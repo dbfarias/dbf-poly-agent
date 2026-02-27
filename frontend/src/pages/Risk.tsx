@@ -47,7 +47,7 @@ export default function Risk() {
       <h2 className="text-xl font-bold">Risk Management</h2>
 
       {/* Risk Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <StatCard
           title="Current Drawdown"
           value={risk ? `${(risk.current_drawdown_pct * 100).toFixed(1)}%` : "—"}

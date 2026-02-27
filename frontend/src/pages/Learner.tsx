@@ -109,7 +109,7 @@ function PausePanel({ pauses }: { pauses: ReturnType<typeof fetchLearnerPauses> 
         Strategy Status
         <HelpTooltip text="Shows if any strategy has been auto-paused by the learner. A strategy is paused when its last 10 trades have less than 30% win rate and total PnL below -$1. It resumes after 24h cooldown." />
       </h3>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {pauses.strategies.map((s) => (
           <div
             key={s.strategy}

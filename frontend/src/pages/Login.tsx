@@ -19,7 +19,7 @@ export default function Login({ onLogin, error, loading }: LoginProps) {
     <div className="flex items-center justify-center min-h-screen bg-[#0f1117]">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-8"
+        className="w-full max-w-sm bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5 sm:p-8 mx-4 sm:mx-0"
         data-testid="login-form"
       >
         <h1 className="text-xl font-bold text-white mb-1">PolyBot</h1>

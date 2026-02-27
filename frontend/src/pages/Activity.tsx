@@ -103,7 +103,7 @@ function EventRow({ event }: { event: ActivityEvent }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-zinc-200 truncate max-w-[400px]">
+            <span className="text-sm font-medium text-zinc-200 truncate max-w-[200px] sm:max-w-[400px]">
               {event.title}
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#2a2d3e] text-zinc-500 shrink-0">

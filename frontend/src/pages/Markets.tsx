@@ -28,22 +28,22 @@ export default function Markets() {
                   <th className="text-right py-3 px-4">
                     <span className="inline-flex items-center">YES <HelpTooltip text="Current price of the YES outcome. $0.90 means the market thinks there's a 90% chance of YES." size={11} /></span>
                   </th>
-                  <th className="text-right py-3 px-4">
+                  <th className="text-right py-3 px-4 hidden sm:table-cell">
                     <span className="inline-flex items-center">NO <HelpTooltip text="Current price of the NO outcome. YES + NO should roughly equal $1.00." size={11} /></span>
                   </th>
-                  <th className="text-right py-3 px-4">
+                  <th className="text-right py-3 px-4 hidden md:table-cell">
                     <span className="inline-flex items-center">Volume <HelpTooltip text="Total amount traded on this market. Higher volume means more liquidity and tighter spreads." size={11} /></span>
                   </th>
-                  <th className="text-right py-3 px-4">
+                  <th className="text-right py-3 px-4 hidden lg:table-cell">
                     <span className="inline-flex items-center">Hours Left <HelpTooltip text="Estimated hours until the market resolves (outcome is determined). Shorter timeframes reduce uncertainty." size={11} /></span>
                   </th>
-                  <th className="text-left py-3 px-4">
+                  <th className="text-left py-3 px-4 hidden sm:table-cell">
                     <span className="inline-flex items-center">Strategy <HelpTooltip text="Which bot strategy detected this opportunity: time_decay (expiring markets), arbitrage (price gaps), value_betting (mispriced odds), market_making (spread capture)." size={11} /></span>
                   </th>
                   <th className="text-right py-3 px-4">
                     <span className="inline-flex items-center">Edge <HelpTooltip text="The expected profit margin on this trade as a percentage. Higher edge = more potential profit. Only trades above the minimum edge threshold are executed." size={11} /></span>
                   </th>
-                  <th className="text-right py-3 px-4">
+                  <th className="text-right py-3 px-4 hidden md:table-cell">
                     <span className="inline-flex items-center">Confidence <HelpTooltip text="How confident the bot is in its prediction. Based on market data, volume, and time to resolution." size={11} /></span>
                   </th>
                 </tr>
@@ -55,22 +55,22 @@ export default function Markets() {
                     className="border-b border-[#2a2d3e]/50 hover:bg-white/5"
                     data-testid={`market-row-${i}`}
                   >
-                    <td className="py-2.5 px-4 max-w-64 truncate" title={m.question}>
+                    <td className="py-2.5 px-4 max-w-32 sm:max-w-48 lg:max-w-64 truncate" title={m.question}>
                       {m.question}
                     </td>
                     <td className="py-2.5 px-4 text-right text-green-400">
                       ${m.yes_price.toFixed(2)}
                     </td>
-                    <td className="py-2.5 px-4 text-right text-red-400">
+                    <td className="py-2.5 px-4 text-right text-red-400 hidden sm:table-cell">
                       ${m.no_price.toFixed(2)}
                     </td>
-                    <td className="py-2.5 px-4 text-right text-zinc-400">
+                    <td className="py-2.5 px-4 text-right text-zinc-400 hidden md:table-cell">
                       ${(m.volume / 1000).toFixed(0)}k
                     </td>
-                    <td className="py-2.5 px-4 text-right text-zinc-400">
+                    <td className="py-2.5 px-4 text-right text-zinc-400 hidden lg:table-cell">
                       {m.hours_to_resolution?.toFixed(0) ?? "—"}
                     </td>
-                    <td className="py-2.5 px-4">
+                    <td className="py-2.5 px-4 hidden sm:table-cell">
                       {m.signal_strategy && (
                         <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-xs">
                           {m.signal_strategy}
@@ -87,7 +87,7 @@ export default function Markets() {
                     >
                       {m.signal_edge > 0 ? `${(m.signal_edge * 100).toFixed(1)}%` : "—"}
                     </td>
-                    <td className="py-2.5 px-4 text-right text-zinc-400">
+                    <td className="py-2.5 px-4 text-right text-zinc-400 hidden md:table-cell">
                       {m.signal_confidence > 0
                         ? `${(m.signal_confidence * 100).toFixed(0)}%`
                         : "—"}

@@ -236,7 +236,7 @@ export default function Settings() {
     key.endsWith("_pct") || key === "kelly_fraction" || key === "min_win_prob";
 
   return (
-    <div className="space-y-6 max-w-2xl" data-testid="settings-page">
+    <div className="space-y-6 max-w-2xl mx-auto" data-testid="settings-page">
       <h2 className="text-xl font-bold">Settings</h2>
 
       {/* Toast notifications */}
@@ -261,38 +261,40 @@ export default function Settings() {
         data-testid="trading-controls"
       >
         <h3 className="font-medium text-white mb-4">Trading Controls</h3>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <div className="text-sm text-zinc-400 flex items-center">
-              Mode
-              <HelpTooltip text="PAPER mode simulates trades without real money. LIVE mode executes real orders on Polymarket. Change this in the .env file." />
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="flex items-center gap-4 sm:flex-1 w-full sm:w-auto">
+            <div className="flex-1">
+              <div className="text-sm text-zinc-400 flex items-center">
+                Mode
+                <HelpTooltip text="PAPER mode simulates trades without real money. LIVE mode executes real orders on Polymarket. Change this in the .env file." />
+              </div>
+              <div
+                className="text-lg font-bold text-white mt-1"
+                data-testid="trading-mode"
+              >
+                {config?.trading_mode.toUpperCase()}
+              </div>
             </div>
-            <div
-              className="text-lg font-bold text-white mt-1"
-              data-testid="trading-mode"
-            >
-              {config?.trading_mode.toUpperCase()}
+            <div className="flex-1">
+              <div className="text-sm text-zinc-400 flex items-center">
+                Status
+                <HelpTooltip text="Whether the bot is currently running or paused. Use the button to manually pause/resume trading." />
+              </div>
+              <div
+                className={`text-lg font-bold mt-1 ${risk?.is_paused ? "text-red-400" : "text-green-400"}`}
+                data-testid="trading-status"
+              >
+                {risk?.is_paused ? "PAUSED" : "RUNNING"}
+              </div>
             </div>
-          </div>
-          <div className="flex-1">
-            <div className="text-sm text-zinc-400 flex items-center">
-              Status
-              <HelpTooltip text="Whether the bot is currently running or paused. Use the button to manually pause/resume trading." />
-            </div>
-            <div
-              className={`text-lg font-bold mt-1 ${risk?.is_paused ? "text-red-400" : "text-green-400"}`}
-              data-testid="trading-status"
-            >
-              {risk?.is_paused ? "PAUSED" : "RUNNING"}
-            </div>
-          </div>
-          <div className="flex-1">
-            <div className="text-sm text-zinc-400 flex items-center">
-              Tier
-              <HelpTooltip text="Capital tier determines risk parameters. Tier 1: $5-$25, Tier 2: $25-$100, Tier 3: $100+." />
-            </div>
-            <div className="text-lg font-bold text-indigo-400 mt-1">
-              {config?.current_tier?.toUpperCase()}
+            <div className="flex-1">
+              <div className="text-sm text-zinc-400 flex items-center">
+                Tier
+                <HelpTooltip text="Capital tier determines risk parameters. Tier 1: $5-$25, Tier 2: $25-$100, Tier 3: $100+." />
+              </div>
+              <div className="text-lg font-bold text-indigo-400 mt-1">
+                {config?.current_tier?.toUpperCase()}
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
@@ -398,7 +400,7 @@ export default function Settings() {
             These apply to the current capital tier. Changes take effect
             immediately.
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {Object.entries(tier).map(([key, value]) => {
               const [label, tooltip] = TIER_LABELS[key] ?? [key, ""];
               return (
@@ -434,7 +436,7 @@ export default function Settings() {
           <p className="text-xs text-zinc-500 mb-4">
             Market quality and stop-loss thresholds.
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {Object.entries(quality).map(([key, value]) => {
               const [label, tooltip] = QUALITY_LABELS[key] ?? [key, ""];
               const isPct = key.endsWith("_pct");
@@ -479,7 +481,7 @@ export default function Settings() {
           <p className="text-xs text-zinc-500 mb-4">
             Parameters for the {name} strategy. Changes take effect next cycle.
           </p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {Object.entries(params).map(([key, value]) => {
               const [label, tooltip] = STRATEGY_LABELS[key] ?? [key, ""];
               return (

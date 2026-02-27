@@ -5,14 +5,16 @@ import {
   Brain,
   LineChart,
   LogOut,
+  Menu,
   RefreshCw,
   ScrollText,
   Settings,
   Shield,
   TrendingUp,
+  X,
 } from "lucide-react";
-import { useCallback, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 const navItems = [
@@ -34,6 +36,13 @@ export default function Layout({ onLogout }: LayoutProps) {
   const { isConnected } = useWebSocket();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -43,20 +52,41 @@ export default function Layout({ onLogout }: LayoutProps) {
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <nav className="w-56 bg-[#1a1d29] border-r border-[#2a2d3e] flex flex-col" data-testid="sidebar">
+      <nav
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-56 bg-[#1a1d29] border-r border-[#2a2d3e] flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        data-testid="sidebar"
+      >
         <div className="p-4 border-b border-[#2a2d3e]">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-bold text-white" data-testid="sidebar-title">PolyBot</h1>
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors disabled:opacity-50"
-              data-testid="refresh-btn"
-              title="Refresh all data"
-            >
-              <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors disabled:opacity-50"
+                data-testid="refresh-btn"
+                title="Refresh all data"
+              >
+                <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+              </button>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors lg:hidden"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 mt-1">
             <div
@@ -68,7 +98,7 @@ export default function Layout({ onLogout }: LayoutProps) {
             </span>
           </div>
         </div>
-        <div className="flex-1 py-2">
+        <div className="flex-1 py-2 overflow-y-auto">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
@@ -103,9 +133,34 @@ export default function Layout({ onLogout }: LayoutProps) {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto p-6" data-testid="main-content">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile top bar */}
+        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-[#1a1d29] border-b border-[#2a2d3e]">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+            data-testid="mobile-menu-btn"
+          >
+            <Menu size={20} />
+          </button>
+          <span className="text-sm font-bold text-white">PolyBot</span>
+          <div className="flex items-center gap-1.5">
+            <div
+              className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}
+            />
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+            </button>
+          </div>
+        </header>
+        <main className="flex-1 overflow-auto p-3 md:p-6" data-testid="main-content">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
