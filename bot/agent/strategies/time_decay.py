@@ -78,11 +78,12 @@ class TimeDecayStrategy(BaseStrategy):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Tunable parameters (exposed to admin API)
+        # Tunable parameters (exposed to admin API via Settings page)
         self.MIN_EDGE = MIN_EDGE
         self.MIN_PRICE = MIN_PRICE
         self.MIN_IMPLIED_PROB = MIN_IMPLIED_PROB
         self.CONFIDENCE_BASE = CONFIDENCE_BASE
+        self.MAX_HOURS_TO_RESOLUTION = HOURS_MEDIUM  # Hard cap on market horizon
         # Adaptive parameters (adjusted by learner)
         self._max_price = MAX_PRICE
         self._confidence_adjustment: dict[str, float] = {}
@@ -121,7 +122,10 @@ class TimeDecayStrategy(BaseStrategy):
         """Scan for high-probability outcomes."""
         signals = []
         now = datetime.now(timezone.utc)
-        max_hours = _max_hours_for_urgency(self._urgency)
+        max_hours = min(
+            _max_hours_for_urgency(self._urgency),
+            self.MAX_HOURS_TO_RESOLUTION,
+        )
 
         for market in markets:
             signal = await self._evaluate_market(market, now, max_hours)

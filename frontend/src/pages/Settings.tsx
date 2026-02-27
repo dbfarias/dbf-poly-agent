@@ -212,6 +212,8 @@ export default function Settings() {
   const QUALITY_LABELS: Record<string, [string, string]> = {
     max_spread: ["Max Spread ($)", "Maximum bid-ask spread allowed. Markets with wider spreads are filtered out."],
     max_category_positions: ["Max Category Positions", "Maximum open positions allowed per market category."],
+    min_bid_ratio: ["Min Bid Ratio", "Best bid must be at least this fraction of fair price. Prevents entering markets with no exit liquidity (e.g. bids at $0.001)."],
+    min_volume_24h: ["Min 24h Volume ($)", "Minimum trading volume in the last 24 hours. Filters out dead/inactive markets."],
     stop_loss_pct: ["Stop Loss (%)", "Exit a position if it loses this percentage from entry price."],
     near_worthless_price: ["Near Worthless Price ($)", "Always exit positions below this price."],
     default_exit_price: ["Default Exit Price ($)", "Exit threshold for positions with no strategy-specific exit rule."],

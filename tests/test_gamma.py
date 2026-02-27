@@ -1,6 +1,6 @@
 """Tests for Gamma API client transformations."""
 
-from bot.polymarket.gamma import _transform_gamma_api_market, _transform_clob_market
+from bot.polymarket.gamma import _transform_clob_market, _transform_gamma_api_market
 
 
 class TestTransformGammaApiMarket:

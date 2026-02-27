@@ -41,6 +41,8 @@ def _get_quality_params(engine) -> dict:
     return {
         "max_spread": analyzer.MAX_SPREAD,
         "max_category_positions": analyzer.MAX_CATEGORY_POSITIONS,
+        "min_bid_ratio": analyzer.MIN_BID_RATIO,
+        "min_volume_24h": analyzer.MIN_VOLUME_24H,
         "stop_loss_pct": analyzer.STOP_LOSS_PCT,
         "near_worthless_price": analyzer.NEAR_WORTHLESS_PRICE,
         "default_exit_price": analyzer.DEFAULT_EXIT_PRICE,
@@ -119,6 +121,8 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
             mapping = {
                 "max_spread": "MAX_SPREAD",
                 "max_category_positions": "MAX_CATEGORY_POSITIONS",
+                "min_bid_ratio": "MIN_BID_RATIO",
+                "min_volume_24h": "MIN_VOLUME_24H",
                 "stop_loss_pct": "STOP_LOSS_PCT",
                 "near_worthless_price": "NEAR_WORTHLESS_PRICE",
                 "default_exit_price": "DEFAULT_EXIT_PRICE",
