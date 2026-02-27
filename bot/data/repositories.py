@@ -3,9 +3,11 @@
 from datetime import datetime, timedelta
 
 from sqlalchemy import case, func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.data.models import (
+    BotSetting,
     MarketScan,
     PortfolioSnapshot,
     Position,
@@ -300,3 +302,27 @@ class StrategyMetricRepository:
             )
         )
         return list(result.scalars().all())
+
+
+class SettingsRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def set_many(self, items: dict[str, str]) -> None:
+        """Upsert multiple settings in one transaction."""
+        now = datetime.utcnow()
+        for key, value in items.items():
+            stmt = sqlite_insert(BotSetting).values(
+                key=key, value=value, updated_at=now
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=[BotSetting.key],
+                set_={"value": stmt.excluded.value, "updated_at": stmt.excluded.updated_at},
+            )
+            await self.session.execute(stmt)
+        await self.session.commit()
+
+    async def get_all(self) -> dict[str, str]:
+        """Read all persisted settings."""
+        result = await self.session.execute(select(BotSetting))
+        return {row.key: row.value for row in result.scalars().all()}

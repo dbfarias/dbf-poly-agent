@@ -88,6 +88,13 @@ class TradingEngine:
         await self.portfolio.sync()
         await self._seed_strategy_metrics()
 
+        # Restore persisted settings from DB (overrides defaults)
+        from bot.data.settings_store import SettingsStore
+
+        restored = await SettingsStore.load_and_apply(self)
+        if restored > 0:
+            logger.info("settings_restored_from_db", count=restored)
+
         # Wire up deferred fill callback for live orders
         self.order_manager.set_on_fill_callback(self._handle_order_fill)
 

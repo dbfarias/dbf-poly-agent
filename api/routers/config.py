@@ -7,6 +7,7 @@ from api.dependencies import get_engine
 from api.middleware import verify_api_key
 from api.schemas import BotConfig, BotConfigUpdate
 from bot.config import CapitalTier, TierConfig, settings
+from bot.data.settings_store import SettingsStore
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -134,6 +135,18 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                     changes.append(f"quality.{key}={value}")
         except RuntimeError:
             pass
+
+    # Persist to DB so settings survive restarts
+    tier = CapitalTier.TIER1
+    try:
+        engine = get_engine()
+        tier = engine.portfolio.tier
+    except RuntimeError:
+        pass
+    try:
+        await SettingsStore.save_from_update(update, tier)
+    except Exception as e:
+        logger.error("settings_persist_failed", error=str(e))
 
     logger.info("config_updated", changes=changes)
     return {"status": "updated", "changes": changes}
