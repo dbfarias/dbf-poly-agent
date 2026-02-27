@@ -213,7 +213,12 @@ class RiskManager:
     def _calculate_size(
         self, signal: TradeSignal, bankroll: float, config: dict
     ) -> float:
-        """Calculate position size using fractional Kelly with tier constraints."""
+        """Calculate position size using fractional Kelly with tier constraints.
+
+        Ensures the resulting order meets Polymarket's minimum of 5 shares
+        in live mode. If Kelly suggests less, bump up to the minimum.
+        """
+        from bot.config import settings
         from bot.utils.math_utils import kelly_criterion
 
         full_kelly = kelly_criterion(signal.estimated_prob, signal.market_price)
@@ -224,6 +229,17 @@ class RiskManager:
             kelly_frac=kelly_frac,
             max_per_position_pct=config["max_per_position_pct"],
         )
+
+        # Ensure minimum shares for live mode (Polymarket requires >= 5 shares)
+        if not settings.is_paper and signal.market_price > 0:
+            min_shares = 5.0
+            min_usd = min_shares * signal.market_price
+            if 0 < size < min_usd:
+                max_allowed = bankroll * config["max_per_position_pct"]
+                if min_usd <= max_allowed:
+                    size = min_usd
+                else:
+                    size = 0.0  # Can't afford minimum
 
         return size
 

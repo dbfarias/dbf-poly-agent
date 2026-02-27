@@ -19,8 +19,9 @@ PROXY_INIT_CODE_HASH = bytes.fromhex(
 
 # Tick size constants for Polymarket CLOB
 TICK_SIZE = 0.01
-# Minimum order size in USD. Polymarket accepts orders as low as ~$0.10,
-# but we set $1 floor to avoid dust trades with negligible profit.
+# Polymarket requires minimum 5 shares per order in live mode.
+# In paper mode we allow smaller sizes for testing.
+MIN_ORDER_SHARES = 5.0 if not settings.is_paper else 1.0
 MIN_ORDER_SIZE_USD = 1.0
 
 
@@ -176,6 +177,10 @@ class PolymarketClient:
         """Place a limit order. Returns order info dict."""
         # Round price to tick size
         price = round(round(price / TICK_SIZE) * TICK_SIZE, 2)
+
+        if size < MIN_ORDER_SHARES:
+            logger.warning("order_below_min_shares", size=size, min_shares=MIN_ORDER_SHARES)
+            return {"error": "below_minimum_order_size"}
 
         if size * price < MIN_ORDER_SIZE_USD:
             logger.warning("order_below_minimum", size=size, price=price)
