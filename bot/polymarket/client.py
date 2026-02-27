@@ -19,9 +19,9 @@ PROXY_INIT_CODE_HASH = bytes.fromhex(
 
 # Tick size constants for Polymarket CLOB
 TICK_SIZE = 0.01
-# Polymarket requires minimum 5 shares per order in live mode.
-# In paper mode we allow smaller sizes for testing.
-MIN_ORDER_SHARES = 5.0 if not settings.is_paper else 1.0
+# Minimum order constraints.  Polymarket requires a minimum notional value;
+# the per-share minimum is kept at 1 so the bot can trade with limited capital.
+MIN_ORDER_SHARES = 1.0
 MIN_ORDER_SIZE_USD = 1.0
 
 

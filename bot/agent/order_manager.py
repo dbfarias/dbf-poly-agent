@@ -68,8 +68,8 @@ class OrderManager:
 
         shares = signal.size_usd / actual_price
 
-        # Ensure minimum shares for live mode (Polymarket requires >= 5)
-        min_shares = 5.0 if not self.clob.is_paper else 1.0
+        # Ensure minimum 1 share (Polymarket minimum notional is $1)
+        min_shares = 1.0
         if shares < min_shares:
             shares = min_shares
             signal.size_usd = shares * actual_price

@@ -307,28 +307,35 @@ class TestCheckMaxPositions:
 
 
 class TestCheckTotalDeployed:
-    def test_under_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.85
-        # 5.0 deployed out of 10.0 bankroll = 50%, under 85% limit
+    def test_with_available_capital_passes(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # 5.0 deployed out of 10.0 = $5.0 available → passes
         positions = [make_position(cost_basis=5.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
-    def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.85
-        # 8.5 deployed out of 10.0 bankroll = 85%, at limit → reject
+    def test_mostly_deployed_but_cash_available_passes(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # 8.5 deployed out of 10.0 = $1.50 available → passes (>= $1)
         positions = [
             make_position(market_id="mkt1", cost_basis=4.25),
             make_position(market_id="mkt2", cost_basis=4.25),
         ]
         result = rm._check_total_deployed(positions, 10.0, config)
-        assert result.passed is False
-        assert "deployed" in result.reason.lower()
+        assert result.passed is True
 
-    def test_over_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.85
-        # 9.0 deployed out of 10.0 = 90%, over 85% limit
-        positions = [make_position(cost_basis=9.0)]
+    def test_no_capital_available_fails(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # 9.5 deployed out of 10.0 = $0.50 available → fails (< $1)
+        positions = [make_position(cost_basis=9.5)]
+        result = rm._check_total_deployed(positions, 10.0, config)
+        assert result.passed is False
+        assert "insufficient" in result.reason.lower()
+
+    def test_fully_deployed_fails(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # 10.0 deployed out of 10.0 = $0 available → fails
+        positions = [make_position(cost_basis=10.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is False
 
@@ -338,7 +345,7 @@ class TestCheckTotalDeployed:
         assert result.passed is True
 
     def test_closed_positions_excluded(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.80
+        config = TierConfig.get(CapitalTier.TIER1)
         # Closed position should not count toward deployed total
         positions = [make_position(cost_basis=8.0, is_open=False)]
         result = rm._check_total_deployed(positions, 10.0, config)

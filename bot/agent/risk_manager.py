@@ -104,8 +104,10 @@ class RiskManager:
                 )
                 return False, 0.0, check.reason
 
-        # Calculate position size
-        size = self._calculate_size(signal, bankroll, config)
+        # Calculate position size (capped to available capital)
+        deployed = sum(p.cost_basis for p in open_positions if p.is_open)
+        available = bankroll - deployed
+        size = self._calculate_size(signal, bankroll, config, available_capital=available)
         if size <= 0:
             return False, 0.0, "Position size too small"
 
@@ -169,14 +171,19 @@ class RiskManager:
         bankroll: float,
         config: dict,
     ) -> RiskCheckResult:
-        """Reject if total deployed capital exceeds max_deployed_pct of bankroll."""
+        """Reject if there's not enough available capital for a new trade.
+
+        Uses available capital (bankroll - deployed) instead of a hard deployment
+        ratio.  Other checks (max_positions, per-position %, Kelly) already
+        constrain individual trades, so this just ensures we have cash to trade.
+        """
         deployed = sum(p.cost_basis for p in open_positions if p.is_open)
-        max_deployed = bankroll * config["max_deployed_pct"]
-        if deployed >= max_deployed:
+        available = bankroll - deployed
+        if available < 1.0:
             return RiskCheckResult(
                 False,
-                f"Total deployed limit: ${deployed:.2f} >= ${max_deployed:.2f} "
-                f"({config['max_deployed_pct']:.0%} of bankroll)",
+                f"Insufficient capital: ${available:.2f} available "
+                f"(${deployed:.2f} deployed of ${bankroll:.2f})",
             )
         return RiskCheckResult(True)
 
@@ -224,12 +231,16 @@ class RiskManager:
         return RiskCheckResult(True)
 
     def _calculate_size(
-        self, signal: TradeSignal, bankroll: float, config: dict
+        self,
+        signal: TradeSignal,
+        bankroll: float,
+        config: dict,
+        available_capital: float | None = None,
     ) -> float:
         """Calculate position size using fractional Kelly with tier constraints.
 
-        Ensures the resulting order meets Polymarket's minimum of 5 shares
-        in live mode. If Kelly suggests less, bump up to the minimum.
+        Caps the result to available capital so the bot doesn't try to spend
+        more USDC than it actually has.
         """
         from bot.config import settings
         from bot.utils.math_utils import kelly_criterion
@@ -243,25 +254,26 @@ class RiskManager:
             max_per_position_pct=config["max_per_position_pct"],
         )
 
-        # Ensure minimum shares for live mode (Polymarket requires >= 5 shares)
+        # Cap to available capital (leave 5% buffer for fees/slippage)
+        if available_capital is not None and size > available_capital * 0.95:
+            size = available_capital * 0.95
+
+        # Ensure minimum order notional ($1 USD minimum)
         if not settings.is_paper and signal.market_price > 0:
-            min_shares = 5.0
-            min_usd = min_shares * signal.market_price
+            min_usd = max(1.0, signal.market_price)  # At least 1 share or $1
             if 0 < size < min_usd:
-                max_allowed = bankroll * config["max_per_position_pct"]
-                if min_usd <= max_allowed:
+                if min_usd <= (available_capital or bankroll) * 0.95:
                     logger.info(
-                        "size_bumped_to_min_shares",
+                        "size_bumped_to_minimum",
                         kelly_usd=round(size, 2),
                         min_usd=round(min_usd, 2),
-                        pct_of_bankroll=round(min_usd / bankroll * 100, 1),
                     )
                     size = min_usd
                 else:
                     logger.info(
-                        "trade_skipped_too_expensive",
+                        "trade_skipped_insufficient_capital",
                         min_usd=round(min_usd, 2),
-                        max_allowed=round(max_allowed, 2),
+                        available=round(available_capital or bankroll, 2),
                         price=signal.market_price,
                     )
                     size = 0.0
