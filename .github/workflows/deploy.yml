@@ -27,6 +27,8 @@ jobs:
         run: ruff check bot/ api/
 
       - name: Test
+        env:
+          API_SECRET_KEY: test-key-32chars-long-enough-xx
         run: pytest tests/ -v --tb=short
 
   build-and-push:
@@ -71,15 +73,20 @@ jobs:
     steps:
       - name: Deploy to Lightsail
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          timeout: 60s
           command_timeout: 10m
+          envs: GHCR_TOKEN
           script: |
+            set -e
             cd ~/polybot
             git pull origin main
-            echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u dbfarias --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u dbfarias --password-stdin
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
             docker compose -f docker-compose.prod.yml logs --tail=20 app
