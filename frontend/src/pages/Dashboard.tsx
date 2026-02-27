@@ -92,7 +92,7 @@ export default function Dashboard() {
                         : "bg-zinc-700"
               }`}
               style={{
-                width: `${Math.min(100, Math.max(0, Math.abs(portfolio.daily_progress_pct) * 100))}%`,
+                width: `${Math.min(100, Math.max(0, portfolio.daily_progress_pct * 100))}%`,
               }}
             />
           </div>
@@ -100,7 +100,9 @@ export default function Dashboard() {
             <span>
               {portfolio.daily_progress_pct >= 1
                 ? "Target reached!"
-                : `${(Math.abs(portfolio.daily_progress_pct) * 100).toFixed(0)}% progress`}
+                : portfolio.daily_progress_pct <= 0
+                  ? "0% progress"
+                  : `${(portfolio.daily_progress_pct * 100).toFixed(0)}% progress`}
             </span>
             <span>
               {portfolio.daily_progress_pct >= 0

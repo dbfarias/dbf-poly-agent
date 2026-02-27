@@ -62,8 +62,14 @@ class BaseStrategy(ABC):
         ...
 
     @abstractmethod
-    async def should_exit(self, market_id: str, current_price: float) -> bool:
-        """Determine if an existing position should be exited."""
+    async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
+        """Determine if an existing position should be exited.
+
+        Args:
+            market_id: The market identifier.
+            current_price: Current market price for the position.
+            **kwargs: Additional position context (e.g. avg_price, created_at).
+        """
         ...
 
     def __repr__(self) -> str:

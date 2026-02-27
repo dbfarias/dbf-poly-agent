@@ -318,7 +318,7 @@ class TimeDecayStrategy(BaseStrategy):
         edge_score = min(1.0, signal.edge / 0.03)
         return time_score * 0.6 + edge_score * 0.4
 
-    async def should_exit(self, market_id: str, current_price: float) -> bool:
+    async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
         """Exit if price drops significantly (something unexpected happened)."""
         if current_price < 0.70:
             self.logger.warning(

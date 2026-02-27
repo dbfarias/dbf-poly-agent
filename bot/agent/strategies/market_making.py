@@ -96,7 +96,7 @@ class MarketMakingStrategy(BaseStrategy):
             },
         )
 
-    async def should_exit(self, market_id: str, current_price: float) -> bool:
+    async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
         """Market making positions should be exited if spread collapses."""
         # Exit if the price moves significantly from our entry
         return False

@@ -133,7 +133,10 @@ class MarketAnalyzer:
                     strategy_matched = True
                     try:
                         should_exit = await strategy.should_exit(
-                            position.market_id, position.current_price
+                            position.market_id,
+                            position.current_price,
+                            avg_price=position.avg_price,
+                            created_at=position.created_at,
                         )
                         if should_exit:
                             exits.append(position.market_id)

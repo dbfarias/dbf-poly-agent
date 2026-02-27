@@ -87,6 +87,6 @@ class ArbitrageStrategy(BaseStrategy):
 
         return None
 
-    async def should_exit(self, market_id: str, current_price: float) -> bool:
+    async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
         """Arbitrage positions should be held to resolution."""
         return False
