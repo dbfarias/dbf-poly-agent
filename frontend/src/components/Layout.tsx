@@ -66,6 +66,7 @@ export default function Layout({ onLogout }: LayoutProps) {
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
         data-testid="sidebar"
+        aria-label="Main navigation"
       >
         <div className="p-4 border-b border-[#2a2d3e]">
           <div className="flex items-center justify-between">
@@ -83,6 +84,7 @@ export default function Layout({ onLogout }: LayoutProps) {
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors lg:hidden"
+                aria-label="Close menu"
               >
                 <X size={16} />
               </button>
@@ -140,6 +142,7 @@ export default function Layout({ onLogout }: LayoutProps) {
             onClick={() => setSidebarOpen(true)}
             className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
             data-testid="mobile-menu-btn"
+            aria-label="Open menu"
           >
             <Menu size={20} />
           </button>

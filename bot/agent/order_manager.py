@@ -83,16 +83,16 @@ class OrderManager:
 
         shares = signal.size_usd / actual_price
 
-        # Ensure minimum 5 shares (Polymarket CLOB minimum order size)
-        min_shares = self.MIN_ORDER_SIZE if not self.clob.is_paper else 1.0
-        if shares < min_shares:
-            shares = min_shares
-            signal.size_usd = shares * actual_price
+        # Ensure minimum share count (immutable copy to avoid mutation)
+        if shares < self.MIN_BUY_SHARES:
+            shares = self.MIN_BUY_SHARES
+            adjusted_size = shares * actual_price
+            signal = signal.model_copy(update={"size_usd": adjusted_size})
             logger.info(
                 "size_bumped_to_min_shares",
                 shares=shares,
                 actual_price=actual_price,
-                adjusted_size_usd=signal.size_usd,
+                adjusted_size_usd=adjusted_size,
             )
 
         # Place the order
@@ -116,6 +116,8 @@ class OrderManager:
             return None
 
         order_id = result.get("orderID", result.get("order_id", ""))
+        if not order_id:
+            logger.warning("order_missing_id", market_id=signal.market_id)
 
         # Determine fill status from API response
         # Polymarket CLOB returns status: "matched" for immediate fills
@@ -287,7 +289,8 @@ class OrderManager:
         for oid in to_remove:
             self._pending_orders.pop(oid, None)
 
-    MIN_ORDER_SIZE = 5.0  # Polymarket CLOB minimum order size
+    MIN_BUY_SHARES = 1.0   # Minimum shares for BUY orders
+    MIN_SELL_SHARES = 5.0  # Minimum shares for SELL orders (CLOB constraint)
 
     async def close_position(
         self,
@@ -301,13 +304,13 @@ class OrderManager:
         strategy: str = "exit",
     ) -> Trade | None:
         """Close a position by selling."""
-        # Polymarket requires minimum 5 shares — reject if below
-        if not self.clob.is_paper and size < self.MIN_ORDER_SIZE:
+        # Polymarket requires minimum shares to sell — reject if below
+        if not self.clob.is_paper and size < self.MIN_SELL_SHARES:
             logger.warning(
                 "position_too_small_to_sell",
                 market_id=market_id,
                 size=size,
-                min_size=self.MIN_ORDER_SIZE,
+                min_size=self.MIN_SELL_SHARES,
             )
             return None
 

@@ -297,7 +297,7 @@ export default function Settings() {
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full sm:w-auto">
             {risk?.is_paused ? (
               <button
                 onClick={() => resumeMut.mutate()}

@@ -275,45 +275,43 @@ class RiskManager:
     ) -> float:
         """Calculate position size using fractional Kelly with tier constraints.
 
-        Caps the result to available capital so the bot doesn't try to spend
-        more USDC than it actually has.
+        Uses min_order_usd=0 so Kelly can produce sub-$1 sizes naturally.
+        The 1-share floor only applies when Kelly recommends a positive amount
+        that falls just below 1 share — never inflates a zero-size signal.
         """
-        from bot.config import settings
         from bot.utils.math_utils import kelly_criterion
 
         full_kelly = kelly_criterion(signal.estimated_prob, signal.market_price)
         kelly_frac = config["kelly_fraction"] * full_kelly
 
+        # Let Kelly produce natural sizes (no internal $1 floor)
         size = position_size_usd(
             bankroll=bankroll,
             kelly_frac=kelly_frac,
             max_per_position_pct=config["max_per_position_pct"],
+            min_order_usd=0.0,
         )
 
         # Cap to available capital (leave 5% buffer for fees/slippage)
         if available_capital is not None and size > available_capital * 0.95:
             size = available_capital * 0.95
 
-        # Ensure minimum 5 shares (Polymarket CLOB minimum) so positions are sellable.
-        # Kelly may return $0 (via position_size_usd min_order_usd floor) but if we
-        # have enough capital for 5 shares, we should still trade at minimum size.
-        if not settings.is_paper and signal.market_price > 0:
-            min_usd = 5.0 * signal.market_price  # 5 shares at current price
+        # Floor to 1 share if Kelly produced a positive value but it's below
+        # 1 share. This allows natural $0.50-$6 trade sizes while ensuring
+        # at least 1 share when there IS an edge.
+        if signal.market_price > 0 and size > 0:
+            min_usd = 1.0 * signal.market_price  # 1 share at current price
+            max_position = bankroll * config["max_per_position_pct"]
             if size < min_usd:
-                if min_usd <= (available_capital or bankroll) * 0.95:
+                # Only bump if 1 share is within position limits
+                if min_usd <= max_position and min_usd <= (available_capital or bankroll) * 0.95:
                     logger.info(
-                        "size_bumped_to_min_5_shares",
+                        "size_bumped_to_min_1_share",
                         kelly_usd=round(size, 2),
                         min_usd=round(min_usd, 2),
                     )
                     size = min_usd
                 else:
-                    logger.info(
-                        "trade_skipped_insufficient_for_5_shares",
-                        min_usd=round(min_usd, 2),
-                        available=round(available_capital or bankroll, 2),
-                        price=signal.market_price,
-                    )
                     size = 0.0
 
         return size

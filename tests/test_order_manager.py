@@ -328,11 +328,11 @@ class TestExecuteSignalErrors:
 
 class TestExecuteSignalMinShares:
     @pytest.mark.asyncio
-    async def test_live_mode_bumps_to_min_5_shares(self):
-        """In live mode, orders below 5 shares are bumped to 5."""
+    async def test_live_mode_bumps_to_min_1_share(self):
+        """In live mode, orders below 1 share are bumped to 1."""
         manager, clob, _ = _build_manager(is_paper=False)
-        # Small size that produces fewer than 5 shares at ask price
-        signal = make_signal(market_price=0.90, size_usd=2.0)
+        # Very small size that produces less than 1 share at ask price
+        signal = make_signal(market_price=0.90, size_usd=0.50)
 
         book = make_order_book(best_ask=0.91)
         clob.get_order_book.return_value = book
@@ -358,9 +358,44 @@ class TestExecuteSignalMinShares:
             mock_settings.is_paper = False
             await manager.execute_signal(signal)
 
-        # Verify place_order was called with size=5.0 (rounded to 2 decimals)
+        # Verify place_order was called with size=1.0 (rounded to 2 decimals)
         call_kwargs = clob.place_order.call_args
-        assert call_kwargs.kwargs["size"] == 5.0
+        assert call_kwargs.kwargs["size"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_live_mode_allows_small_trades(self):
+        """Live mode allows trades of $1-$2 without bumping to $5."""
+        manager, clob, _ = _build_manager(is_paper=False)
+        # $2 at $0.91 = ~2.20 shares, above 1-share min
+        signal = make_signal(market_price=0.90, size_usd=2.0)
+
+        book = make_order_book(best_ask=0.91)
+        clob.get_order_book.return_value = book
+
+        created_trade = make_trade(status="pending")
+        clob.place_order.return_value = {
+            "orderID": "live-small",
+            "status": "LIVE",
+        }
+
+        mock_session = _mock_session()
+        mock_repo = AsyncMock()
+        mock_repo.create = AsyncMock(return_value=created_trade)
+
+        with (
+            patch("bot.agent.order_manager.async_session", return_value=mock_session),
+            patch("bot.agent.order_manager.TradeRepository", return_value=mock_repo),
+            patch("bot.agent.order_manager.notify_trade", new_callable=AsyncMock),
+            patch("bot.agent.order_manager.log_order_placed", new_callable=AsyncMock),
+            patch("bot.agent.order_manager.log_price_adjustment", new_callable=AsyncMock),
+            patch("bot.agent.order_manager.settings") as mock_settings,
+        ):
+            mock_settings.is_paper = False
+            await manager.execute_signal(signal)
+
+        # 2.0 / 0.91 ≈ 2.20 shares — should not be bumped to 5
+        call_kwargs = clob.place_order.call_args
+        assert call_kwargs.kwargs["size"] == 2.20  # round(2.197..., 2)
 
     @pytest.mark.asyncio
     async def test_paper_mode_min_shares_is_1(self):
@@ -770,7 +805,7 @@ class TestClosePosition:
 class TestClosePositionMinSize:
     @pytest.mark.asyncio
     async def test_live_below_min_size_rejected(self):
-        """Live mode rejects close_position if size < MIN_ORDER_SIZE (5)."""
+        """Live mode rejects close_position if size < MIN_SELL_SHARES (5)."""
         manager, clob, _ = _build_manager(is_paper=False)
 
         result = await manager.close_position(

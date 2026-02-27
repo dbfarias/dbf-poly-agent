@@ -466,8 +466,23 @@ class TestCalculateSize:
         config = TierConfig.get(CapitalTier.TIER1)
         signal = make_signal(estimated_prob=0.92, market_price=0.87)
         size = rm._calculate_size(signal, 1.0, config)
-        # bankroll=1.0, kelly≈0.096, size=0.096 < min_order=1.0 → skip
+        # bankroll=1.0, kelly=$0.08, 1-share min=$0.87 exceeds
+        # max_per_position (55% of $1 = $0.55) → returns 0
         assert size == 0.0
+
+    def test_kelly_produces_varied_sizes(self, rm):
+        """Kelly naturally produces $1-$5 range without 5-share bump."""
+        config = TierConfig.get(CapitalTier.TIER2)
+        # Strong signal: higher Kelly → bigger trade
+        strong = make_signal(estimated_prob=0.95, market_price=0.86)
+        big_size = rm._calculate_size(strong, 30.0, config)
+        # Weaker signal: lower Kelly → smaller trade
+        weak = make_signal(estimated_prob=0.80, market_price=0.72)
+        small_size = rm._calculate_size(weak, 30.0, config)
+        # Sizes should differ meaningfully
+        assert big_size > small_size
+        assert big_size > 1.0  # at least $1
+        assert small_size > 0  # still trades
 
 
 # ---------------------------------------------------------------------------
