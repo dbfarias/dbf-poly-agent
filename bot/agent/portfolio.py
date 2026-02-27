@@ -133,7 +133,7 @@ class Portfolio:
                     question=rp.question[:200],
                     outcome=rp.outcome,
                     category="",
-                    strategy="external",
+                    strategy="external",  # Default for new; upsert preserves existing
                     side="BUY",
                     size=rp.size,
                     avg_price=rp.avg_price,

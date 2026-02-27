@@ -1,4 +1,6 @@
-"""Tests for MarketAnalyzer deduplication logic."""
+"""Tests for MarketAnalyzer deduplication and stop-loss logic."""
+
+from types import SimpleNamespace
 
 from bot.agent.market_analyzer import MarketAnalyzer
 from bot.polymarket.types import OrderSide, TradeSignal
@@ -81,3 +83,62 @@ class TestDeduplicateCorrelated:
         signals = [_signal(market_id="mkt1", question="Will X happen?")]
         result = analyzer._deduplicate_correlated(signals)
         assert len(result) == 1
+
+
+def _position(
+    market_id: str = "mkt1",
+    strategy: str = "time_decay",
+    avg_price: float = 0.95,
+    current_price: float = 0.93,
+):
+    return SimpleNamespace(
+        market_id=market_id,
+        strategy=strategy,
+        avg_price=avg_price,
+        current_price=current_price,
+    )
+
+
+class TestCheckStopLoss:
+    def setup_method(self):
+        self.analyzer = MarketAnalyzer.__new__(MarketAnalyzer)
+
+    def test_near_worthless_triggers_exit(self):
+        pos = _position(current_price=0.05, avg_price=0.90)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is not None
+        assert "near_worthless" in reason
+
+    def test_40pct_loss_triggers_exit(self):
+        pos = _position(avg_price=0.50, current_price=0.25)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is not None
+        assert "stop_loss" in reason
+
+    def test_39pct_loss_no_exit(self):
+        pos = _position(avg_price=0.50, current_price=0.31)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
+
+    def test_unmatched_strategy_below_default_threshold(self):
+        pos = _position(strategy="external", avg_price=0.95, current_price=0.60)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
+        assert reason is not None
+        assert "unmatched_strategy" in reason
+
+    def test_unmatched_strategy_above_threshold_no_exit(self):
+        pos = _position(strategy="external", avg_price=0.95, current_price=0.80)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
+        assert reason is None
+
+    def test_matched_strategy_no_stop_loss_when_healthy(self):
+        pos = _position(avg_price=0.95, current_price=0.93)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
+
+    def test_real_case_external_58pct_loss(self):
+        """Real scenario: position bought at $0.396, now $0.165 (58% loss)."""
+        pos = _position(strategy="external", avg_price=0.396, current_price=0.165)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
+        assert reason is not None
+        assert "stop_loss" in reason

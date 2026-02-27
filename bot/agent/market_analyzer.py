@@ -85,14 +85,22 @@ class MarketAnalyzer:
         all_signals.sort(key=lambda s: s.edge * s.confidence, reverse=True)
         return all_signals
 
+    # Universal stop-loss thresholds
+    STOP_LOSS_PCT = 0.40  # Exit if lost 40%+ of entry price
+    NEAR_WORTHLESS_PRICE = 0.10  # Always exit below 10 cents
+    DEFAULT_EXIT_PRICE = 0.70  # Fallback exit for unmatched strategies
+
     async def check_exits(
         self, positions: list, tier: CapitalTier
     ) -> list[str]:
         """Check if any open positions should be exited. Returns market IDs to exit."""
         exits = []
         for position in positions:
+            # 1. Strategy-specific exit check
+            strategy_matched = False
             for strategy in self.strategies:
                 if strategy.name == position.strategy:
+                    strategy_matched = True
                     try:
                         should_exit = await strategy.should_exit(
                             position.market_id, position.current_price
@@ -111,7 +119,42 @@ class MarketAnalyzer:
                             market_id=position.market_id,
                             error=str(e),
                         )
+                    break
+
+            # 2. Universal stop-loss for ALL positions (including unmatched strategies)
+            if position.market_id not in exits:
+                exit_reason = self._check_stop_loss(position, strategy_matched)
+                if exit_reason:
+                    exits.append(position.market_id)
+                    logger.info(
+                        "stop_loss_exit",
+                        market_id=position.market_id,
+                        strategy=position.strategy,
+                        reason=exit_reason,
+                        avg_price=round(position.avg_price, 4),
+                        current_price=round(position.current_price, 4),
+                    )
         return exits
+
+    def _check_stop_loss(self, position, strategy_matched: bool) -> str | None:
+        """Universal stop-loss check. Returns exit reason or None."""
+        # Near-worthless: always exit
+        if position.current_price < self.NEAR_WORTHLESS_PRICE:
+            return f"near_worthless (price={position.current_price:.4f})"
+
+        # Loss exceeds stop-loss threshold
+        if position.avg_price > 0:
+            loss_pct = (
+                (position.avg_price - position.current_price) / position.avg_price
+            )
+            if loss_pct >= self.STOP_LOSS_PCT:
+                return f"stop_loss ({loss_pct:.0%} loss)"
+
+        # Unmatched strategy: apply default exit threshold
+        if not strategy_matched and position.current_price < self.DEFAULT_EXIT_PRICE:
+            return f"unmatched_strategy_exit (price={position.current_price:.4f})"
+
+        return None
 
     async def _filter_quality(
         self, markets: list[GammaMarket]
