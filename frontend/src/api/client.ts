@@ -43,6 +43,9 @@ export interface PortfolioOverview {
   peak_equity: number;
   tier: string;
   is_paper: boolean;
+  daily_target_pct: number;
+  daily_target_usd: number;
+  daily_progress_pct: number;
 }
 
 export interface Position {

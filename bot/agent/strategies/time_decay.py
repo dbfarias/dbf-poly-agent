@@ -20,7 +20,7 @@ from .base import BaseStrategy
 logger = structlog.get_logger()
 
 # Strategy parameters
-MAX_HOURS_TO_RESOLUTION = 720.0  # 30 days — covers most active markets
+MAX_HOURS_TO_RESOLUTION = 168.0  # 7 days — short-term focus for daily profit targets
 MIN_IMPLIED_PROB = 0.70
 MAX_PRICE = 0.97  # Don't buy above this (too little profit margin)
 MIN_PRICE = 0.60  # Include medium-probability markets for volume + better risk/reward

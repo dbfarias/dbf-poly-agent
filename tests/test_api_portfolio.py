@@ -29,6 +29,9 @@ class TestGetOverview:
             "peak_equity",
             "tier",
             "is_paper",
+            "daily_target_pct",
+            "daily_target_usd",
+            "daily_progress_pct",
         }
         assert set(data.keys()) == expected_keys
 

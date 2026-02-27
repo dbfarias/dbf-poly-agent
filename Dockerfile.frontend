@@ -1,13 +1,13 @@
 FROM node:20-alpine AS build
 
-ARG VITE_API_KEY=""
 WORKDIR /app
-ENV VITE_API_KEY=$VITE_API_KEY
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
 ENV NODE_OPTIONS="--max-old-space-size=512"
-RUN npm run build
+RUN --mount=type=secret,id=VITE_API_KEY \
+    VITE_API_KEY="$(cat /run/secrets/VITE_API_KEY 2>/dev/null || echo '')" \
+    npm run build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html

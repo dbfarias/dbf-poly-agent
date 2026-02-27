@@ -337,8 +337,14 @@ class Portfolio:
 
     def get_overview(self) -> dict:
         """Get portfolio overview for the dashboard."""
+        equity = self.total_equity
+        target_pct = settings.daily_target_pct
+        target_usd = equity * target_pct
+        progress = (
+            self._realized_pnl_today / target_usd if target_usd > 0 else 0.0
+        )
         return {
-            "total_equity": self.total_equity,
+            "total_equity": equity,
             "cash_balance": self._cash,
             "polymarket_balance": self._polymarket_balance,
             "positions_value": self.positions_value,
@@ -349,4 +355,7 @@ class Portfolio:
             "tier": self.tier.value,
             "is_paper": settings.is_paper,
             "wallet_address": self.clob.get_address(),
+            "daily_target_pct": target_pct,
+            "daily_target_usd": round(target_usd, 4),
+            "daily_progress_pct": round(progress, 4),
         }

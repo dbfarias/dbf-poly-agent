@@ -17,6 +17,9 @@ class PortfolioOverview(BaseModel):
     peak_equity: float
     tier: str
     is_paper: bool
+    daily_target_pct: float = 0.01
+    daily_target_usd: float = 0.0
+    daily_progress_pct: float = 0.0
 
 
 class PositionResponse(BaseModel):

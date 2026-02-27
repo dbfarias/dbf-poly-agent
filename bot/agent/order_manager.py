@@ -236,11 +236,24 @@ class OrderManager:
         self, market_id: str, token_id: str, size: float, current_price: float
     ) -> Trade | None:
         """Close a position by selling."""
+        # Polymarket requires minimum 5 shares; bump if needed
+        sell_size = max(size, 5.0) if not self.clob.is_paper else size
+
+        # Get best bid for immediate fill
+        sell_price = current_price
+        if not self.clob.is_paper:
+            try:
+                book = await self.clob.get_order_book(token_id)
+                if book.best_bid is not None:
+                    sell_price = book.best_bid
+            except Exception:
+                pass
+
         result = await self.clob.place_order(
             token_id=token_id,
             side=OrderSide.SELL,
-            price=current_price,
-            size=size,
+            price=sell_price,
+            size=sell_size,
         )
 
         if "error" in result:
@@ -253,10 +266,10 @@ class OrderManager:
             token_id=token_id,
             order_id=order_id,
             side=OrderSide.SELL.value,
-            price=current_price,
+            price=sell_price,
             size=size,
             filled_size=size if self.clob.is_paper else 0,
-            cost_usd=size * current_price,
+            cost_usd=size * sell_price,
             strategy="exit",
             status="filled" if self.clob.is_paper else "pending",
             is_paper=settings.is_paper,

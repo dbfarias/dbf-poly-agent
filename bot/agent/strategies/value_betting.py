@@ -2,7 +2,11 @@
 
 Enabled at Tier 2+ ($25+). Uses order book imbalance, volume momentum,
 and cross-market correlation to estimate true probability.
+
+Focuses on SHORT-TERM markets (< 7 days) to support daily profit targets.
 """
+
+from datetime import datetime, timezone
 
 import structlog
 
@@ -15,6 +19,7 @@ logger = structlog.get_logger()
 
 MIN_EDGE = 0.03  # 3% minimum edge for value bets
 IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance
+MAX_HOURS_TO_RESOLUTION = 168.0  # 7 days — short-term only
 
 
 class ValueBettingStrategy(BaseStrategy):
@@ -37,6 +42,16 @@ class ValueBettingStrategy(BaseStrategy):
 
     async def _evaluate_market(self, market: GammaMarket) -> TradeSignal | None:
         """Evaluate a market for mispricing using order book analysis."""
+        # Must resolve within MAX_HOURS (short-term only)
+        end = market.end_date
+        if end is None:
+            return None
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        hours_left = (end - datetime.now(timezone.utc)).total_seconds() / 3600
+        if hours_left <= 0 or hours_left > MAX_HOURS_TO_RESOLUTION:
+            return None
+
         token_ids = market.token_ids
         if not token_ids:
             return None
@@ -113,6 +128,7 @@ class ValueBettingStrategy(BaseStrategy):
             ),
             metadata={
                 "category": market.category,
+                "hours_to_resolution": hours_left,
                 "imbalance": imbalance,
                 "bid_volume": bid_volume,
                 "ask_volume": ask_volume,

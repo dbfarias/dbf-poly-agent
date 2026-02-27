@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { DollarSign, Layers, Target, TrendingUp, Wallet } from "lucide-react";
+import { DollarSign, Layers, Target, TrendingUp, Wallet, Crosshair } from "lucide-react";
 import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats } from "../api/client";
 import EquityChart from "../components/EquityChart";
 import HelpTooltip from "../components/HelpTooltip";
@@ -60,6 +60,56 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Daily Target */}
+      {portfolio && (
+        <div
+          className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4"
+          data-testid="daily-target-section"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Crosshair size={16} className="text-indigo-400" />
+              <span className="text-sm font-medium text-zinc-300">
+                Daily Target: {(portfolio.daily_target_pct * 100).toFixed(0)}%
+              </span>
+            </div>
+            <span className="text-sm font-medium text-zinc-400">
+              ${portfolio.realized_pnl_today.toFixed(2)} / ${portfolio.daily_target_usd.toFixed(2)}
+            </span>
+          </div>
+          <div className="w-full bg-[#0f1117] rounded-full h-3">
+            <div
+              className={`h-3 rounded-full transition-all duration-500 ${
+                portfolio.daily_progress_pct >= 1
+                  ? "bg-green-500"
+                  : portfolio.daily_progress_pct >= 0.5
+                    ? "bg-yellow-500"
+                    : portfolio.daily_progress_pct > 0
+                      ? "bg-indigo-500"
+                      : portfolio.realized_pnl_today < 0
+                        ? "bg-red-500"
+                        : "bg-zinc-700"
+              }`}
+              style={{
+                width: `${Math.min(100, Math.max(0, Math.abs(portfolio.daily_progress_pct) * 100))}%`,
+              }}
+            />
+          </div>
+          <div className="flex justify-between mt-1 text-xs text-zinc-500">
+            <span>
+              {portfolio.daily_progress_pct >= 1
+                ? "Target reached!"
+                : `${(Math.abs(portfolio.daily_progress_pct) * 100).toFixed(0)}% progress`}
+            </span>
+            <span>
+              {portfolio.daily_progress_pct >= 0
+                ? `$${(portfolio.daily_target_usd - portfolio.realized_pnl_today).toFixed(2)} remaining`
+                : `$${Math.abs(portfolio.realized_pnl_today).toFixed(2)} in the red`}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

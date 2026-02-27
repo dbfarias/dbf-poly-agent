@@ -63,7 +63,7 @@ jobs:
           file: Dockerfile.frontend
           push: true
           tags: ${{ env.REGISTRY }}/dbfarias/polybot-frontend:latest
-          build-args: |
+          secrets: |
             VITE_API_KEY=${{ secrets.API_SECRET_KEY }}
 
   deploy:

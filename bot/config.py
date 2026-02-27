@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     # Risk
     max_daily_loss_pct: float = 0.10
     max_drawdown_pct: float = 0.25
+    daily_target_pct: float = 0.01  # 1% daily profit target
 
     # Database
     database_url: str = "sqlite+aiosqlite:///data/polybot.db"
