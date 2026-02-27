@@ -34,6 +34,8 @@ class Portfolio:
         self._positions: list[Position] = []
         self._peak_equity: float = settings.initial_bankroll
         self._realized_pnl_today: float = 0.0
+        self._pnl_date: str = ""  # Track which UTC day the PnL belongs to
+        self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
 
     @property
@@ -69,7 +71,22 @@ class Portfolio:
 
         Always fetches real Polymarket balance if connected (even in paper mode)
         so the dashboard shows accurate account data.
+
+        Resets daily PnL and captures day-start equity at midnight UTC.
         """
+        # Daily reset: new UTC day → reset PnL, capture start-of-day equity
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        if self._pnl_date != today:
+            if self._pnl_date:
+                logger.info(
+                    "daily_pnl_reset",
+                    previous_date=self._pnl_date,
+                    previous_pnl=round(self._realized_pnl_today, 4),
+                )
+            self._realized_pnl_today = 0.0
+            self._pnl_date = today
+            self._day_start_equity = self.total_equity
+
         # Sync positions from Polymarket first
         if self.clob.is_connected and not settings.is_paper:
             await self._sync_from_polymarket()
@@ -350,10 +367,14 @@ class Portfolio:
         return snapshot
 
     def get_overview(self) -> dict:
-        """Get portfolio overview for the dashboard."""
+        """Get portfolio overview for the dashboard.
+
+        Daily target is based on start-of-day equity (fixed at midnight UTC),
+        not current equity, so the goalpost doesn't move during the day.
+        """
         equity = self.total_equity
         target_pct = settings.daily_target_pct
-        target_usd = equity * target_pct
+        target_usd = self._day_start_equity * target_pct
         progress = (
             self._realized_pnl_today / target_usd if target_usd > 0 else 0.0
         )

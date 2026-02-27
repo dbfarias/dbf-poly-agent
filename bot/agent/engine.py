@@ -144,7 +144,7 @@ class TradingEngine:
         #    Feed daily context so urgency multiplier reflects target progress
         self.learner.set_daily_context(
             realized_pnl=self.portfolio._realized_pnl_today,
-            equity=self.portfolio.total_equity,
+            equity=self.portfolio._day_start_equity,
             target_pct=settings.daily_target_pct,
         )
         try:
