@@ -13,7 +13,7 @@ from .base import BaseStrategy
 
 logger = structlog.get_logger()
 
-MIN_EDGE = 0.05  # 5% minimum edge for value bets
+MIN_EDGE = 0.03  # 3% minimum edge for value bets
 IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance
 
 
@@ -21,7 +21,7 @@ class ValueBettingStrategy(BaseStrategy):
     """Detect mispriced markets via order book and volume analysis."""
 
     name = "value_betting"
-    min_tier = CapitalTier.TIER2
+    min_tier = CapitalTier.TIER1
 
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan markets for value betting opportunities."""

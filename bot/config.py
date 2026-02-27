@@ -37,7 +37,7 @@ class TierConfig:
             "daily_loss_limit_pct": 0.10,
             "max_drawdown_pct": 0.25,
             "min_edge_pct": 0.01,
-            "min_win_prob": 0.80,
+            "min_win_prob": 0.65,
             "max_per_category_pct": 0.40,
             "kelly_fraction": 0.25,
         },

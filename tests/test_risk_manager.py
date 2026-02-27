@@ -435,12 +435,12 @@ class TestCheckMinEdge:
 
 class TestCheckMinWinProb:
     def test_above_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.80
+        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.65
         signal = make_signal(estimated_prob=0.92)
         assert rm._check_min_win_prob(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.80
+        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.65
         signal = make_signal(estimated_prob=0.60)
         result = rm._check_min_win_prob(signal, config)
         assert result.passed is False
