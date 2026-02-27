@@ -359,11 +359,11 @@ class TradingEngine:
         """Check order book has reasonable exit liquidity before trading.
 
         Verifies:
-        1. Spread is within limits (4 cents)
+        1. Spread is within limits (5 cents)
         2. Best bid is near fair price (can actually sell if needed)
         """
-        max_spread = 0.04  # 4 cents max spread
-        min_bid_ratio = 0.50  # Bid must be >= 50% of fair price
+        max_spread = 0.05  # 5 cents max spread (CLOB pre-trade check)
+        min_bid_ratio = MarketAnalyzer.MIN_BID_RATIO
 
         try:
             book = await self.clob_client.get_order_book(signal.token_id)

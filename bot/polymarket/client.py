@@ -1,6 +1,7 @@
 """Wrapper around py-clob-client with async support, retry, and paper trading mode."""
 
 import asyncio
+import math
 from datetime import datetime
 
 import structlog
@@ -175,8 +176,13 @@ class PolymarketClient:
         size: float,
     ) -> dict:
         """Place a limit order. Returns order info dict."""
-        # Round price to tick size
-        price = round(round(price / TICK_SIZE) * TICK_SIZE, 2)
+        # Round price to tick size — direction-aware to ensure fills:
+        # BUY: round UP (ceil) to match or beat the ask
+        # SELL: round DOWN (floor) to match or beat the bid
+        if side == OrderSide.BUY:
+            price = round(math.ceil(price / TICK_SIZE) * TICK_SIZE, 2)
+        else:
+            price = round(math.floor(price / TICK_SIZE) * TICK_SIZE, 2)
 
         if size < MIN_ORDER_SHARES:
             logger.warning("order_below_min_shares", size=size, min_shares=MIN_ORDER_SHARES)
