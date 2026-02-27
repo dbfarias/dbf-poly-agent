@@ -25,20 +25,11 @@ logger = structlog.get_logger()
 # Time horizon bands (hours)
 HOURS_IMMEDIATE = 24.0   # Resolves today — highest priority
 HOURS_SHORT = 48.0       # Resolves in 1-2 days
-HOURS_MEDIUM = 72.0      # Resolves in 2-3 days — hard cap
+HOURS_MEDIUM = 168.0     # 7 days — absolute hard cap (urgency system limits effective horizon)
 
-# Urgency → max hours mapping
-# Behind target → DON'T expand horizon (capital efficiency matters)
-# Instead, relax edge requirements on short markets (done in risk_manager)
-# urgency 0.7 (ahead) → 24h only
-# urgency 1.0 (on pace) → 48h
-# urgency 1.3+ (behind) → 72h max (capital tied up too long beyond this)
-URGENCY_HORIZON = {
-    0.7: HOURS_IMMEDIATE,
-    1.0: HOURS_SHORT,
-    1.3: HOURS_MEDIUM,
-    1.5: HOURS_MEDIUM,
-}
+# Urgency-based time horizon caps (separate from the absolute HOURS_MEDIUM cap)
+URGENCY_CAP_SHORT = 72.0    # Urgency 1.0 → up to 3 days
+URGENCY_CAP_MAX = 168.0     # Urgency 1.3+ → up to 7 days
 
 # Strategy parameters
 MIN_IMPLIED_PROB = 0.70
@@ -51,23 +42,23 @@ CONFIDENCE_BASE = 0.75
 def _max_hours_for_urgency(urgency: float) -> float:
     """Compute max allowed hours based on urgency level.
 
-    Capital efficiency is key: long-term markets (168h+) tie up capital
-    without meeting the daily return target. Cap at 72h.
-
-    Linear interpolation between urgency breakpoints.
+    Linear interpolation between urgency breakpoints:
+    - urgency 0.7 (ahead) → 24h only (capital efficient)
+    - urgency 1.0 (on pace) → 72h
+    - urgency 1.3+ (behind) → 168h (expand horizon to find more opportunities)
     """
     if urgency <= 0.7:
         return HOURS_IMMEDIATE
     elif urgency <= 1.0:
-        # Interpolate 24h → 48h as urgency goes 0.7 → 1.0
+        # Interpolate 24h → 72h as urgency goes 0.7 → 1.0
         t = (urgency - 0.7) / 0.3
-        return HOURS_IMMEDIATE + t * (HOURS_SHORT - HOURS_IMMEDIATE)
+        return HOURS_IMMEDIATE + t * (URGENCY_CAP_SHORT - HOURS_IMMEDIATE)
     elif urgency <= 1.3:
-        # Interpolate 48h → 72h as urgency goes 1.0 → 1.3
+        # Interpolate 72h → 168h as urgency goes 1.0 → 1.3
         t = (urgency - 1.0) / 0.3
-        return HOURS_SHORT + t * (HOURS_MEDIUM - HOURS_SHORT)
+        return URGENCY_CAP_SHORT + t * (URGENCY_CAP_MAX - URGENCY_CAP_SHORT)
     else:
-        return HOURS_MEDIUM
+        return URGENCY_CAP_MAX
 
 
 class TimeDecayStrategy(BaseStrategy):
@@ -200,21 +191,28 @@ class TimeDecayStrategy(BaseStrategy):
             if price < self.MIN_PRICE or price > max_price:
                 continue
 
-            # Estimate real probability
+            # Use actual ask price for BUY evaluation when available.
+            # Gamma bestAsk is for YES token (index 0). This prevents
+            # generating signals that evaporate at the real CLOB ask.
+            buy_price = price  # default to mid-price
+            if i == 0 and market.best_ask_price is not None:
+                buy_price = market.best_ask_price
+
+            # Estimate real probability (based on market consensus mid-price)
             estimated_prob = self._estimate_probability(price, hours_left)
 
             if estimated_prob < self.MIN_IMPLIED_PROB:
                 continue
 
-            edge_val = estimated_prob - price
+            # Edge against actual buy price (ask), not mid-price
+            edge_val = estimated_prob - buy_price
             if edge_val < self.MIN_EDGE:
                 continue
 
             # Capital efficiency check: expected daily return must justify
-            # tying up capital. At 1% daily target, a 2% edge over 72h is
-            # only 0.67%/day — not worth it.
+            # tying up capital.
             daily_return = edge_val / max(hours_left, 1.0) * 24.0
-            if daily_return < 0.005:  # 0.5% daily minimum
+            if daily_return < 0.003:  # 0.3% daily minimum
                 continue
 
             # Calculate confidence based on multiple factors
@@ -234,12 +232,12 @@ class TimeDecayStrategy(BaseStrategy):
                 side=OrderSide.BUY,
                 outcome=outcome,
                 estimated_prob=estimated_prob,
-                market_price=price,
+                market_price=buy_price,
                 edge=edge_val,
                 size_usd=0.0,  # Will be set by risk manager
                 confidence=confidence,
                 reasoning=(
-                    f"High-prob: {outcome} at ${price:.2f} with "
+                    f"High-prob: {outcome} at ${buy_price:.2f} with "
                     f"{hours_left:.0f}h to resolution. "
                     f"Est. prob: {estimated_prob:.1%}, Edge: {edge_val:.1%}"
                 ),

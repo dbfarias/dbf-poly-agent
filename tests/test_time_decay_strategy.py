@@ -9,6 +9,8 @@ from bot.agent.strategies.time_decay import (
     HOURS_IMMEDIATE,
     HOURS_MEDIUM,
     HOURS_SHORT,
+    URGENCY_CAP_MAX,
+    URGENCY_CAP_SHORT,
     TimeDecayStrategy,
     _max_hours_for_urgency,
 )
@@ -63,20 +65,20 @@ class TestMaxHoursForUrgency:
         assert _max_hours_for_urgency(0.7) == HOURS_IMMEDIATE  # 24h
 
     def test_on_pace(self):
-        assert _max_hours_for_urgency(1.0) == pytest.approx(HOURS_SHORT)  # 72h
+        assert _max_hours_for_urgency(1.0) == pytest.approx(URGENCY_CAP_SHORT)  # 72h
 
     def test_behind_target(self):
-        assert _max_hours_for_urgency(1.3) == pytest.approx(HOURS_MEDIUM)  # 168h
+        assert _max_hours_for_urgency(1.3) == pytest.approx(URGENCY_CAP_MAX)  # 168h
 
     def test_very_behind(self):
-        assert _max_hours_for_urgency(1.5) == HOURS_MEDIUM
+        assert _max_hours_for_urgency(1.5) == URGENCY_CAP_MAX
 
     def test_very_ahead(self):
         assert _max_hours_for_urgency(0.5) == HOURS_IMMEDIATE
 
     def test_interpolation_between_breakpoints(self):
         hours = _max_hours_for_urgency(0.85)
-        assert HOURS_IMMEDIATE < hours < HOURS_SHORT
+        assert HOURS_IMMEDIATE < hours < URGENCY_CAP_SHORT
 
     def test_monotonically_increasing(self):
         prev = 0.0
