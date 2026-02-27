@@ -1,6 +1,8 @@
 """Portfolio API endpoints."""
 
-from fastapi import APIRouter, Depends, Query
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
@@ -8,6 +10,7 @@ from api.middleware import verify_api_key
 from api.schemas import AllocationItem, EquityPoint, PortfolioOverview, PositionResponse
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
 
+logger = structlog.get_logger()
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
@@ -72,3 +75,72 @@ async def get_allocation(_: str = Depends(verify_api_key), db: AsyncSession = De
         AllocationItem(category=cat, value=val, percentage=val / total)
         for cat, val in by_category.items()
     ]
+
+
+class ForceCloseRequest(BaseModel):
+    position_id: int
+    reason: str = "manual_close"
+
+
+class ForceCloseResponse(BaseModel):
+    success: bool
+    position_id: int
+    market_id: str
+    pnl: float
+    message: str
+
+
+@router.post("/positions/close", response_model=ForceCloseResponse)
+async def force_close_position(
+    req: ForceCloseRequest,
+    _: str = Depends(verify_api_key),
+):
+    """Force-close an open position by selling at current market price."""
+    engine = get_engine()
+
+    # Find the position
+    position = next(
+        (p for p in engine.portfolio.positions if p.id == req.position_id and p.is_open),
+        None,
+    )
+    if not position:
+        raise HTTPException(status_code=404, detail=f"Open position {req.position_id} not found")
+
+    logger.info(
+        "force_close_requested",
+        position_id=req.position_id,
+        market_id=position.market_id,
+        reason=req.reason,
+    )
+
+    # Place sell order
+    trade = await engine.order_manager.close_position(
+        market_id=position.market_id,
+        token_id=position.token_id,
+        size=position.size,
+        current_price=position.current_price,
+    )
+
+    if not trade:
+        raise HTTPException(status_code=500, detail="Sell order rejected by exchange")
+
+    # Record the close and update portfolio
+    pnl = await engine.portfolio.record_trade_close(
+        position.market_id, position.current_price
+    )
+    engine.risk_manager.update_daily_pnl(pnl)
+
+    logger.info(
+        "force_close_completed",
+        position_id=req.position_id,
+        pnl=pnl,
+        reason=req.reason,
+    )
+
+    return ForceCloseResponse(
+        success=True,
+        position_id=req.position_id,
+        market_id=position.market_id,
+        pnl=pnl,
+        message=f"Position closed. PnL: ${pnl:.4f}",
+    )
