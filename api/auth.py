@@ -57,7 +57,7 @@ def decode_jwt(token: str) -> dict | None:
 
 
 @router.post("/login")
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
     if not settings.dashboard_password:
         raise HTTPException(
             status_code=503,
@@ -73,6 +73,9 @@ async def login(req: LoginRequest):
 
     token, expires = create_jwt(req.username)
 
+    # Auto-detect HTTPS via X-Forwarded-Proto (set by nginx)
+    is_https = request.headers.get("x-forwarded-proto") == "https"
+
     response = JSONResponse(
         content={"token": token, "expires_at": expires.isoformat()},
     )
@@ -80,7 +83,7 @@ async def login(req: LoginRequest):
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=False,  # Set True when HTTPS is enabled
+        secure=is_https,
         samesite="lax",
         max_age=JWT_EXPIRY_HOURS * 3600,
         path="/",
