@@ -112,6 +112,7 @@ class ValueBettingStrategy(BaseStrategy):
                 f"Est. prob: {estimated_prob:.1%}"
             ),
             metadata={
+                "category": market.category,
                 "imbalance": imbalance,
                 "bid_volume": bid_volume,
                 "ask_volume": ask_volume,

@@ -20,6 +20,20 @@ logger = structlog.get_logger()
 CLOB_API_URL = "https://clob.polymarket.com"
 
 
+_GENERIC_TAGS = frozenset({
+    "Politics", "Elections", "Primaries", "primary elections",
+    "US Election", "Midterms", "Global Elections",
+})
+
+
+def _best_category(tags: list[str]) -> str:
+    """Pick the most descriptive tag, skipping generic ones like 'Politics'."""
+    for tag in tags:
+        if tag not in _GENERIC_TAGS:
+            return tag
+    return tags[0] if tags else ""
+
+
 def _transform_clob_market(raw: dict) -> dict:
     """Transform CLOB API market format to GammaMarket-compatible format."""
     tokens = raw.get("tokens", [])
@@ -43,7 +57,7 @@ def _transform_clob_market(raw: dict) -> dict:
         "active": raw.get("active", True),
         "closed": raw.get("closed", False),
         "archived": raw.get("archived", False),
-        "groupItemTitle": tags[0] if tags else "",
+        "groupItemTitle": _best_category(tags),
         "clobTokenIds": json.dumps(token_ids),
         "acceptingOrders": raw.get("accepting_orders", True),
     }

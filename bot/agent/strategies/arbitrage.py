@@ -78,7 +78,7 @@ class ArbitrageStrategy(BaseStrategy):
                     f"YES+NO arbitrage: YES=${yes_price:.3f} + NO=${no_price:.3f} = "
                     f"${total:.3f}. Gap: ${edge:.3f} ({edge:.1%})"
                 ),
-                metadata={"arb_type": "yes_no", "total_price": total},
+                metadata={"category": market.category, "arb_type": "yes_no", "total_price": total},
             )
 
         return None

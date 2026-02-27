@@ -171,10 +171,8 @@ class MarketAnalyzer:
                 pos_repo = PositionRepository(session)
                 open_positions = await pos_repo.get_open()
                 for pos in open_positions:
-                    if pos.category:
-                        category_counts[pos.category] = (
-                            category_counts.get(pos.category, 0) + 1
-                        )
+                    cat = pos.category or "Other"
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
         except Exception as e:
             logger.warning("quality_filter_position_fetch_failed", error=str(e))
 
@@ -197,9 +195,8 @@ class MarketAnalyzer:
                 continue
 
             # Category diversification check
-            if market.category and category_counts.get(
-                market.category, 0
-            ) >= self.MAX_CATEGORY_POSITIONS:
+            cat = market.category or "Other"
+            if category_counts.get(cat, 0) >= self.MAX_CATEGORY_POSITIONS:
                 filtered_reasons["category_limit"] = (
                     filtered_reasons.get("category_limit", 0) + 1
                 )

@@ -83,6 +83,7 @@ class MarketMakingStrategy(BaseStrategy):
                 f"Expected profit: ${expected_profit:.3f}/share"
             ),
             metadata={
+                "category": market.category,
                 "spread": spread,
                 "mid_price": mid,
                 "best_bid": book.best_bid,
