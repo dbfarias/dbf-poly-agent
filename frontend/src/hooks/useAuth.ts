@@ -1,42 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 
-const TOKEN_KEY = "polybot_token";
-
-// Set header eagerly on module load (before any React render)
-const savedToken = sessionStorage.getItem(TOKEN_KEY);
-if (savedToken) {
-  api.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
-}
-
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(savedToken);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Set Authorization header whenever token changes
+  // On mount, check if we have a valid session cookie via /api/auth/me
   useEffect(() => {
-    if (token) {
-      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      sessionStorage.setItem(TOKEN_KEY, token);
-    } else {
-      delete api.defaults.headers.common["Authorization"];
-      sessionStorage.removeItem(TOKEN_KEY);
-    }
-  }, [token]);
+    api
+      .get("/api/auth/me")
+      .then(() => setIsAuthenticated(true))
+      .catch(() => setIsAuthenticated(false));
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     setLoading(true);
     setError("");
     try {
-      const res = await api.post<{ token: string }>("/api/auth/login", {
-        username,
-        password,
-      });
-      // Set header immediately so queries on mount have auth
-      api.defaults.headers.common["Authorization"] = `Bearer ${res.data.token}`;
-      sessionStorage.setItem(TOKEN_KEY, res.data.token);
-      setToken(res.data.token);
+      await api.post("/api/auth/login", { username, password });
+      // Cookie is set automatically by the browser (httpOnly)
+      setIsAuthenticated(true);
       return true;
     } catch (err: unknown) {
       const msg =
@@ -51,9 +35,22 @@ export function useAuth() {
     }
   }, []);
 
-  const logout = useCallback(() => {
-    setToken(null);
+  const logout = useCallback(async () => {
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+      // Ignore errors — cookie will be cleared anyway
+    }
+    setIsAuthenticated(false);
   }, []);
 
-  return { token, login, logout, error, loading, isAuthenticated: !!token };
+  return {
+    login,
+    logout,
+    error,
+    loading,
+    // null = still checking, true = authenticated, false = not authenticated
+    isAuthenticated: isAuthenticated === true,
+    isLoading: isAuthenticated === null,
+  };
 }

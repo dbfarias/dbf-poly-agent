@@ -39,11 +39,16 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 }
 
 export default function App() {
-  const { isAuthenticated, login, logout, error, loading } = useAuth();
+  const { isAuthenticated, isLoading, login, logout, error, loading } =
+    useAuth();
 
   return (
     <QueryClientProvider client={queryClient}>
-      {isAuthenticated ? (
+      {isLoading ? (
+        <div className="flex h-screen items-center justify-center bg-[#0f1117]">
+          <div className="text-zinc-400 text-sm">Loading...</div>
+        </div>
+      ) : isAuthenticated ? (
         <AuthenticatedApp onLogout={logout} />
       ) : (
         <Login onLogin={login} error={error} loading={loading} />

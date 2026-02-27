@@ -32,4 +32,13 @@ async def verify_api_key(
         if payload and payload.get("sub"):
             return payload["sub"]
 
+    # Check httpOnly session cookie
+    from api.auth import COOKIE_NAME
+
+    cookie_token = request.cookies.get(COOKIE_NAME, "")
+    if cookie_token:
+        payload = decode_jwt(cookie_token)
+        if payload and payload.get("sub"):
+            return payload["sub"]
+
     raise HTTPException(status_code=401, detail="Invalid authentication")

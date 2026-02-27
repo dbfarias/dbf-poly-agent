@@ -5,7 +5,8 @@ import hmac
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from bot.config import settings
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
+COOKIE_NAME = "polybot_session"
 
 
 class LoginRequest(BaseModel):
@@ -54,7 +56,7 @@ def decode_jwt(token: str) -> dict | None:
         return None
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 async def login(req: LoginRequest):
     if not settings.dashboard_password:
         raise HTTPException(
@@ -70,4 +72,44 @@ async def login(req: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token, expires = create_jwt(req.username)
-    return LoginResponse(token=token, expires_at=expires.isoformat())
+
+    response = JSONResponse(
+        content={"token": token, "expires_at": expires.isoformat()},
+    )
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=False,  # Set True when HTTPS is enabled
+        samesite="lax",
+        max_age=JWT_EXPIRY_HOURS * 3600,
+        path="/",
+    )
+    return response
+
+
+@router.get("/me")
+async def me(request: Request):
+    """Check if the current session is authenticated (via cookie or header)."""
+    # Try cookie first
+    token = request.cookies.get(COOKIE_NAME, "")
+    if not token:
+        # Fallback to Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if token:
+        payload = decode_jwt(token)
+        if payload and payload.get("sub"):
+            return {"authenticated": True, "username": payload["sub"]}
+
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+@router.post("/logout")
+async def logout():
+    """Clear the session cookie."""
+    response = JSONResponse(content={"ok": True})
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return response

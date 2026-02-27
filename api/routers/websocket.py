@@ -50,10 +50,18 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(ws: WebSocket):
-    # Validate token query param — accept API key or JWT (constant-time comparison)
+    # Validate auth — accept API key (query param), JWT (query param), or httpOnly cookie
+    from api.auth import COOKIE_NAME
+
     token = ws.query_params.get("token", "")
     is_api_key = hmac.compare_digest(token, settings.api_secret_key) if token else False
-    is_jwt = not is_api_key and decode_jwt(token) is not None
+    is_jwt = not is_api_key and bool(token) and decode_jwt(token) is not None
+
+    # Fallback: check httpOnly session cookie
+    if not is_api_key and not is_jwt:
+        cookie_token = ws.cookies.get(COOKIE_NAME, "")
+        is_jwt = bool(cookie_token) and decode_jwt(cookie_token) is not None
+
     if not is_api_key and not is_jwt:
         await ws.close(code=4001, reason="Unauthorized")
         return

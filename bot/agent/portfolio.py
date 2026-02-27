@@ -145,20 +145,101 @@ class Portfolio:
                 )
                 await pos_repo.upsert(position)
 
-            # Close local "external" positions no longer on Polymarket
+            # Close local positions no longer on Polymarket
             local_positions = await pos_repo.get_open()
             for lp in local_positions:
-                if lp.strategy == "external" and lp.market_id not in remote_market_ids:
+                if lp.market_id in remote_market_ids:
+                    continue
+
+                if lp.strategy == "external":
+                    # External positions: close immediately (no longer on chain)
                     await pos_repo.close(lp.market_id)
                     logger.info(
                         "external_position_closed",
                         market_id=lp.market_id,
                     )
+                else:
+                    # Bot-opened positions: check if market has resolved
+                    await self._close_if_resolved(lp, pos_repo)
 
         logger.debug(
             "polymarket_positions_synced",
             remote_count=len(remote_market_ids),
         )
+
+    async def _close_if_resolved(
+        self, position: Position, pos_repo: "PositionRepository"
+    ) -> None:
+        """Close a bot-opened position if the market has resolved on Polymarket.
+
+        When a market resolves, winning shares are redeemed at $1.00 and
+        disappear from the remote positions list. We check the market's
+        closed/archived status to confirm resolution before closing locally.
+        """
+        if not self.gamma:
+            return
+
+        try:
+            market = await self.gamma.get_market(position.market_id)
+        except Exception as e:
+            logger.debug(
+                "resolution_check_failed",
+                market_id=position.market_id,
+                error=str(e),
+            )
+            return
+
+        if market is None:
+            # Market not found — likely resolved and removed. Close at last known price.
+            settlement_price = position.current_price
+            resolved = True
+        elif market.closed or market.archived or not market.active:
+            # Market confirmed resolved — determine win/loss from outcome prices
+            settlement_price = self._get_settlement_price(market, position)
+            resolved = True
+        else:
+            # Market still active — position may have been sold externally
+            # Don't auto-close to avoid false positives
+            resolved = False
+
+        if resolved:
+            pnl = (settlement_price - position.avg_price) * position.size
+            await pos_repo.close(position.market_id)
+            self._realized_pnl_today += pnl
+            logger.info(
+                "position_resolved",
+                market_id=position.market_id,
+                strategy=position.strategy,
+                outcome=position.outcome,
+                avg_price=round(position.avg_price, 4),
+                settlement=round(settlement_price, 4),
+                size=position.size,
+                pnl=round(pnl, 4),
+            )
+
+    @staticmethod
+    def _get_settlement_price(market, position: Position) -> float:
+        """Determine settlement price based on market outcome prices.
+
+        After resolution, winning outcome = $1.00, losing = $0.00.
+        If prices aren't decisive, fall back to the position's last known price.
+        """
+        prices = market.outcome_price_list
+        outcomes = market.outcomes
+        if not prices or not outcomes:
+            return position.current_price
+
+        for i, outcome in enumerate(outcomes):
+            if i < len(prices) and outcome == position.outcome:
+                price = prices[i]
+                # After resolution: $1.00 = win, $0.00 = loss
+                if price >= 0.95:
+                    return 1.0
+                elif price <= 0.05:
+                    return 0.0
+                return price
+
+        return position.current_price
 
     async def record_trade_open(
         self, market_id: str, token_id: str, question: str, outcome: str,

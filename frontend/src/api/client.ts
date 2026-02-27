@@ -5,14 +5,18 @@ const API_BASE = import.meta.env.VITE_API_URL || "";
 export const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
+  withCredentials: true,
 });
 
-// Auto-logout on 401 (expired token)
+// Auto-logout on 401 (expired session)
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401 && !err.config?.url?.includes("/auth/login")) {
-      sessionStorage.removeItem("polybot_token");
+    if (
+      err.response?.status === 401 &&
+      !err.config?.url?.includes("/auth/login") &&
+      !err.config?.url?.includes("/auth/me")
+    ) {
       window.location.reload();
     }
     return Promise.reject(err);
@@ -22,8 +26,10 @@ api.interceptors.response.use(
 export const getWsUrl = (path: string): string => {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = API_BASE || window.location.host;
-  const token = sessionStorage.getItem("polybot_token") || "";
-  return `${proto}//${host}${path}?token=${encodeURIComponent(token)}`;
+  // Cookie-based auth: browser sends httpOnly cookie automatically for same-origin.
+  // WebSocket API doesn't send cookies, so we still need a token param as fallback.
+  // The /api/auth/me response could provide a short-lived WS token in the future.
+  return `${proto}//${host}${path}`;
 };
 
 // Types matching API schemas
