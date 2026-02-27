@@ -39,7 +39,7 @@ event.listen(engine.sync_engine, "connect", _set_wal_mode)
 
 
 async def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist, then run lightweight migrations."""
     data_dir = Path(settings.database_url.split("///")[-1]).parent
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,7 +47,30 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.execute(text("PRAGMA journal_mode=WAL"))
 
+    await _migrate(engine)
     logger.info("database_initialized", url=_sanitize_url(settings.database_url))
+
+
+async def _migrate(eng) -> None:
+    """Add missing columns to existing tables (lightweight SQLite migrations)."""
+    migrations = [
+        ("trades", "exit_reason", "TEXT NOT NULL DEFAULT ''"),
+    ]
+
+    async with eng.begin() as conn:
+        for table, column, col_type in migrations:
+            # Check if column already exists
+            result = await conn.execute(text(f"PRAGMA table_info({table})"))
+            existing = {row[1] for row in result.fetchall()}
+            if column not in existing:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                )
+                logger.info(
+                    "migration_applied",
+                    table=table,
+                    column=column,
+                )
 
 
 async def get_session() -> AsyncSession:
