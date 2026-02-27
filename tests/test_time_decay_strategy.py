@@ -5,7 +5,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from bot.agent.strategies.time_decay import TimeDecayStrategy
+from bot.agent.strategies.time_decay import (
+    HOURS_IMMEDIATE,
+    HOURS_MEDIUM,
+    HOURS_SHORT,
+    TimeDecayStrategy,
+    _max_hours_for_urgency,
+)
 from bot.polymarket.types import GammaMarket
 
 
@@ -19,7 +25,7 @@ def strategy():
 
 
 def _make_market(
-    hours_to_resolution: float = 100.0,
+    hours_to_resolution: float = 48.0,
     price: float = 0.92,
     end_date_iso: str | None = None,
     outcomes: list[str] | None = None,
@@ -48,26 +54,59 @@ def _make_market(
 
 
 # ---------------------------------------------------------------------------
+# _max_hours_for_urgency
+# ---------------------------------------------------------------------------
+
+
+class TestMaxHoursForUrgency:
+    def test_ahead_of_target(self):
+        assert _max_hours_for_urgency(0.7) == HOURS_IMMEDIATE  # 24h
+
+    def test_on_pace(self):
+        assert _max_hours_for_urgency(1.0) == pytest.approx(HOURS_SHORT)  # 72h
+
+    def test_behind_target(self):
+        assert _max_hours_for_urgency(1.3) == pytest.approx(HOURS_MEDIUM)  # 168h
+
+    def test_very_behind(self):
+        assert _max_hours_for_urgency(1.5) == HOURS_MEDIUM
+
+    def test_very_ahead(self):
+        assert _max_hours_for_urgency(0.5) == HOURS_IMMEDIATE
+
+    def test_interpolation_between_breakpoints(self):
+        hours = _max_hours_for_urgency(0.85)
+        assert HOURS_IMMEDIATE < hours < HOURS_SHORT
+
+    def test_monotonically_increasing(self):
+        prev = 0.0
+        for u in [0.5, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.5]:
+            h = round(_max_hours_for_urgency(u), 6)
+            assert h >= prev, f"urgency={u}: {h} < {prev}"
+            prev = h
+
+
+# ---------------------------------------------------------------------------
 # _estimate_probability
 # ---------------------------------------------------------------------------
 
 
 class TestEstimateProbability:
     def test_high_price_near_resolution(self, strategy):
-        # price=0.95, hours_left=24 → base=0.95, time_factor≈0.039, near_certainty=0.03
+        # price=0.95, hours_left=24 → base + time_factor + near_certainty
         prob = strategy._estimate_probability(0.95, 24.0)
         assert prob > 0.95
         assert prob <= 0.99
 
     def test_far_from_resolution(self, strategy):
-        # 700 hours → time_factor ≈ (1 - 700/720) * 0.04 ≈ 0.001
-        prob = strategy._estimate_probability(0.90, 700.0)
-        assert prob < 0.93
+        # 160 hours → time_factor small, no near_certainty bonus
+        prob = strategy._estimate_probability(0.90, 160.0)
+        assert prob < 0.95
 
     def test_near_certainty_bonus(self, strategy):
-        # price>=0.95 and hours<=72 gives +0.03 bonus
-        prob_bonus = strategy._estimate_probability(0.95, 50.0)
-        prob_no_bonus = strategy._estimate_probability(0.95, 500.0)
+        # price>=0.95 and hours<=24 gives +0.04 bonus
+        prob_bonus = strategy._estimate_probability(0.95, 20.0)
+        prob_no_bonus = strategy._estimate_probability(0.95, 150.0)
         assert prob_bonus > prob_no_bonus
 
     def test_capped_at_099(self, strategy):
@@ -94,13 +133,25 @@ class TestCalculateConfidence:
         conf = strategy._calculate_confidence(0.91, 720.0)
         assert conf == pytest.approx(0.78)
 
+    def test_hours_le_12_adds_012(self, strategy):
+        conf = strategy._calculate_confidence(0.80, 10.0)
+        assert conf == pytest.approx(0.87)
+
+    def test_hours_le_24_adds_010(self, strategy):
+        conf = strategy._calculate_confidence(0.80, 20.0)
+        assert conf == pytest.approx(0.85)
+
     def test_hours_le_48_adds_008(self, strategy):
         conf = strategy._calculate_confidence(0.80, 40.0)
         assert conf == pytest.approx(0.83)
 
-    def test_hours_le_168_adds_004(self, strategy):
+    def test_hours_le_72_adds_005(self, strategy):
+        conf = strategy._calculate_confidence(0.80, 60.0)
+        assert conf == pytest.approx(0.80)
+
+    def test_hours_le_168_adds_002(self, strategy):
         conf = strategy._calculate_confidence(0.80, 100.0)
-        assert conf == pytest.approx(0.79)
+        assert conf == pytest.approx(0.77)
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +174,10 @@ class TestShouldExit:
 
 class TestEvaluateMarket:
     async def test_valid_market_returns_signal(self, strategy):
-        # price=0.92, hours=100 → should find edge
-        market = _make_market(hours_to_resolution=100.0, price=0.92)
+        # price=0.92, hours=48, max_hours=72 → within range
+        market = _make_market(hours_to_resolution=48.0, price=0.92)
         now = datetime.now(timezone.utc)
-        signal = await strategy._evaluate_market(market, now)
+        signal = await strategy._evaluate_market(market, now, HOURS_SHORT)
         assert signal is not None
         assert signal.strategy == "time_decay"
         assert signal.market_id == "mkt1"
@@ -141,25 +192,85 @@ class TestEvaluateMarket:
             clobTokenIds='["t1","t2"]',
         )
         now = datetime.now(timezone.utc)
-        signal = await strategy._evaluate_market(market, now)
+        signal = await strategy._evaluate_market(market, now, HOURS_MEDIUM)
         assert signal is None
 
     async def test_expired_market_returns_none(self, strategy):
         past = datetime.now(timezone.utc) - timedelta(hours=2)
         market = _make_market(end_date_iso=past.strftime("%Y-%m-%dT%H:%M:%SZ"))
         now = datetime.now(timezone.utc)
-        signal = await strategy._evaluate_market(market, now)
+        signal = await strategy._evaluate_market(market, now, HOURS_MEDIUM)
         assert signal is None
 
     async def test_too_far_market_returns_none(self, strategy):
-        # 800 hours > 720 limit
-        market = _make_market(hours_to_resolution=800.0)
+        # 200h > 168h (HOURS_MEDIUM)
+        market = _make_market(hours_to_resolution=200.0)
         now = datetime.now(timezone.utc)
-        signal = await strategy._evaluate_market(market, now)
+        signal = await strategy._evaluate_market(market, now, HOURS_MEDIUM)
         assert signal is None
+
+    async def test_beyond_dynamic_max_returns_none(self, strategy):
+        # 50h market, but max_hours=24 (urgent=ahead) → rejected
+        market = _make_market(hours_to_resolution=50.0, price=0.92)
+        now = datetime.now(timezone.utc)
+        signal = await strategy._evaluate_market(market, now, HOURS_IMMEDIATE)
+        assert signal is None
+
+    async def test_within_dynamic_max_returns_signal(self, strategy):
+        # 20h market, max_hours=24 (ahead of target) → accepted
+        market = _make_market(hours_to_resolution=20.0, price=0.92)
+        now = datetime.now(timezone.utc)
+        signal = await strategy._evaluate_market(market, now, HOURS_IMMEDIATE)
+        assert signal is not None
 
     async def test_price_below_min_returns_none(self, strategy):
         market = _make_market(price=0.50)
         now = datetime.now(timezone.utc)
-        signal = await strategy._evaluate_market(market, now)
+        signal = await strategy._evaluate_market(market, now, HOURS_MEDIUM)
         assert signal is None
+
+
+# ---------------------------------------------------------------------------
+# _score_signal
+# ---------------------------------------------------------------------------
+
+
+class TestScoreSignal:
+    def test_shorter_market_scores_higher(self, strategy):
+        short = MagicMock(edge=0.02, metadata={"hours_to_resolution": 12.0})
+        long = MagicMock(edge=0.02, metadata={"hours_to_resolution": 120.0})
+        assert strategy._score_signal(short) > strategy._score_signal(long)
+
+    def test_same_time_higher_edge_wins(self, strategy):
+        high_edge = MagicMock(edge=0.04, metadata={"hours_to_resolution": 48.0})
+        low_edge = MagicMock(edge=0.01, metadata={"hours_to_resolution": 48.0})
+        assert strategy._score_signal(high_edge) > strategy._score_signal(low_edge)
+
+    def test_very_short_beats_high_edge_long(self, strategy):
+        # 6h market with 2% edge should beat 5-day market with 3% edge
+        short = MagicMock(edge=0.02, metadata={"hours_to_resolution": 6.0})
+        long = MagicMock(edge=0.03, metadata={"hours_to_resolution": 120.0})
+        assert strategy._score_signal(short) > strategy._score_signal(long)
+
+
+# ---------------------------------------------------------------------------
+# adjust_params with urgency
+# ---------------------------------------------------------------------------
+
+
+class TestAdjustParams:
+    def test_urgency_stored(self, strategy):
+        strategy.adjust_params({"urgency_multiplier": 1.3})
+        assert strategy._urgency == 1.3
+
+    def test_default_urgency(self, strategy):
+        strategy.adjust_params({})
+        assert strategy._urgency == 1.0
+
+    def test_calibration_adjusts_max_price(self, strategy):
+        strategy.adjust_params({"calibration": {"95-99": 0.5}})
+        assert strategy._max_price == 0.96
+
+    def test_good_calibration_keeps_max_price(self, strategy):
+        strategy.adjust_params({"calibration": {"95-99": 0.9}})
+        assert strategy._max_price == 0.97

@@ -154,11 +154,12 @@ class TradingEngine:
                     "learner_paused_strategies",
                     strategies=list(self._learner_adjustments.paused_strategies),
                 )
-            # Apply adjustments to strategies
+            # Apply adjustments to strategies (including urgency for dynamic horizons)
             adj_dict = {
                 "edge_multipliers": self._learner_adjustments.edge_multipliers,
                 "category_confidences": self._learner_adjustments.category_confidences,
                 "calibration": self._learner_adjustments.calibration,
+                "urgency_multiplier": self._learner_adjustments.urgency_multiplier,
             }
             for strategy in self.analyzer.strategies:
                 strategy.adjust_params(adj_dict)
