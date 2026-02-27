@@ -3,10 +3,14 @@ import { api } from "../api/client";
 
 const TOKEN_KEY = "polybot_token";
 
+// Set header eagerly on module load (before any React render)
+const savedToken = sessionStorage.getItem(TOKEN_KEY);
+if (savedToken) {
+  api.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
+}
+
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(() =>
-    sessionStorage.getItem(TOKEN_KEY),
-  );
+  const [token, setToken] = useState<string | null>(savedToken);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -29,6 +33,9 @@ export function useAuth() {
         username,
         password,
       });
+      // Set header immediately so queries on mount have auth
+      api.defaults.headers.common["Authorization"] = `Bearer ${res.data.token}`;
+      sessionStorage.setItem(TOKEN_KEY, res.data.token);
       setToken(res.data.token);
       return true;
     } catch (err: unknown) {
