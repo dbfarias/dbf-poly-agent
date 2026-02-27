@@ -68,6 +68,18 @@ class OrderManager:
 
         shares = signal.size_usd / actual_price
 
+        # Ensure minimum shares for live mode (Polymarket requires >= 5)
+        min_shares = 5.0 if not self.clob.is_paper else 1.0
+        if shares < min_shares:
+            shares = min_shares
+            signal.size_usd = shares * actual_price
+            logger.info(
+                "size_bumped_to_min_shares",
+                shares=shares,
+                actual_price=actual_price,
+                adjusted_size_usd=signal.size_usd,
+            )
+
         # Place the order
         result = await self.clob.place_order(
             token_id=signal.token_id,
