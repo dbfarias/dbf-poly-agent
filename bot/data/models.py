@@ -136,6 +136,24 @@ class BotSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class BotActivity(Base):
+    __tablename__ = "bot_activity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    level: Mapped[str] = mapped_column(String(16), default="info")  # info, success, warning, error
+    title: Mapped[str] = mapped_column(String(256))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    market_id: Mapped[str] = mapped_column(String(128), default="", index=True)
+    strategy: Mapped[str] = mapped_column(String(64), default="")
+
+    __table_args__ = (Index("idx_activity_type_ts", "event_type", "timestamp"),)
+
+
 class StrategyMetric(Base):
     __tablename__ = "strategy_metrics"
 

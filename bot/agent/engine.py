@@ -11,6 +11,15 @@ from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.risk_manager import RiskManager
 from bot.config import settings
+from bot.data.activity import (
+    log_cycle_summary,
+    log_exit_triggered,
+    log_liquidity_rejected,
+    log_position_closed,
+    log_signal_found,
+    log_signal_rejected,
+    prune_old_activity,
+)
 from bot.data.database import async_session
 from bot.data.market_cache import MarketCache
 from bot.data.models import StrategyMetric
@@ -180,6 +189,12 @@ class TradingEngine:
         for market_id in exits:
             pos = next((p for p in self.portfolio.positions if p.market_id == market_id), None)
             if pos:
+                await log_exit_triggered(
+                    market_id=pos.market_id,
+                    question=pos.question,
+                    strategy=pos.strategy,
+                    current_price=pos.current_price,
+                )
                 await self.order_manager.close_position(
                     market_id=pos.market_id,
                     token_id=pos.token_id,
@@ -188,6 +203,13 @@ class TradingEngine:
                 )
                 pnl = await self.portfolio.record_trade_close(market_id, pos.current_price)
                 self.risk_manager.update_daily_pnl(pnl)
+                await log_position_closed(
+                    market_id=pos.market_id,
+                    question=pos.question,
+                    strategy=pos.strategy,
+                    pnl=pnl,
+                    exit_reason="strategy_exit",
+                )
 
         # 4. Scan markets for new opportunities
         signals = await self.analyzer.scan_markets(tier)
@@ -197,6 +219,8 @@ class TradingEngine:
         cycle_committed = 0.0
         pending_count = self.order_manager.pending_count
         pending_markets = self.order_manager.pending_market_ids
+        _signals_approved = 0
+        _orders_placed = 0
 
         for signal in signals:
             logger.info(
@@ -206,6 +230,16 @@ class TradingEngine:
                 edge=round(signal.edge, 4),
                 price=signal.market_price,
                 question=signal.question[:50],
+            )
+
+            await log_signal_found(
+                strategy=signal.strategy,
+                market_id=signal.market_id,
+                question=signal.question,
+                edge=signal.edge,
+                price=signal.market_price,
+                prob=signal.estimated_prob,
+                hours=signal.metadata.get("hours_to_resolution"),
             )
 
             # Skip strategies paused by learner
@@ -218,6 +252,14 @@ class TradingEngine:
                     strategy=signal.strategy,
                     market_id=signal.market_id,
                 )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason=f"Strategy {signal.strategy} paused by learner",
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
                 continue
 
             # Skip markets with existing pending orders
@@ -226,6 +268,14 @@ class TradingEngine:
                     "signal_skipped_pending_order",
                     market_id=signal.market_id[:20],
                     strategy=signal.strategy,
+                )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason="Already has a pending order on this market",
+                    edge=signal.edge,
+                    price=signal.market_price,
                 )
                 continue
 
@@ -258,11 +308,21 @@ class TradingEngine:
 
             if not approved:
                 logger.debug("signal_rejected", strategy=signal.strategy, reason=reason)
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason=reason,
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
                 continue
 
             # 5b. Check order book liquidity before executing
             if not await self._check_liquidity(signal):
                 continue
+
+            _signals_approved += 1
 
             # Update signal with approved size
             signal.size_usd = size
@@ -270,6 +330,7 @@ class TradingEngine:
             # 6. Execute trade
             trade = await self.order_manager.execute_signal(signal)
             if trade and trade.status == "filled":
+                _orders_placed += 1
                 # Mark scan as traded for signal quality feedback
                 await self._mark_scan_traded(signal)
                 # Immediately filled (paper mode or CLOB matched)
@@ -286,6 +347,7 @@ class TradingEngine:
                 )
                 cycle_committed += trade.cost_usd
             elif trade:
+                _orders_placed += 1
                 # Mark scan as traded for signal quality feedback
                 await self._mark_scan_traded(signal)
                 # Pending order — track committed capital for this cycle
@@ -309,20 +371,40 @@ class TradingEngine:
         # 9. Daily summary
         await self._maybe_daily_summary()
 
+        _urgency = (
+            round(self._learner_adjustments.urgency_multiplier, 2)
+            if self._learner_adjustments else 1.0
+        )
+        _progress = (
+            round(self._learner_adjustments.daily_progress, 2)
+            if self._learner_adjustments else 0.0
+        )
+
         logger.info(
             "cycle_complete",
             cycle=self._cycle_count,
             equity=self.portfolio.total_equity,
             pending_orders=self.order_manager.pending_count,
-            daily_urgency=(
-                round(self._learner_adjustments.urgency_multiplier, 2)
-                if self._learner_adjustments else 1.0
-            ),
-            daily_progress=(
-                round(self._learner_adjustments.daily_progress, 2)
-                if self._learner_adjustments else 0.0
-            ),
+            daily_urgency=_urgency,
+            daily_progress=_progress,
         )
+
+        # Log activity summary (every 5th cycle to avoid noise)
+        if self._cycle_count % 5 == 0 or _orders_placed > 0:
+            await log_cycle_summary(
+                cycle=self._cycle_count,
+                equity=self.portfolio.total_equity,
+                signals_found=len(signals),
+                signals_approved=_signals_approved,
+                orders_placed=_orders_placed,
+                pending_orders=self.order_manager.pending_count,
+                urgency=_urgency,
+                daily_progress=_progress,
+            )
+
+        # Prune old activity rows periodically (every 50 cycles)
+        if self._cycle_count % 50 == 0:
+            await prune_old_activity()
 
     async def _handle_order_fill(self, signal, shares: float) -> None:
         """Callback when a pending live order is confirmed filled."""
@@ -375,6 +457,11 @@ class TradingEngine:
                     spread=spread,
                     max_spread=max_spread,
                 )
+                await log_liquidity_rejected(
+                    market_id=signal.market_id,
+                    reason=f"Spread too wide: {spread} > {max_spread} max",
+                    spread=spread,
+                )
                 return False
 
             # Ensure we can exit: best bid must be near fair price
@@ -386,6 +473,14 @@ class TradingEngine:
                         market_id=signal.market_id,
                         best_bid=book.best_bid,
                         fair_price=fair_price,
+                    )
+                    await log_liquidity_rejected(
+                        market_id=signal.market_id,
+                        reason=(
+                            f"No exit liquidity: bid ${book.best_bid:.3f}"
+                            f" too far from price ${fair_price:.3f}"
+                        ),
+                        best_bid=book.best_bid,
                     )
                     return False
 

@@ -167,6 +167,25 @@ class BotConfigUpdate(BaseModel):
     quality_params: dict | None = None
 
 
+# Activity
+class ActivityEvent(BaseModel):
+    id: int
+    timestamp: datetime
+    event_type: str
+    level: str
+    title: str
+    detail: str
+    metadata: dict = {}
+    market_id: str = ""
+    strategy: str = ""
+
+
+class ActivityResponse(BaseModel):
+    events: list[ActivityEvent]
+    total: int
+    has_more: bool
+
+
 # Health
 class HealthCheck(BaseModel):
     status: str = "ok"

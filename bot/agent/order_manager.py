@@ -6,6 +6,13 @@ from datetime import datetime
 import structlog
 
 from bot.config import settings
+from bot.data.activity import (
+    log_order_expired,
+    log_order_filled,
+    log_order_placed,
+    log_price_adjustment,
+    log_signal_rejected,
+)
 from bot.data.database import async_session
 from bot.data.models import Trade
 from bot.data.repositories import TradeRepository
@@ -160,6 +167,18 @@ class OrderManager:
             status=trade.status,
             is_filled=is_filled,
         )
+
+        await log_order_placed(
+            strategy=signal.strategy,
+            market_id=signal.market_id,
+            question=signal.question,
+            side=signal.side.value,
+            price=actual_price,
+            size_usd=signal.size_usd,
+            shares=shares,
+            status=trade.status,
+        )
+
         return trade
 
     async def monitor_orders(self) -> None:
@@ -201,6 +220,11 @@ class OrderManager:
                     trade_id=info["trade_id"],
                     token_id=signal.token_id[:20],
                 )
+                await log_order_filled(
+                    market_id=signal.market_id,
+                    order_id=order_id,
+                    strategy=signal.strategy,
+                )
 
                 # Create position via callback
                 if self._on_fill_callback:
@@ -226,6 +250,11 @@ class OrderManager:
                     "order_expired_no_fill",
                     order_id=order_id,
                     trade_id=info["trade_id"],
+                    age_seconds=age,
+                )
+                await log_order_expired(
+                    market_id=signal.market_id,
+                    order_id=order_id,
                     age_seconds=age,
                 )
 
@@ -324,6 +353,18 @@ class OrderManager:
                         ask_price=actual_price,
                         slippage=slippage,
                     )
+                    await log_signal_rejected(
+                        strategy=signal.strategy,
+                        market_id=signal.market_id,
+                        question=signal.question,
+                        reason=(
+                            f"Excessive slippage: ${slippage:.3f}"
+                            f" (ask ${actual_price:.3f} vs signal"
+                            f" ${signal.market_price:.3f})"
+                        ),
+                        edge=signal.edge,
+                        price=actual_price,
+                    )
                     return None
 
                 # Verify edge still exists at actual fill price
@@ -337,6 +378,19 @@ class OrderManager:
                         original_edge=signal.edge,
                         adjusted_edge=adjusted_edge,
                     )
+                    await log_signal_rejected(
+                        strategy=signal.strategy,
+                        market_id=signal.market_id,
+                        question=signal.question,
+                        reason=(
+                            f"Edge evaporated at ask:"
+                            f" {adjusted_edge:.1%} <"
+                            f" {min_edge_after_slippage:.1%}"
+                            f" (ask ${actual_price:.3f})"
+                        ),
+                        edge=adjusted_edge,
+                        price=actual_price,
+                    )
                     return None
 
                 logger.info(
@@ -345,6 +399,13 @@ class OrderManager:
                     signal_price=signal.market_price,
                     ask_price=actual_price,
                     slippage=slippage,
+                )
+                await log_price_adjustment(
+                    market_id=signal.market_id,
+                    strategy=signal.strategy,
+                    signal_price=signal.market_price,
+                    actual_price=actual_price,
+                    reason="Adjusted to CLOB ask price",
                 )
                 return actual_price
 

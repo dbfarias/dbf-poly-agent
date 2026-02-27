@@ -305,3 +305,37 @@ export const fetchLearnerCalibration = () =>
 
 export const fetchLearnerPauses = () =>
   api.get<LearnerPauses>("/api/learner/pauses").then((r) => r.data);
+
+// Activity types
+export interface ActivityEvent {
+  id: number;
+  timestamp: string;
+  event_type: string;
+  level: string;
+  title: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+  market_id: string;
+  strategy: string;
+}
+
+export interface ActivityResponse {
+  events: ActivityEvent[];
+  total: number;
+  has_more: boolean;
+}
+
+// Activity API functions
+export const fetchActivity = (params: {
+  limit?: number;
+  offset?: number;
+  event_type?: string;
+  level?: string;
+  strategy?: string;
+}) =>
+  api
+    .get<ActivityResponse>("/api/activity/", { params })
+    .then((r) => r.data);
+
+export const fetchActivityEventTypes = () =>
+  api.get<string[]>("/api/activity/event-types").then((r) => r.data);

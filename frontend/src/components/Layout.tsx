@@ -6,6 +6,7 @@ import {
   LineChart,
   LogOut,
   RefreshCw,
+  ScrollText,
   Settings,
   Shield,
   TrendingUp,
@@ -21,6 +22,7 @@ const navItems = [
   { to: "/markets", icon: Activity, label: "Markets" },
   { to: "/risk", icon: Shield, label: "Risk" },
   { to: "/learner", icon: Brain, label: "Learner" },
+  { to: "/activity", icon: ScrollText, label: "Activity" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 

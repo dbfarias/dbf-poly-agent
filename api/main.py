@@ -10,7 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import router as auth_router
 from api.middleware import verify_api_key
-from api.routers import config, learner, markets, portfolio, risk, strategies, trades, websocket
+from api.routers import (
+    activity,
+    config,
+    learner,
+    markets,
+    portfolio,
+    risk,
+    strategies,
+    trades,
+    websocket,
+)
 from api.schemas import HealthCheck
 from bot.config import settings
 from bot.data.database import init_db
@@ -69,6 +79,7 @@ app.include_router(markets.router)
 app.include_router(risk.router)
 app.include_router(config.router)
 app.include_router(learner.router)
+app.include_router(activity.router)
 app.include_router(websocket.router)
 
 
