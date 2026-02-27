@@ -15,7 +15,7 @@ export default function WinLossChart() {
   const { data: trades, isLoading } = useQuery({
     queryKey: ["trades-for-chart"],
     queryFn: () => fetchTrades(100),
-    refetchInterval: 30000,
+    refetchInterval: 15000,
   });
 
   if (isLoading) {

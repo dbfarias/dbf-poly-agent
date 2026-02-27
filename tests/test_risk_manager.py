@@ -62,9 +62,13 @@ def make_position(
 @pytest.fixture
 def rm():
     """Fresh RiskManager with initial_bankroll patched to 10.0."""
+    from datetime import datetime
+
     original = settings.initial_bankroll
     settings.initial_bankroll = 10.0
     manager = RiskManager()
+    # Set daily date so peak equity doesn't reset on same-day calls
+    manager._daily_pnl_date = datetime.utcnow().strftime("%Y-%m-%d")
     yield manager
     settings.initial_bankroll = original
 

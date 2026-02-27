@@ -6,7 +6,7 @@ export default function EquityChart({ days = 30 }: { days?: number }) {
   const { data, isLoading } = useQuery({
     queryKey: ["equity-curve", days],
     queryFn: () => fetchEquityCurve(days),
-    refetchInterval: 60000,
+    refetchInterval: 15000,
   });
 
   if (isLoading) {

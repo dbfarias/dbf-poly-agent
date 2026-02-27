@@ -13,8 +13,10 @@ class PortfolioOverview(BaseModel):
     positions_value: float
     unrealized_pnl: float
     realized_pnl_today: float
+    polymarket_pnl_today: float = 0.0
     open_positions: int
     peak_equity: float
+    day_start_equity: float = 0.0
     tier: str
     is_paper: bool
     daily_target_pct: float = 0.01

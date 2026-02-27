@@ -39,8 +39,10 @@ export interface PortfolioOverview {
   positions_value: number;
   unrealized_pnl: number;
   realized_pnl_today: number;
+  polymarket_pnl_today: number;
   open_positions: number;
   peak_equity: number;
+  day_start_equity: number;
   tier: string;
   is_paper: boolean;
   daily_target_pct: number;

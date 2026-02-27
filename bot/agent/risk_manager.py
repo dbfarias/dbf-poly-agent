@@ -52,7 +52,16 @@ class RiskManager:
         logger.info("trading_resumed")
 
     def update_peak_equity(self, equity: float) -> None:
-        if equity > self._peak_equity:
+        """Update peak equity tracker.
+
+        Also resets peak at daily boundary so drawdown doesn't carry
+        forward from stale/inflated peaks (e.g., ghost positions).
+        """
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        if self._daily_pnl_date != today:
+            # New day — reset peak to current equity
+            self._peak_equity = equity
+        elif equity > self._peak_equity:
             self._peak_equity = equity
 
     def update_daily_pnl(self, pnl_change: float) -> None:

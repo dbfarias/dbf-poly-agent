@@ -74,9 +74,10 @@ class Portfolio:
 
         Resets daily PnL and captures day-start equity at midnight UTC.
         """
-        # Daily reset: new UTC day → reset PnL, capture start-of-day equity
+        # Check if this is a new UTC day (reset PnL, but defer equity capture)
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        if self._pnl_date != today:
+        need_daily_reset = self._pnl_date != today
+        if need_daily_reset:
             if self._pnl_date:
                 logger.info(
                     "daily_pnl_reset",
@@ -85,7 +86,6 @@ class Portfolio:
                 )
             self._realized_pnl_today = 0.0
             self._pnl_date = today
-            self._day_start_equity = self.total_equity
 
         # Sync positions from Polymarket first
         if self.clob.is_connected and not settings.is_paper:
@@ -106,6 +106,15 @@ class Portfolio:
                         self._cash = real_balance
             except Exception as e:
                 logger.error("balance_sync_failed", error=str(e))
+
+        # Capture start-of-day equity AFTER sync (so balance is accurate)
+        if need_daily_reset:
+            self._day_start_equity = self.total_equity
+            logger.info(
+                "day_start_equity_captured",
+                equity=round(self._day_start_equity, 4),
+                date=today,
+            )
 
         # Update peak equity
         equity = self.total_equity
@@ -371,12 +380,21 @@ class Portfolio:
 
         Daily target is based on start-of-day equity (fixed at midnight UTC),
         not current equity, so the goalpost doesn't move during the day.
+
+        polymarket_pnl_today = real-time P&L from Polymarket account change:
+        (current balance + positions) - start-of-day equity.
+        This should match the Polymarket dashboard's P&L display.
         """
         equity = self.total_equity
         target_pct = settings.daily_target_pct
         target_usd = self._day_start_equity * target_pct
+
+        # Real-time P&L: how much the account changed since midnight
+        polymarket_pnl = equity - self._day_start_equity
+
+        # Use polymarket_pnl for progress (includes both realized + unrealized)
         progress = (
-            self._realized_pnl_today / target_usd if target_usd > 0 else 0.0
+            polymarket_pnl / target_usd if target_usd > 0 else 0.0
         )
         return {
             "total_equity": equity,
@@ -385,8 +403,10 @@ class Portfolio:
             "positions_value": self.positions_value,
             "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl_today": self._realized_pnl_today,
+            "polymarket_pnl_today": round(polymarket_pnl, 4),
             "open_positions": self.open_position_count,
             "peak_equity": self._peak_equity,
+            "day_start_equity": round(self._day_start_equity, 4),
             "tier": self.tier.value,
             "is_paper": settings.is_paper,
             "wallet_address": self.clob.get_address(),

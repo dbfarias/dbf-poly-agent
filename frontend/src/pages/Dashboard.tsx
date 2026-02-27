@@ -71,11 +71,11 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <Crosshair size={16} className="text-indigo-400" />
               <span className="text-sm font-medium text-zinc-300">
-                Daily Target: {(portfolio.daily_target_pct * 100).toFixed(0)}%
+                Daily Target: {(portfolio.daily_target_pct * 100).toFixed(0)}% of ${portfolio.day_start_equity?.toFixed(2) ?? "—"}
               </span>
             </div>
             <span className="text-sm font-medium text-zinc-400">
-              ${portfolio.realized_pnl_today.toFixed(2)} / ${portfolio.daily_target_usd.toFixed(2)}
+              ${(portfolio.polymarket_pnl_today ?? 0).toFixed(2)} / ${portfolio.daily_target_usd.toFixed(2)}
             </span>
           </div>
           <div className="w-full bg-[#0f1117] rounded-full h-3">
@@ -87,7 +87,7 @@ export default function Dashboard() {
                     ? "bg-yellow-500"
                     : portfolio.daily_progress_pct > 0
                       ? "bg-indigo-500"
-                      : portfolio.realized_pnl_today < 0
+                      : (portfolio.polymarket_pnl_today ?? 0) < 0
                         ? "bg-red-500"
                         : "bg-zinc-700"
               }`}
@@ -104,8 +104,15 @@ export default function Dashboard() {
             </span>
             <span>
               {portfolio.daily_progress_pct >= 0
-                ? `$${(portfolio.daily_target_usd - portfolio.realized_pnl_today).toFixed(2)} remaining`
-                : `$${Math.abs(portfolio.realized_pnl_today).toFixed(2)} in the red`}
+                ? `$${(portfolio.daily_target_usd - (portfolio.polymarket_pnl_today ?? 0)).toFixed(2)} remaining`
+                : `$${Math.abs(portfolio.polymarket_pnl_today ?? 0).toFixed(2)} in the red`}
+            </span>
+          </div>
+          <div className="flex justify-between mt-2 text-xs text-zinc-600 border-t border-[#2a2d3e] pt-2">
+            <span>Realized: ${portfolio.realized_pnl_today.toFixed(2)}</span>
+            <span>Unrealized: ${portfolio.unrealized_pnl.toFixed(2)}</span>
+            <span className={`font-medium ${(portfolio.polymarket_pnl_today ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+              Total P&L: ${(portfolio.polymarket_pnl_today ?? 0).toFixed(2)}
             </span>
           </div>
         </div>
@@ -128,20 +135,20 @@ export default function Dashboard() {
           help="USDC available for new trades. This is your Polymarket wallet balance minus any capital deployed in open positions."
         />
         <StatCard
-          title="Today's PnL"
-          value={`$${portfolio?.realized_pnl_today.toFixed(2) ?? "—"}`}
+          title="Today's P&L"
+          value={`$${(portfolio?.polymarket_pnl_today ?? portfolio?.realized_pnl_today ?? 0).toFixed(2)}`}
           trend={
-            portfolio?.realized_pnl_today
-              ? portfolio.realized_pnl_today > 0
+            portfolio?.polymarket_pnl_today
+              ? portfolio.polymarket_pnl_today > 0
                 ? "up"
-                : portfolio.realized_pnl_today < 0
+                : portfolio.polymarket_pnl_today < 0
                   ? "down"
                   : "neutral"
               : "neutral"
           }
           icon={<TrendingUp size={16} />}
           testId="todays-pnl"
-          help="Profit or loss realized today from closed trades. Green means profit, red means loss."
+          help="Real-time P&L today: current equity minus start-of-day equity. Includes both realized and unrealized gains/losses."
         />
         <StatCard
           title="Win Rate"
