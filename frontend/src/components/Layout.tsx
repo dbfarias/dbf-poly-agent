@@ -35,7 +35,7 @@ export default function Layout({ onLogout }: LayoutProps) {
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await queryClient.invalidateQueries();
+    await queryClient.refetchQueries({ type: "active" });
     setTimeout(() => setIsRefreshing(false), 600);
   }, [queryClient]);
 
