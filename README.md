@@ -51,7 +51,7 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | **Tier-Based Risk System** | Automatically adapts position sizing and limits as capital grows |
 | **Quarter-Kelly Sizing** | Conservative position sizing to minimize risk of ruin |
 | **Paper Trading Mode** | ON by default — test safely before going live |
-| **Secure Dashboard** | JWT-authenticated React app with trade detail, equity curves, risk metrics |
+| **Secure Dashboard** | JWT-authenticated React app with 8 pages: trade detail, equity curves, risk metrics, learner visibility |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries |
 | **Docker Deploy** | One-command deployment on AWS Lightsail (~$5/month) |
@@ -296,6 +296,7 @@ JWT-authenticated React dashboard with 6 pages for full visibility into the bot'
 | **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio (real-time from trade data) |
 | **Markets** | Live market scanner with opportunities and signals |
 | **Risk** | Drawdown chart, category exposure (pie), risk limits |
+| **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, probability calibration chart (estimated vs actual), strategy pause status and cooldown timers |
 | **Settings** | Pause/resume trading, risk parameters, system info |
 
 Features real-time WebSocket updates (JWT-authenticated), auto-refreshing queries, and auto-logout on token expiry.
@@ -567,7 +568,7 @@ dbf-poly-agent/
 │       └── websocket.py              # WS /ws/live
 ├── frontend/                         # React 18 + TypeScript + Vite
 │   └── src/
-│       ├── pages/                    # 7 pages (Login + 6 dashboard pages)
+│       ├── pages/                    # 8 pages (Login + 7 dashboard pages)
 │       ├── components/               # Reusable UI components (TradeTable with expandable detail)
 │       ├── api/client.ts             # API client + types + 401 interceptor
 │       └── hooks/
@@ -675,6 +676,9 @@ All endpoints except `/api/health` and `/api/auth/login` require authentication 
 | `GET` | `/api/markets/opportunities` | Cached market data |
 | `GET` | `/api/risk/metrics` | Current risk state |
 | `GET` | `/api/risk/limits` | Risk limits for current tier |
+| `GET` | `/api/learner/multipliers` | Edge multipliers + category confidences |
+| `GET` | `/api/learner/calibration` | Probability calibration per bucket |
+| `GET` | `/api/learner/pauses` | Strategy pause status + cooldowns |
 | `GET` | `/api/config/` | Bot configuration |
 | `PUT` | `/api/config/` | Update configuration |
 | `POST` | `/api/trading/pause` | Pause trading |

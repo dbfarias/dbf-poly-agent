@@ -203,3 +203,77 @@ export const resumeTrading = () =>
 
 export const fetchHealth = () =>
   api.get<HealthCheck>("/api/health").then((r) => r.data);
+
+// Learner types
+export interface EdgeMultiplier {
+  strategy: string;
+  category: string;
+  multiplier: number;
+  win_rate: number | null;
+  total_trades: number;
+  total_pnl: number;
+  avg_edge: number;
+  status: string;
+}
+
+export interface CategoryConfidence {
+  category: string;
+  confidence: number;
+  total_trades: number;
+  win_rate: number;
+  total_pnl: number;
+  status: string;
+}
+
+export interface LearnerMultipliers {
+  edge_multipliers: EdgeMultiplier[];
+  category_confidences: CategoryConfidence[];
+  paused_strategies: string[];
+  last_computed: string | null;
+}
+
+export interface CalibrationBucket {
+  bucket: string;
+  estimated_prob: number;
+  actual_win_rate: number;
+  calibration_ratio: number;
+  total_trades: number;
+  wins: number;
+  losses: number;
+  is_calibrated: boolean;
+}
+
+export interface LearnerCalibration {
+  buckets: CalibrationBucket[];
+  last_computed: string | null;
+}
+
+export interface StrategyPauseInfo {
+  strategy: string;
+  paused_at: string;
+  elapsed_hours: number;
+  remaining_hours: number;
+  expires_at: string;
+}
+
+export interface StrategyPauseStatus {
+  strategy: string;
+  is_paused: boolean;
+  pause_info: StrategyPauseInfo | null;
+}
+
+export interface LearnerPauses {
+  strategies: StrategyPauseStatus[];
+  active_pauses: number;
+  last_computed: string | null;
+}
+
+// Learner API functions
+export const fetchLearnerMultipliers = () =>
+  api.get<LearnerMultipliers>("/api/learner/multipliers").then((r) => r.data);
+
+export const fetchLearnerCalibration = () =>
+  api.get<LearnerCalibration>("/api/learner/calibration").then((r) => r.data);
+
+export const fetchLearnerPauses = () =>
+  api.get<LearnerPauses>("/api/learner/pauses").then((r) => r.data);

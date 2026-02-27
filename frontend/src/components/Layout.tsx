@@ -1,6 +1,7 @@
 import {
   Activity,
   BarChart3,
+  Brain,
   LineChart,
   LogOut,
   Settings,
@@ -16,6 +17,7 @@ const navItems = [
   { to: "/strategies", icon: BarChart3, label: "Strategies" },
   { to: "/markets", icon: Activity, label: "Markets" },
   { to: "/risk", icon: Shield, label: "Risk" },
+  { to: "/learner", icon: Brain, label: "Learner" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
