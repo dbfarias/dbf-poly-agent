@@ -17,6 +17,9 @@ def test_capital_tier_from_bankroll():
 
 
 def test_tier_config_values():
+    # Reset all tiers to defaults in case earlier tests mutated them
+    for tier in CapitalTier:
+        TierConfig.reset(tier)
     t1 = TierConfig.get(CapitalTier.TIER1)
     assert t1["max_positions"] == 3
     assert t1["max_per_position_pct"] == 0.55

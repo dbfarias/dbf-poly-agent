@@ -570,6 +570,7 @@ telegram = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest-cov" },
     { name = "vulture" },
 ]
 
@@ -597,7 +598,10 @@ requires-dist = [
 provides-extras = ["dev", "telegram"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "vulture", specifier = ">=2.14" }]
+dev = [
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "vulture", specifier = ">=2.14" },
+]
 
 [[package]]
 name = "eth-abi"

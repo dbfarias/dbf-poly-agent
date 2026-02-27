@@ -1,6 +1,7 @@
 """Tests for portfolio API endpoints."""
 
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -152,3 +153,181 @@ class TestGetAllocation:
         assert len(data) == 2
         total_pct = sum(item["percentage"] for item in data)
         assert total_pct == pytest.approx(1.0)
+
+    async def test_allocation_zero_cost_basis_does_not_divide_by_zero(self, client, db_session):
+        """When all positions have cost_basis=0, total defaults to 1.0 to avoid ZeroDivisionError."""
+        pos = Position(
+            market_id="mkt_zero",
+            token_id="tz",
+            side="BUY",
+            category="crypto",
+            cost_basis=0.0,  # Zero cost — triggers the `or 1.0` guard
+            is_open=True,
+        )
+        db_session.add(pos)
+        await db_session.commit()
+
+        resp = await client.get("/api/portfolio/allocation")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        # percentage = 0.0 / 1.0 = 0.0 (not a division error)
+        assert data[0]["percentage"] == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Force Close Position
+# ---------------------------------------------------------------------------
+
+
+class TestForceClosePosition:
+    def _make_open_position(self, position_id: int = 1, size: float = 10.0):
+        pos = MagicMock()
+        pos.id = position_id
+        pos.market_id = f"mkt_{position_id}"
+        pos.token_id = f"tok_{position_id}"
+        pos.question = "Will X happen?"
+        pos.outcome = "Yes"
+        pos.category = "crypto"
+        pos.strategy = "time_decay"
+        pos.size = size
+        pos.current_price = 0.75
+        pos.is_open = True
+        return pos
+
+    async def test_force_close_success(self, client, mock_engine):
+        """POST /portfolio/positions/close closes position and returns PnL."""
+        pos = self._make_open_position(position_id=42, size=10.0)
+        mock_engine.portfolio.positions = [pos]
+
+        trade = MagicMock()
+        trade.status = "filled"
+        mock_engine.order_manager = AsyncMock()
+        mock_engine.order_manager.close_position = AsyncMock(return_value=trade)
+        mock_engine.portfolio.record_trade_close = AsyncMock(return_value=0.75)
+        mock_engine.risk_manager.update_daily_pnl = MagicMock()
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 42, "reason": "manual"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["position_id"] == 42
+        assert data["pnl"] == pytest.approx(0.75)
+        assert "PnL" in data["message"]
+
+    async def test_force_close_position_not_found(self, client, mock_engine):
+        """POST /portfolio/positions/close returns 404 when position_id missing."""
+        mock_engine.portfolio.positions = []
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 999, "reason": "manual"},
+        )
+        assert resp.status_code == 404
+        assert "999" in resp.json()["detail"]
+
+    async def test_force_close_position_too_small(self, client, mock_engine):
+        """POST /portfolio/positions/close returns 400 when size < 5 and trade is None."""
+        pos = self._make_open_position(position_id=7, size=2.0)
+        mock_engine.portfolio.positions = [pos]
+
+        mock_engine.order_manager = AsyncMock()
+        mock_engine.order_manager.close_position = AsyncMock(return_value=None)
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 7, "reason": "test"},
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "too small" in detail.lower() or "min" in detail.lower()
+
+    async def test_force_close_sell_rejected_by_exchange(self, client, mock_engine):
+        """POST /portfolio/positions/close returns 500 when order_manager returns None for size >= 5."""
+        pos = self._make_open_position(position_id=8, size=10.0)
+        mock_engine.portfolio.positions = [pos]
+
+        mock_engine.order_manager = AsyncMock()
+        mock_engine.order_manager.close_position = AsyncMock(return_value=None)
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 8, "reason": "test"},
+        )
+        assert resp.status_code == 500
+        assert "exchange" in resp.json()["detail"].lower() or "rejected" in resp.json()["detail"].lower()
+
+    async def test_force_close_records_pnl_and_updates_risk(self, client, mock_engine):
+        """Successful close calls record_trade_close and update_daily_pnl."""
+        pos = self._make_open_position(position_id=10, size=8.0)
+        mock_engine.portfolio.positions = [pos]
+
+        trade = MagicMock()
+        trade.status = "filled"
+        mock_engine.order_manager = AsyncMock()
+        mock_engine.order_manager.close_position = AsyncMock(return_value=trade)
+        mock_engine.portfolio.record_trade_close = AsyncMock(return_value=1.25)
+        mock_engine.risk_manager.update_daily_pnl = MagicMock()
+
+        await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 10, "reason": "test"},
+        )
+
+        mock_engine.portfolio.record_trade_close.assert_called_once_with(
+            pos.market_id, pos.current_price
+        )
+        mock_engine.risk_manager.update_daily_pnl.assert_called_once_with(1.25)
+
+    async def test_force_close_default_reason(self, client, mock_engine):
+        """POST /portfolio/positions/close uses 'manual_close' as default reason."""
+        pos = self._make_open_position(position_id=11, size=6.0)
+        mock_engine.portfolio.positions = [pos]
+
+        trade = MagicMock()
+        trade.status = "filled"
+        mock_engine.order_manager = AsyncMock()
+        mock_engine.order_manager.close_position = AsyncMock(return_value=trade)
+        mock_engine.portfolio.record_trade_close = AsyncMock(return_value=0.0)
+        mock_engine.risk_manager.update_daily_pnl = MagicMock()
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 11},  # No reason provided
+        )
+        assert resp.status_code == 200
+
+    async def test_force_close_only_targets_open_positions(self, client, mock_engine):
+        """POST /portfolio/positions/close returns 404 if position is closed."""
+        pos = self._make_open_position(position_id=20, size=10.0)
+        pos.is_open = False  # Closed position
+        mock_engine.portfolio.positions = [pos]
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 20, "reason": "test"},
+        )
+        assert resp.status_code == 404
+
+    async def test_force_close_response_market_id(self, client, mock_engine):
+        """Response includes correct market_id from the closed position."""
+        pos = self._make_open_position(position_id=30, size=5.0)
+        pos.market_id = "market_abc_123"
+        mock_engine.portfolio.positions = [pos]
+
+        trade = MagicMock()
+        trade.status = "filled"
+        mock_engine.order_manager = AsyncMock()
+        mock_engine.order_manager.close_position = AsyncMock(return_value=trade)
+        mock_engine.portfolio.record_trade_close = AsyncMock(return_value=0.1)
+        mock_engine.risk_manager.update_daily_pnl = MagicMock()
+
+        resp = await client.post(
+            "/api/portfolio/positions/close",
+            json={"position_id": 30, "reason": "test"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["market_id"] == "market_abc_123"

@@ -51,5 +51,6 @@ select = ["E", "F", "I", "N", "W"]
 
 [dependency-groups]
 dev = [
+    "pytest-cov>=7.0.0",
     "vulture>=2.14",
 ]
