@@ -1,20 +1,29 @@
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
-const API_KEY = import.meta.env.VITE_API_KEY || "";
 
 export const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
-  headers: {
-    "X-API-Key": API_KEY,
-  },
 });
+
+// Auto-logout on 401 (expired token)
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && !err.config?.url?.includes("/auth/login")) {
+      sessionStorage.removeItem("polybot_token");
+      window.location.reload();
+    }
+    return Promise.reject(err);
+  },
+);
 
 export const getWsUrl = (path: string): string => {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = API_BASE || window.location.host;
-  return `${proto}//${host}${path}?token=${encodeURIComponent(API_KEY)}`;
+  const token = sessionStorage.getItem("polybot_token") || "";
+  return `${proto}//${host}${path}?token=${encodeURIComponent(token)}`;
 };
 
 // Types matching API schemas

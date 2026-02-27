@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   LineChart,
+  LogOut,
   Settings,
   Shield,
   TrendingUp,
@@ -18,7 +19,11 @@ const navItems = [
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
-export default function Layout() {
+interface LayoutProps {
+  onLogout?: () => void;
+}
+
+export default function Layout({ onLogout }: LayoutProps) {
   const { isConnected } = useWebSocket();
 
   return (
@@ -57,6 +62,18 @@ export default function Layout() {
             </NavLink>
           ))}
         </div>
+        {onLogout && (
+          <div className="p-3 border-t border-[#2a2d3e]">
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded text-sm text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors"
+              data-testid="logout-btn"
+            >
+              <LogOut size={16} />
+              Sign Out
+            </button>
+          </div>
+        )}
       </nav>
 
       {/* Main content */}

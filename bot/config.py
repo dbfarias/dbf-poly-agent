@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     api_secret_key: str = ""
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
 
+    # Dashboard auth
+    dashboard_user: str = "admin"
+    dashboard_password: str = ""
+
     # Telegram
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

@@ -5,6 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from api.auth import decode_jwt
 from api.dependencies import get_engine
 from bot.config import settings
 
@@ -48,9 +49,11 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/live")
 async def websocket_endpoint(ws: WebSocket):
-    # Validate token query param before accepting
-    token = ws.query_params.get("token")
-    if token != settings.api_secret_key:
+    # Validate token query param — accept API key or JWT
+    token = ws.query_params.get("token", "")
+    is_api_key = token == settings.api_secret_key
+    is_jwt = not is_api_key and decode_jwt(token) is not None
+    if not is_api_key and not is_jwt:
         await ws.close(code=4001, reason="Unauthorized")
         return
 

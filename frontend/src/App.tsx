@@ -1,7 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
+import { useAuth } from "./hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
+import Login from "./pages/Login";
 import Markets from "./pages/Markets";
 import Risk from "./pages/Risk";
 import Settings from "./pages/Settings";
@@ -17,21 +19,33 @@ const queryClient = new QueryClient({
   },
 });
 
+function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout onLogout={onLogout} />}>
+          <Route index element={<Dashboard />} />
+          <Route path="trades" element={<Trades />} />
+          <Route path="strategies" element={<Strategies />} />
+          <Route path="markets" element={<Markets />} />
+          <Route path="risk" element={<Risk />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
 export default function App() {
+  const { isAuthenticated, login, logout, error, loading } = useAuth();
+
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="trades" element={<Trades />} />
-            <Route path="strategies" element={<Strategies />} />
-            <Route path="markets" element={<Markets />} />
-            <Route path="risk" element={<Risk />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      {isAuthenticated ? (
+        <AuthenticatedApp onLogout={logout} />
+      ) : (
+        <Login onLogin={login} error={error} loading={loading} />
+      )}
     </QueryClientProvider>
   );
 }

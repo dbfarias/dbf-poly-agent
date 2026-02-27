@@ -46,10 +46,12 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | Feature | Description |
 |:---|:---|
 | **4 Trading Strategies** | Time Decay, Arbitrage, Value Betting, Market Making |
+| **Adaptive Learning** | Self-tuning engine that adjusts edge/confidence from trade history |
+| **Market Quality Filter** | Order book depth, spread, liquidity checks before every trade |
 | **Tier-Based Risk System** | Automatically adapts position sizing and limits as capital grows |
 | **Quarter-Kelly Sizing** | Conservative position sizing to minimize risk of ruin |
 | **Paper Trading Mode** | ON by default — test safely before going live |
-| **Real-Time Dashboard** | 6-page React app with equity curves, trade history, risk metrics |
+| **Secure Dashboard** | JWT-authenticated React app with trade detail, equity curves, risk metrics |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries |
 | **Docker Deploy** | One-command deployment on AWS Lightsail (~$5/month) |
@@ -96,9 +98,9 @@ The bot automatically adjusts its behavior as the bankroll grows:
  $5 — $25                  $25 — $100                $100+
  ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
  │ 1 position max  │       │ 3 positions max │       │ 10 positions max│
- │ 100% per trade  │  ──►  │ 50% per trade   │  ──►  │ 20% per trade   │
- │ High cert. only │       │ + Value Betting │       │ + Market Making │
- │ Min prob: 85%   │       │ Min prob: 70%   │       │ Min prob: 55%   │
+ │ 35% per trade   │  ──►  │ 50% per trade   │  ──►  │ 20% per trade   │
+ │ 70% max deployed│       │ + Value Betting │       │ + Market Making │
+ │ High cert. only │       │ Min prob: 70%   │       │ Min prob: 55%   │
  └─────────────────┘       └─────────────────┘       └─────────────────┘
 ```
 
@@ -130,6 +132,7 @@ The bot automatically adjusts its behavior as the bankroll grows:
                             │  │  │ Strategies │  │  │
                             │  │  │ Risk Mgr   │  │  │
                             │  │  │ Portfolio   │  │  │
+                            │  │  │ Learner    │  │  │
                             │  │  │ Orders     │  │  │
                             │  │  └────────────┘  │  │
                             │  └────────┬────────┘  │
@@ -202,6 +205,46 @@ Places limit orders on bid and ask to capture the spread and earn maker rebates.
 
 ---
 
+## 🧠 Adaptive Learning
+
+The bot includes a **PerformanceLearner** that continuously analyzes trade history and adjusts strategy parameters in real time.
+
+### How It Works
+
+```
+SCAN → VALIDATE → TRADE → TRACK → LEARN → (adjust parameters) → SCAN
+```
+
+Every 5 minutes during the 60-second trading cycle, the learner recomputes statistics from the last 30 days of trades:
+
+| Adjustment | Description |
+|:---|:---|
+| **Edge Multiplier** | Per-strategy modifier (0.5–2.0x). Winning strategies get relaxed thresholds; losing ones require higher edge |
+| **Category Confidence** | Per-category modifier (0.5–1.5x). Boosts exposure to proven categories, penalizes underperforming ones |
+| **Confidence Calibration** | Compares predicted probability vs actual win rate. If 95% confidence only wins 60%, edge requirements increase |
+| **Strategy Auto-Pause** | If last 10 trades have <30% win rate and PnL < -$1, the strategy is paused for 24 hours |
+
+### Edge Multiplier Logic
+
+| Win Rate | Multiplier | Effect |
+|:---:|:---:|:---|
+| >60% | 0.8x | Relaxed — allow lower edge (strategy is proving itself) |
+| 40–60% | 1.0x | Neutral — use default thresholds |
+| <40% | 1.5x | Strict — require 50% more edge (strategy is underperforming) |
+| No data | 1.2x | Cautious — slightly stricter until proven |
+
+### Market Quality Filter
+
+Before any strategy evaluates a market, it must pass quality checks:
+
+- Binary outcomes only (2 outcomes)
+- Active order book (bids and asks present)
+- Tight spread (≤ 4 cents)
+- Sufficient depth in order book
+- Category diversification (max 2 positions per category)
+
+---
+
 ## 🛡 Risk Management
 
 Multi-layered risk system with **cascading checks** — every trade must pass all gates:
@@ -218,7 +261,8 @@ Signal ──► Daily Loss ──► Drawdown ──► Positions ──► Cat
 | Rule | Tier 1 ($5-$25) | Tier 2 ($25-$100) | Tier 3 ($100+) |
 |:---|:---:|:---:|:---:|
 | Max Positions | 1 | 3 | 10 |
-| Max Per Position | 100% | 50% | 20% |
+| Max Per Position | 35% | 50% | 20% |
+| Max Deployed | 70% | 85% | 90% |
 | Daily Loss Limit | 10% | 10% | 8% |
 | Max Drawdown | 25% | 20% | 15% |
 | Min Edge Required | 5% | 3% | 2% |
@@ -242,18 +286,19 @@ where:
 
 ## 📊 Dashboard
 
-Six-page React dashboard for full visibility into the bot's operations:
+JWT-authenticated React dashboard with 6 pages for full visibility into the bot's operations:
 
 | Page | Description |
 |:---|:---|
+| **Login** | Secure JWT login (username/password), 24h token expiry, auto-logout on 401 |
 | **Dashboard** | Equity curve, PnL cards, active positions, recent trades |
-| **Trades** | Paginated trade history with filters, CSV export |
-| **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio |
+| **Trades** | Expandable trade history — click any trade to see reasoning, edge, confidence, estimated probability, market price, cost, and paper/live status |
+| **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio (real-time from trade data) |
 | **Markets** | Live market scanner with opportunities and signals |
 | **Risk** | Drawdown chart, category exposure (pie), risk limits |
 | **Settings** | Pause/resume trading, risk parameters, system info |
 
-Features real-time WebSocket updates and auto-refreshing queries.
+Features real-time WebSocket updates (JWT-authenticated), auto-refreshing queries, and auto-logout on token expiry.
 
 ---
 
@@ -314,7 +359,9 @@ All configuration is via environment variables (`.env` file):
 
 | Variable | Default | Description |
 |:---|:---|:---|
-| `API_SECRET_KEY` | — | **Required.** Min 16 chars. Used for API auth and WS token |
+| `API_SECRET_KEY` | — | **Required.** Min 16 chars. Used for API auth, JWT signing, and WS token |
+| `DASHBOARD_USER` | `admin` | Dashboard login username |
+| `DASHBOARD_PASSWORD` | — | **Required for dashboard.** Dashboard login password |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated CORS origins |
 | `TRADING_MODE` | `paper` | `paper` or `live` — **paper is default** |
 | `INITIAL_BANKROLL` | `5.0` | Starting capital in USD |
@@ -357,9 +404,10 @@ docker compose up -d
 
 ### CI/CD
 
-Push to `main` triggers GitHub Actions:
+Push to `main` triggers GitHub Actions (3-job pipeline):
 1. **Test** — pytest + ruff lint
-2. **Deploy** — SSH to server, pull, rebuild, restart
+2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
+3. **Deploy** — SSH to server, pull image, restart containers
 
 ### Monthly Cost
 
@@ -379,11 +427,26 @@ The bot handles real money — security is enforced at every layer.
 
 ### API Authentication
 
-All API endpoints (except `/api/health`) require an `X-API-Key` header matching the configured `API_SECRET_KEY`. WebSocket connections require a `?token=` query parameter with the same key.
+Dual authentication system:
+
+| Method | Use Case | Header/Param |
+|:---|:---|:---|
+| **API Key** | Programmatic access, scripts | `X-API-Key: <API_SECRET_KEY>` |
+| **JWT Bearer** | Dashboard login | `Authorization: Bearer <token>` |
+
+WebSocket connections accept either API key or JWT via `?token=` query parameter.
 
 ```bash
-# Authenticated request
+# Login to get JWT token
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}'
+
+# Authenticated request (API key)
 curl -H "X-API-Key: $API_SECRET_KEY" http://localhost:8000/api/config/
+
+# Authenticated request (JWT)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 # Unauthenticated → 401
 curl http://localhost:8000/api/config/
@@ -417,13 +480,14 @@ All configuration update fields are bounded by Pydantic validators:
 
 ## 🧪 Testing
 
-**135 tests** across 12 test files covering bot logic and API endpoints.
+**188 tests** across 14 test files covering bot logic, API endpoints, and adaptive learning.
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
 | RiskManager | 34 | 99% |
 | Strategies (base, time_decay, arbitrage) | 33 | 80–100% |
 | API routers (config, portfolio, trades, risk, markets, strategies) | 28 | 94–100% |
+| Learner (adaptive learning) | 12 | 90%+ |
 | Config, math_utils, types, market_cache | 34 | 84–100% |
 
 ```bash
@@ -463,6 +527,7 @@ dbf-poly-agent/
 │   │   ├── market_analyzer.py        # Market scanner
 │   │   ├── order_manager.py          # Order lifecycle
 │   │   ├── risk_manager.py           # Tier-based risk checks
+│   │   ├── learner.py                # Adaptive learning engine
 │   │   └── strategies/
 │   │       ├── base.py               # Abstract strategy interface
 │   │       ├── time_decay.py         # Near-resolution strategy
@@ -488,7 +553,8 @@ dbf-poly-agent/
 │       └── notifications.py          # Telegram alerts
 ├── api/                              # FastAPI (same process as bot)
 │   ├── main.py                       # App + bot as background task
-│   ├── middleware.py                  # API key authentication
+│   ├── auth.py                       # JWT authentication (login, token)
+│   ├── middleware.py                  # Dual auth (API key + JWT Bearer)
 │   ├── schemas.py                    # Response models (with validation)
 │   ├── dependencies.py               # DB session, engine access
 │   └── routers/
@@ -501,15 +567,17 @@ dbf-poly-agent/
 │       └── websocket.py              # WS /ws/live
 ├── frontend/                         # React 18 + TypeScript + Vite
 │   └── src/
-│       ├── pages/                    # 6 dashboard pages
-│       ├── components/               # Reusable UI components
-│       ├── api/client.ts             # API client + types
-│       └── hooks/useWebSocket.ts     # Real-time WS hook
+│       ├── pages/                    # 7 pages (Login + 6 dashboard pages)
+│       ├── components/               # Reusable UI components (TradeTable with expandable detail)
+│       ├── api/client.ts             # API client + types + 401 interceptor
+│       └── hooks/
+│           ├── useAuth.ts            # JWT auth state (login/logout, session storage)
+│           └── useWebSocket.ts       # Real-time WS hook (JWT-authenticated)
 ├── deploy/
 │   ├── nginx/                        # Reverse proxy config
 │   ├── lightsail/setup.sh            # Server provisioning
 │   └── scripts/                      # Backup + health check
-├── tests/                            # 135 pytest tests (12 files)
+├── tests/                            # 188 pytest tests (14 files)
 │   ├── conftest.py                   # Shared fixtures (async DB, mock engine, HTTP client)
 │   ├── test_risk_manager.py          # 34 tests — cascading risk checks
 │   ├── test_base_strategy.py         # 6 tests — tier gating
@@ -541,6 +609,7 @@ dbf-poly-agent/
 - **httpx** — async HTTP client
 - **structlog** — JSON logging
 - **Pydantic v2** — validation & settings
+- **PyJWT** — JWT authentication
 - **tenacity** — retry logic
 
 </td>
@@ -588,11 +657,12 @@ dbf-poly-agent/
 
 </div>
 
-All endpoints except `/api/health` require `X-API-Key` header. WebSocket requires `?token=` query param.
+All endpoints except `/api/health` and `/api/auth/login` require authentication (API key or JWT). WebSocket requires `?token=` query param (API key or JWT).
 
 | Method | Endpoint | Description |
 |:---:|:---|:---|
 | `GET` | `/api/health` | Health check (no auth) |
+| `POST` | `/api/auth/login` | JWT login (no auth required) |
 | `GET` | `/api/status` | Full engine status |
 | `GET` | `/api/portfolio/overview` | Portfolio summary |
 | `GET` | `/api/portfolio/positions` | Open positions |

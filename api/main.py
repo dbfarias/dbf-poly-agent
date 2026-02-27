@@ -8,6 +8,7 @@ import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth import router as auth_router
 from api.middleware import verify_api_key
 from api.routers import config, markets, portfolio, risk, strategies, trades, websocket
 from api.schemas import HealthCheck
@@ -53,10 +54,11 @@ app.add_middleware(
     allow_origins=[o.strip() for o in settings.allowed_origins.split(",") if o.strip()],
     allow_credentials=False,
     allow_methods=["GET", "PUT", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 
 # Register routers
+app.include_router(auth_router)
 app.include_router(portfolio.router)
 app.include_router(trades.router)
 app.include_router(strategies.router)
