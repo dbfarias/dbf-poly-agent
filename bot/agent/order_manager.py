@@ -68,8 +68,8 @@ class OrderManager:
 
         shares = signal.size_usd / actual_price
 
-        # Ensure minimum 1 share (Polymarket minimum notional is $1)
-        min_shares = 1.0
+        # Ensure minimum 5 shares (Polymarket CLOB minimum order size)
+        min_shares = self.MIN_ORDER_SIZE if not self.clob.is_paper else 1.0
         if shares < min_shares:
             shares = min_shares
             signal.size_usd = shares * actual_price
@@ -232,12 +232,21 @@ class OrderManager:
         for oid in to_remove:
             self._pending_orders.pop(oid, None)
 
+    MIN_ORDER_SIZE = 5.0  # Polymarket CLOB minimum order size
+
     async def close_position(
         self, market_id: str, token_id: str, size: float, current_price: float
     ) -> Trade | None:
         """Close a position by selling."""
-        # Polymarket requires minimum 5 shares; bump if needed
-        sell_size = max(size, 5.0) if not self.clob.is_paper else size
+        # Polymarket requires minimum 5 shares — reject if below
+        if not self.clob.is_paper and size < self.MIN_ORDER_SIZE:
+            logger.warning(
+                "position_too_small_to_sell",
+                market_id=market_id,
+                size=size,
+                min_size=self.MIN_ORDER_SIZE,
+            )
+            return None
 
         # Get best bid for immediate fill
         sell_price = current_price
@@ -253,7 +262,7 @@ class OrderManager:
             token_id=token_id,
             side=OrderSide.SELL,
             price=sell_price,
-            size=sell_size,
+            size=size,
         )
 
         if "error" in result:

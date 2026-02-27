@@ -258,20 +258,20 @@ class RiskManager:
         if available_capital is not None and size > available_capital * 0.95:
             size = available_capital * 0.95
 
-        # Ensure minimum order notional ($1 USD minimum)
+        # Ensure minimum 5 shares (Polymarket CLOB minimum) so positions are sellable
         if not settings.is_paper and signal.market_price > 0:
-            min_usd = max(1.0, signal.market_price)  # At least 1 share or $1
+            min_usd = 5.0 * signal.market_price  # 5 shares at current price
             if 0 < size < min_usd:
                 if min_usd <= (available_capital or bankroll) * 0.95:
                     logger.info(
-                        "size_bumped_to_minimum",
+                        "size_bumped_to_min_5_shares",
                         kelly_usd=round(size, 2),
                         min_usd=round(min_usd, 2),
                     )
                     size = min_usd
                 else:
                     logger.info(
-                        "trade_skipped_insufficient_capital",
+                        "trade_skipped_insufficient_for_5_shares",
                         min_usd=round(min_usd, 2),
                         available=round(available_capital or bankroll, 2),
                         price=signal.market_price,

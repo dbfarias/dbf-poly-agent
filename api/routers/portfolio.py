@@ -122,7 +122,15 @@ async def force_close_position(
     )
 
     if not trade:
-        raise HTTPException(status_code=500, detail="Sell order rejected by exchange")
+        if position.size < 5.0:
+            msg = (
+                f"Position too small to sell ({position.size:.2f} shares, "
+                f"min 5). Must wait for resolution."
+            )
+            raise HTTPException(status_code=400, detail=msg)
+        raise HTTPException(
+            status_code=500, detail="Sell order rejected by exchange"
+        )
 
     # Record the close and update portfolio
     pnl = await engine.portfolio.record_trade_close(
