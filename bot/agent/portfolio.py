@@ -170,13 +170,24 @@ class Portfolio:
     async def _close_if_resolved(
         self, position: Position, pos_repo: "PositionRepository"
     ) -> None:
-        """Close a bot-opened position if the market has resolved on Polymarket.
+        """Close a bot-opened position that no longer exists on Polymarket.
 
-        When a market resolves, winning shares are redeemed at $1.00 and
-        disappear from the remote positions list. We check the market's
-        closed/archived status to confirm resolution before closing locally.
+        Possible reasons:
+        1. Market resolved → winning shares redeemed at $1.00
+        2. Position sold externally (via web UI or another tool)
+
+        In both cases, the position is gone from the chain, so we close locally.
         """
         if not self.gamma:
+            # Without gamma client, can't verify — close at last known price
+            pnl = 0.0
+            await pos_repo.close(position.market_id)
+            self._realized_pnl_today += pnl
+            logger.info(
+                "position_closed_no_gamma",
+                market_id=position.market_id,
+                strategy=position.strategy,
+            )
             return
 
         try:
@@ -190,32 +201,35 @@ class Portfolio:
             return
 
         if market is None:
-            # Market not found — likely resolved and removed. Close at last known price.
+            # Market not found — likely resolved and removed
             settlement_price = position.current_price
-            resolved = True
         elif market.closed or market.archived or not market.active:
             # Market confirmed resolved — determine win/loss from outcome prices
             settlement_price = self._get_settlement_price(market, position)
-            resolved = True
         else:
-            # Market still active — position may have been sold externally
-            # Don't auto-close to avoid false positives
-            resolved = False
-
-        if resolved:
-            pnl = (settlement_price - position.avg_price) * position.size
-            await pos_repo.close(position.market_id)
-            self._realized_pnl_today += pnl
+            # Market still active but position gone → sold externally
+            settlement_price = position.current_price
             logger.info(
-                "position_resolved",
+                "position_sold_externally",
                 market_id=position.market_id,
                 strategy=position.strategy,
                 outcome=position.outcome,
-                avg_price=round(position.avg_price, 4),
-                settlement=round(settlement_price, 4),
                 size=position.size,
-                pnl=round(pnl, 4),
             )
+
+        pnl = (settlement_price - position.avg_price) * position.size
+        await pos_repo.close(position.market_id)
+        self._realized_pnl_today += pnl
+        logger.info(
+            "position_closed",
+            market_id=position.market_id,
+            strategy=position.strategy,
+            outcome=position.outcome,
+            avg_price=round(position.avg_price, 4),
+            settlement=round(settlement_price, 4),
+            size=position.size,
+            pnl=round(pnl, 4),
+        )
 
     @staticmethod
     def _get_settlement_price(market, position: Position) -> float:
