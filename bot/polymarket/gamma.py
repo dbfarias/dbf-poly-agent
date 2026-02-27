@@ -27,11 +27,16 @@ _GENERIC_TAGS = frozenset({
 
 
 def _best_category(tags: list[str]) -> str:
-    """Pick the most descriptive tag, skipping generic ones like 'Politics'."""
+    """Pick the most descriptive tag, skipping generic ones like 'Politics'.
+
+    Returns empty string when only generic tags exist — prevents
+    artificially labeling markets as 'Politics' when no specific
+    sub-category is available.
+    """
     for tag in tags:
         if tag not in _GENERIC_TAGS:
             return tag
-    return tags[0] if tags else ""
+    return ""
 
 
 def _transform_clob_market(raw: dict) -> dict:

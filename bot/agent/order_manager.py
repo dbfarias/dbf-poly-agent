@@ -45,12 +45,20 @@ class OrderManager:
     @property
     def pending_market_ids(self) -> set[str]:
         """Market IDs with pending orders on the CLOB."""
-        return {info["signal"].market_id for info in self._pending_orders.values()}
+        return {
+            info["signal"].market_id
+            for info in self._pending_orders.values()
+            if info.get("signal") is not None
+        }
 
     @property
     def pending_capital(self) -> float:
         """Total capital locked by pending CLOB orders."""
-        return sum(info["signal"].size_usd for info in self._pending_orders.values())
+        return sum(
+            info["signal"].size_usd
+            for info in self._pending_orders.values()
+            if info.get("signal") is not None
+        )
 
     async def execute_signal(self, signal: TradeSignal) -> Trade | None:
         """Execute a trade signal by placing an order."""
@@ -206,10 +214,22 @@ class OrderManager:
 
         for order_id, info in self._pending_orders.items():
             signal = info["signal"]
+            is_sell = info.get("is_sell", False)
             age = (now - info["created_at"]).total_seconds()
 
-            # Check if position actually exists on Polymarket
-            if signal.token_id in real_token_ids:
+            # Determine token_id from signal or stored field
+            token_id = info.get("token_id") or (signal.token_id if signal else None)
+            if not token_id:
+                continue
+
+            # For SELL orders: position GONE from Polymarket = filled
+            # For BUY orders: position EXISTS on Polymarket = filled
+            if is_sell:
+                fill_confirmed = token_id not in real_token_ids
+            else:
+                fill_confirmed = token_id in real_token_ids
+
+            if fill_confirmed:
                 async with async_session() as session:
                     repo = TradeRepository(session)
                     await repo.update_status(info["trade_id"], "filled")
@@ -218,16 +238,18 @@ class OrderManager:
                     "order_fill_verified",
                     order_id=order_id,
                     trade_id=info["trade_id"],
-                    token_id=signal.token_id[:20],
+                    token_id=token_id[:20],
+                    is_sell=is_sell,
                 )
-                await log_order_filled(
-                    market_id=signal.market_id,
-                    order_id=order_id,
-                    strategy=signal.strategy,
-                )
+                if signal:
+                    await log_order_filled(
+                        market_id=signal.market_id,
+                        order_id=order_id,
+                        strategy=signal.strategy,
+                    )
 
-                # Create position via callback
-                if self._on_fill_callback:
+                # Create position via callback (BUY orders only)
+                if not is_sell and self._on_fill_callback and signal:
                     try:
                         await self._on_fill_callback(signal, info["shares"])
                     except Exception as e:
@@ -251,12 +273,14 @@ class OrderManager:
                     order_id=order_id,
                     trade_id=info["trade_id"],
                     age_seconds=age,
+                    is_sell=is_sell,
                 )
-                await log_order_expired(
-                    market_id=signal.market_id,
-                    order_id=order_id,
-                    age_seconds=age,
-                )
+                if signal:
+                    await log_order_expired(
+                        market_id=signal.market_id,
+                        order_id=order_id,
+                        age_seconds=age,
+                    )
 
         for oid in to_remove:
             self._pending_orders.pop(oid, None)
@@ -327,6 +351,18 @@ class OrderManager:
         async with async_session() as session:
             repo = TradeRepository(session)
             trade = await repo.create(trade)
+
+        # Track pending SELL orders for monitoring (live unfilled only)
+        is_filled = self.clob.is_paper or str(result.get("status", "")).upper() == "MATCHED"
+        if not is_filled and order_id:
+            self._pending_orders[order_id] = {
+                "trade_id": trade.id,
+                "created_at": datetime.utcnow(),
+                "signal": None,  # No signal for SELL orders
+                "shares": size,
+                "is_sell": True,
+                "token_id": token_id,
+            }
 
         return trade
 
