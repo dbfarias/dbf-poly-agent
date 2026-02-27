@@ -107,7 +107,7 @@ class PerformanceLearner:
         cutoff = datetime.utcnow() - timedelta(days=30)
         recent = [
             t for t in trades
-            if t.status == "completed" and t.created_at >= cutoff
+            if t.status in ("filled", "completed") and t.created_at >= cutoff
         ]
 
         # Group by (strategy, category)

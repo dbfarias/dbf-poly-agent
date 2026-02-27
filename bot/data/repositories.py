@@ -48,7 +48,10 @@ class TradeRepository:
     async def get_stats(self) -> dict:
         total = await self.session.scalar(select(func.count(Trade.id)))
         wins = await self.session.scalar(
-            select(func.count(Trade.id)).where(Trade.pnl > 0, Trade.status == "completed")
+            select(func.count(Trade.id)).where(
+                Trade.pnl > 0,
+                Trade.status.in_(["filled", "completed"]),
+            )
         )
         total_pnl = await self.session.scalar(select(func.sum(Trade.pnl))) or 0.0
         return {
@@ -79,7 +82,7 @@ class TradeRepository:
                 func.avg(Trade.edge).label("avg_edge"),
                 func.avg(Trade.estimated_prob).label("avg_estimated_prob"),
             )
-            .where(Trade.status == "completed", Trade.created_at >= since)
+            .where(Trade.status.in_(["filled", "completed"]), Trade.created_at >= since)
             .group_by(Trade.strategy, Trade.category)
         )
         return [
@@ -94,6 +97,40 @@ class TradeRepository:
             }
             for row in result.all()
         ]
+
+    async def get_strategy_stats(self) -> list[dict]:
+        """Get aggregated stats grouped by strategy (all time, filled+completed).
+
+        Returns list of dicts with: strategy, total_trades, winning_trades,
+        losing_trades, total_pnl, avg_edge.
+        """
+        result = await self.session.execute(
+            select(
+                Trade.strategy,
+                func.count(Trade.id).label("total_trades"),
+                func.sum(
+                    case((Trade.pnl > 0, 1), else_=0)
+                ).label("winning_trades"),
+                func.sum(Trade.pnl).label("total_pnl"),
+                func.avg(Trade.edge).label("avg_edge"),
+            )
+            .where(Trade.status.in_(["filled", "completed"]))
+            .group_by(Trade.strategy)
+        )
+        rows = []
+        for row in result.all():
+            total = row.total_trades
+            wins = int(row.winning_trades or 0)
+            rows.append({
+                "strategy": row.strategy,
+                "total_trades": total,
+                "winning_trades": wins,
+                "losing_trades": total - wins,
+                "total_pnl": float(row.total_pnl or 0.0),
+                "avg_edge": float(row.avg_edge or 0.0),
+                "win_rate": wins / total if total > 0 else 0.0,
+            })
+        return rows
 
     async def mark_scan_traded(self, market_id: str, strategy: str) -> None:
         """Mark the most recent scan for a market as traded."""
