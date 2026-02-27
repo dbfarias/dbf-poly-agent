@@ -216,20 +216,20 @@ class TestCheckDuplicatePosition:
 
 class TestCheckDailyLoss:
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.15
-        rm._daily_pnl = -0.5  # -0.5 vs limit -1.5 (15% of 10)
+        config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.10
+        rm._daily_pnl = -0.5  # -0.5 vs limit -1.0 (10% of 10)
         assert rm._check_daily_loss(10.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.15
-        rm._daily_pnl = -2.0  # exceeds -1.5 (15% of 10)
+        config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.10
+        rm._daily_pnl = -2.0  # exceeds -1.0 (10% of 10)
         result = rm._check_daily_loss(10.0, config)
         assert result.passed is False
 
     def test_exact_boundary_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # Limit is -1.5 (15% of 10). At exactly -1.5: -1.5 < -1.5 is False → passes
-        rm._daily_pnl = -1.5
+        # Limit is -1.0 (10% of 10). At exactly -1.0: -1.0 < -1.0 is False → passes
+        rm._daily_pnl = -1.0
         assert rm._check_daily_loss(10.0, config).passed is True
 
 
@@ -240,16 +240,16 @@ class TestCheckDailyLoss:
 
 class TestCheckDrawdown:
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_drawdown_pct=0.30
+        config = TierConfig.get(CapitalTier.TIER1)  # max_drawdown_pct=0.25
         rm._peak_equity = 10.0
-        # bankroll 9.0 → dd = 10%. Within 30%.
+        # bankroll 9.0 → dd = 10%. Within 25%.
         assert rm._check_drawdown(9.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_drawdown_pct=0.30
+        config = TierConfig.get(CapitalTier.TIER1)  # max_drawdown_pct=0.25
         rm._peak_equity = 10.0
-        # bankroll 6.5 → dd = 35%. Exceeds 30%.
-        result = rm._check_drawdown(6.5, config)
+        # bankroll 7.0 → dd = 30%. Exceeds 25%.
+        result = rm._check_drawdown(7.0, config)
         assert result.passed is False
 
     def test_zero_peak_passes(self, rm):
@@ -266,23 +266,23 @@ class TestCheckDrawdown:
 
 class TestCheckMaxPositions:
     def test_under_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
         assert rm._check_max_positions([], config).passed is True
 
     def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
-        positions = [make_position(market_id=f"mkt{i}") for i in range(3)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
         result = rm._check_max_positions(positions, config)
         assert result.passed is False
 
     def test_under_tier1_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
-        positions = [make_position(market_id=f"mkt{i}") for i in range(2)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_tier3_higher_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER3)  # max_positions=10
-        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
+        config = TierConfig.get(CapitalTier.TIER3)  # max_positions=15
+        positions = [make_position(market_id=f"mkt{i}") for i in range(10)]
         assert rm._check_max_positions(positions, config).passed is True
 
 
@@ -293,26 +293,26 @@ class TestCheckMaxPositions:
 
 class TestCheckTotalDeployed:
     def test_under_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.80
-        # 5.0 deployed out of 10.0 bankroll = 50%, under 80% limit
+        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.85
+        # 5.0 deployed out of 10.0 bankroll = 50%, under 85% limit
         positions = [make_position(cost_basis=5.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
     def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.80
-        # 8.0 deployed out of 10.0 bankroll = 80%, at limit → reject
+        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.85
+        # 8.5 deployed out of 10.0 bankroll = 85%, at limit → reject
         positions = [
-            make_position(market_id="mkt1", cost_basis=4.0),
-            make_position(market_id="mkt2", cost_basis=4.0),
+            make_position(market_id="mkt1", cost_basis=4.25),
+            make_position(market_id="mkt2", cost_basis=4.25),
         ]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is False
         assert "deployed" in result.reason.lower()
 
     def test_over_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.80
-        # 9.0 deployed out of 10.0 = 90%, over 80% limit
+        config = TierConfig.get(CapitalTier.TIER1)  # max_deployed_pct=0.85
+        # 9.0 deployed out of 10.0 = 90%, over 85% limit
         positions = [make_position(cost_basis=9.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is False
@@ -343,18 +343,18 @@ class TestCheckCategoryExposure:
         assert result.passed is True
 
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER2)  # max_per_category_pct=0.60
+        config = TierConfig.get(CapitalTier.TIER2)  # max_per_category_pct=0.35
         signal = make_signal(metadata={"category": "crypto"})
         positions = [make_position(category="crypto", cost_basis=3.0)]
-        # 3.0 < 100.0 * 0.60 = 60.0
+        # 3.0 < 100.0 * 0.35 = 35.0
         result = rm._check_category_exposure(signal, positions, 100.0, config)
         assert result.passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER2)  # max_per_category_pct=0.60
+        config = TierConfig.get(CapitalTier.TIER2)  # max_per_category_pct=0.35
         signal = make_signal(metadata={"category": "crypto"})
-        positions = [make_position(category="crypto", cost_basis=7.0)]
-        # 7.0 >= 10.0 * 0.60 = 6.0
+        positions = [make_position(category="crypto", cost_basis=4.0)]
+        # 4.0 >= 10.0 * 0.35 = 3.5
         result = rm._check_category_exposure(signal, positions, 10.0, config)
         assert result.passed is False
 
@@ -384,12 +384,12 @@ class TestCheckMinEdge:
 
 class TestCheckMinWinProb:
     def test_above_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.75
+        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.80
         signal = make_signal(estimated_prob=0.92)
         assert rm._check_min_win_prob(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.75
+        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.80
         signal = make_signal(estimated_prob=0.60)
         result = rm._check_min_win_prob(signal, config)
         assert result.passed is False
