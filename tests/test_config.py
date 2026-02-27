@@ -15,8 +15,8 @@ def test_capital_tier_from_bankroll():
 def test_tier_config_values():
     t1 = TierConfig.get(CapitalTier.TIER1)
     assert t1["max_positions"] == 5
-    assert t1["max_per_position_pct"] == 0.40
-    assert t1["max_deployed_pct"] == 0.85
+    assert t1["max_per_position_pct"] == 0.35
+    assert t1["max_deployed_pct"] == 0.70
     assert t1["max_per_category_pct"] == 0.40
     assert t1["min_win_prob"] == 0.80
     assert t1["kelly_fraction"] == 0.25

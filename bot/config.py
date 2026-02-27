@@ -32,8 +32,8 @@ class TierConfig:
     CONFIGS = {
         CapitalTier.TIER1: {
             "max_positions": 5,
-            "max_per_position_pct": 0.40,
-            "max_deployed_pct": 0.85,
+            "max_per_position_pct": 0.35,
+            "max_deployed_pct": 0.70,
             "daily_loss_limit_pct": 0.10,
             "max_drawdown_pct": 0.25,
             "min_edge_pct": 0.01,

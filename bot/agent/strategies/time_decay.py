@@ -23,7 +23,7 @@ logger = structlog.get_logger()
 MAX_HOURS_TO_RESOLUTION = 720.0  # 30 days — covers most active markets
 MIN_IMPLIED_PROB = 0.85
 MAX_PRICE = 0.97  # Don't buy above this (too little profit margin)
-MIN_PRICE = 0.90  # Only high-probability markets (90%+)
+MIN_PRICE = 0.82  # High-probability markets (82%+), cheaper for small bankrolls
 MIN_EDGE = 0.015  # 1.5% minimum edge
 CONFIDENCE_BASE = 0.75  # Base confidence for this strategy
 

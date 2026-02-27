@@ -250,9 +250,21 @@ class RiskManager:
             if 0 < size < min_usd:
                 max_allowed = bankroll * config["max_per_position_pct"]
                 if min_usd <= max_allowed:
+                    logger.info(
+                        "size_bumped_to_min_shares",
+                        kelly_usd=round(size, 2),
+                        min_usd=round(min_usd, 2),
+                        pct_of_bankroll=round(min_usd / bankroll * 100, 1),
+                    )
                     size = min_usd
                 else:
-                    size = 0.0  # Can't afford minimum
+                    logger.info(
+                        "trade_skipped_too_expensive",
+                        min_usd=round(min_usd, 2),
+                        max_allowed=round(max_allowed, 2),
+                        price=signal.market_price,
+                    )
+                    size = 0.0
 
         return size
 
