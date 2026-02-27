@@ -5,6 +5,7 @@ import {
   fetchHealth,
   fetchRiskMetrics,
   pauseTrading,
+  resetRiskState,
   resumeTrading,
   updateConfig,
 } from "../api/client";
@@ -132,6 +133,19 @@ export default function Settings() {
       addToast("Trading resumed", "success");
     },
     onError: () => addToast("Failed to resume trading", "error"),
+  });
+
+  const resetMut = useMutation({
+    mutationFn: resetRiskState,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["risk-metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+      addToast(
+        `Risk state reset. Equity: $${data.equity.toFixed(2)}`,
+        "success",
+      );
+    },
+    onError: () => addToast("Failed to reset risk state", "error"),
   });
 
   const configMut = useMutation({
@@ -279,7 +293,7 @@ export default function Settings() {
               {config?.current_tier?.toUpperCase()}
             </div>
           </div>
-          <div>
+          <div className="flex gap-2">
             {risk?.is_paused ? (
               <button
                 onClick={() => resumeMut.mutate()}
@@ -297,6 +311,21 @@ export default function Settings() {
                 Pause
               </button>
             )}
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Reset daily PnL and peak equity to current values?",
+                  )
+                ) {
+                  resetMut.mutate();
+                }
+              }}
+              className="px-4 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
+              data-testid="reset-risk-btn"
+            >
+              Reset PnL
+            </button>
           </div>
         </div>
       </div>

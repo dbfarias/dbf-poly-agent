@@ -222,6 +222,16 @@ export const resumeTrading = () =>
 export const fetchHealth = () =>
   api.get<HealthCheck>("/api/health").then((r) => r.data);
 
+export interface RiskResetResponse {
+  status: string;
+  equity: number;
+  daily_pnl: number;
+  peak_equity: number;
+}
+
+export const resetRiskState = () =>
+  api.post<RiskResetResponse>("/api/config/risk/reset").then((r) => r.data);
+
 // Learner types
 export interface EdgeMultiplier {
   strategy: string;

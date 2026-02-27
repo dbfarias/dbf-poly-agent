@@ -24,6 +24,11 @@ class MarketMakingStrategy(BaseStrategy):
     name = "market_making"
     min_tier = CapitalTier.TIER3
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.MIN_SPREAD = MIN_SPREAD
+        self.MAX_SPREAD = MAX_SPREAD
+
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan for market making opportunities."""
         signals = []
@@ -53,7 +58,7 @@ class MarketMakingStrategy(BaseStrategy):
         if spread is None or mid is None:
             return None
 
-        if spread < MIN_SPREAD or spread > MAX_SPREAD:
+        if spread < self.MIN_SPREAD or spread > self.MAX_SPREAD:
             return None
 
         # Place a buy order at best_bid + 0.01 (improve the bid)

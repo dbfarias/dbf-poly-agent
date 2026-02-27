@@ -42,14 +42,14 @@ class TierConfig:
             "kelly_fraction": 0.20,         # Slightly more aggressive for learning
         },
         CapitalTier.TIER2: {
-            "max_positions": 12,
-            "max_per_position_pct": 0.12,
-            "max_deployed_pct": 0.85,
+            "max_positions": 4,             # Focus: few quality positions
+            "max_per_position_pct": 0.20,   # ~$6 max per position
+            "max_deployed_pct": 0.60,       # Keep 40% cash reserve
             "daily_loss_limit_pct": 0.08,
             "max_drawdown_pct": 0.15,
             "min_edge_pct": 0.02,
             "min_win_prob": 0.70,
-            "max_per_category_pct": 0.25,
+            "max_per_category_pct": 0.30,   # ~$9 max per normalized category
             "kelly_fraction": 0.15,
         },
         CapitalTier.TIER3: {

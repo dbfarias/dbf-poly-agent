@@ -4,6 +4,7 @@ from datetime import datetime
 
 import structlog
 
+from bot.agent.market_analyzer import normalize_category
 from bot.config import CapitalTier, TierConfig, settings
 from bot.data.models import Position
 from bot.polymarket.types import TradeSignal
@@ -180,14 +181,22 @@ class RiskManager:
         bankroll: float,
         config: dict,
     ) -> RiskCheckResult:
-        """Reject if there's not enough available capital for a new trade.
+        """Reject if too much capital is already deployed.
 
-        Uses available capital (bankroll - deployed) instead of a hard deployment
-        ratio.  Other checks (max_positions, per-position %, Kelly) already
-        constrain individual trades, so this just ensures we have cash to trade.
+        Enforces max_deployed_pct from tier config (default 60%).
+        Keeps a cash reserve so the bot can react to better opportunities.
         """
         deployed = sum(p.cost_basis for p in open_positions if p.is_open)
         available = bankroll - deployed
+        max_deployed_pct = config.get("max_deployed_pct", 0.60)
+        max_deployed = bankroll * max_deployed_pct
+
+        if deployed >= max_deployed:
+            return RiskCheckResult(
+                False,
+                f"Max deployed capital: ${deployed:.2f} >= "
+                f"${max_deployed:.2f} ({max_deployed_pct:.0%} of ${bankroll:.2f})",
+            )
         if available < 1.0:
             return RiskCheckResult(
                 False,
@@ -203,12 +212,16 @@ class RiskManager:
         bankroll: float,
         config: dict,
     ) -> RiskCheckResult:
-        category = signal.metadata.get("category", "")
-        if not category:
+        raw_category = signal.metadata.get("category", "")
+        if not raw_category:
             return RiskCheckResult(True)
 
+        # Use normalized categories so "Republican Primary" and "Politics" group together
+        category = normalize_category(raw_category)
+
         category_exposure = sum(
-            p.cost_basis for p in open_positions if p.category == category and p.is_open
+            p.cost_basis for p in open_positions
+            if normalize_category(p.category) == category and p.is_open
         )
         max_exposure = bankroll * config["max_per_category_pct"]
         if category_exposure >= max_exposure:

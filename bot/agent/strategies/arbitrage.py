@@ -24,6 +24,10 @@ class ArbitrageStrategy(BaseStrategy):
     name = "arbitrage"
     min_tier = CapitalTier.TIER1
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.MIN_ARB_EDGE = MIN_ARB_EDGE
+
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan for arbitrage opportunities."""
         signals = []
@@ -48,7 +52,7 @@ class ArbitrageStrategy(BaseStrategy):
         total = yes_price + no_price
 
         # If sum < 1.00, buying both guarantees profit
-        if total < (1.0 - MIN_ARB_EDGE):
+        if total < (1.0 - self.MIN_ARB_EDGE):
             edge = 1.0 - total
             # Buy the cheaper side
             if yes_price <= no_price:

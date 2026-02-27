@@ -318,23 +318,23 @@ class TestCheckTotalDeployed:
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
-    def test_mostly_deployed_but_cash_available_passes(self, rm):
+    def test_within_deployed_limit_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # 8.5 deployed out of 10.0 = $1.50 available → passes (>= $1)
+        # 7.0 deployed out of 10.0 → 70% < 80% max_deployed_pct → passes
         positions = [
-            make_position(market_id="mkt1", cost_basis=4.25),
-            make_position(market_id="mkt2", cost_basis=4.25),
+            make_position(market_id="mkt1", cost_basis=3.5),
+            make_position(market_id="mkt2", cost_basis=3.5),
         ]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
-    def test_no_capital_available_fails(self, rm):
+    def test_over_deployed_limit_fails(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # 9.5 deployed out of 10.0 = $0.50 available → fails (< $1)
-        positions = [make_position(cost_basis=9.5)]
+        # 9.0 deployed out of 10.0 → 90% > 80% max_deployed_pct → fails
+        positions = [make_position(cost_basis=9.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is False
-        assert "insufficient" in result.reason.lower()
+        assert "max deployed" in result.reason.lower()
 
     def test_fully_deployed_fails(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)

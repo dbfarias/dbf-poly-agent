@@ -33,6 +33,8 @@ class ValueBettingStrategy(BaseStrategy):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.MIN_EDGE = MIN_EDGE
+        self.IMBALANCE_THRESHOLD = IMBALANCE_THRESHOLD
         self._urgency: float = 1.0
 
     def adjust_params(self, adjustments: dict) -> None:
@@ -102,14 +104,14 @@ class ValueBettingStrategy(BaseStrategy):
         imbalance = (bid_volume - ask_volume) / total_volume
 
         # Strong buy pressure suggests market might be underpriced
-        if abs(imbalance) < IMBALANCE_THRESHOLD:
+        if abs(imbalance) < self.IMBALANCE_THRESHOLD:
             return None
 
         # Estimate real probability based on imbalance
         if imbalance > 0:
             # More bids than asks → price should go up → YES is underpriced
             estimated_prob = yes_price + imbalance * 0.1
-            if estimated_prob - yes_price < MIN_EDGE:
+            if estimated_prob - yes_price < self.MIN_EDGE:
                 return None
             side = OrderSide.BUY
             token_id = token_ids[0]
@@ -121,7 +123,7 @@ class ValueBettingStrategy(BaseStrategy):
                 return None
             no_price = market.no_price or (1.0 - yes_price)
             estimated_prob = no_price + abs(imbalance) * 0.1
-            if estimated_prob - no_price < MIN_EDGE:
+            if estimated_prob - no_price < self.MIN_EDGE:
                 return None
             side = OrderSide.BUY
             token_id = token_ids[1]

@@ -141,17 +141,13 @@ class TestCalculateConfidence:
         conf = strategy._calculate_confidence(0.80, 20.0)
         assert conf == pytest.approx(0.85)
 
-    def test_hours_le_48_adds_008(self, strategy):
+    def test_hours_le_48_adds_006(self, strategy):
         conf = strategy._calculate_confidence(0.80, 40.0)
-        assert conf == pytest.approx(0.83)
+        assert conf == pytest.approx(0.81)
 
-    def test_hours_le_72_adds_005(self, strategy):
+    def test_hours_le_72_adds_003(self, strategy):
         conf = strategy._calculate_confidence(0.80, 60.0)
-        assert conf == pytest.approx(0.80)
-
-    def test_hours_le_168_adds_002(self, strategy):
-        conf = strategy._calculate_confidence(0.80, 100.0)
-        assert conf == pytest.approx(0.77)
+        assert conf == pytest.approx(0.78)
 
 
 # ---------------------------------------------------------------------------
@@ -282,25 +278,25 @@ class TestAdjustParams:
 
 
 class TestDynamicMaxPrice:
-    def test_12h_allows_high_price(self, strategy):
-        assert strategy._dynamic_max_price(10.0) == 0.995
+    def test_12h_allows_099(self, strategy):
+        assert strategy._dynamic_max_price(10.0) == 0.99
 
-    def test_24h_allows_099(self, strategy):
-        assert strategy._dynamic_max_price(20.0) == 0.99
+    def test_24h_allows_098(self, strategy):
+        assert strategy._dynamic_max_price(20.0) == 0.98
 
-    def test_48h_allows_0985(self, strategy):
-        assert strategy._dynamic_max_price(40.0) == 0.985
+    def test_48h_allows_097(self, strategy):
+        assert strategy._dynamic_max_price(40.0) == 0.97
 
-    def test_80h_allows_098(self, strategy):
-        assert strategy._dynamic_max_price(80.0) == 0.98
+    def test_72h_allows_096(self, strategy):
+        assert strategy._dynamic_max_price(60.0) == 0.96
 
-    def test_120h_keeps_097(self, strategy):
-        assert strategy._dynamic_max_price(120.0) == 0.97
+    def test_120h_keeps_096(self, strategy):
+        assert strategy._dynamic_max_price(120.0) == 0.96
 
     async def test_high_price_near_resolution_accepted(self, strategy):
-        """Market at $0.975 resolving in 80h should now be accepted."""
-        market = _make_market(hours_to_resolution=80.0, price=0.975)
+        """Market at $0.95 resolving in 20h should be accepted."""
+        market = _make_market(hours_to_resolution=20.0, price=0.95)
         now = datetime.now(timezone.utc)
-        signal = await strategy._evaluate_market(market, now, HOURS_MEDIUM)
+        signal = await strategy._evaluate_market(market, now, HOURS_SHORT)
         assert signal is not None
-        assert signal.market_price == 0.975
+        assert signal.market_price == 0.95

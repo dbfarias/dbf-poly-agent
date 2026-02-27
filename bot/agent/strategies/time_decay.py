@@ -24,13 +24,15 @@ logger = structlog.get_logger()
 
 # Time horizon bands (hours)
 HOURS_IMMEDIATE = 24.0   # Resolves today — highest priority
-HOURS_SHORT = 72.0       # Resolves in 1-3 days
-HOURS_MEDIUM = 168.0     # Resolves in 3-7 days — only when behind target
+HOURS_SHORT = 48.0       # Resolves in 1-2 days
+HOURS_MEDIUM = 72.0      # Resolves in 2-3 days — hard cap
 
 # Urgency → max hours mapping
+# Behind target → DON'T expand horizon (capital efficiency matters)
+# Instead, relax edge requirements on short markets (done in risk_manager)
 # urgency 0.7 (ahead) → 24h only
-# urgency 1.0 (on pace) → 72h
-# urgency 1.3+ (behind) → 168h
+# urgency 1.0 (on pace) → 48h
+# urgency 1.3+ (behind) → 72h max (capital tied up too long beyond this)
 URGENCY_HORIZON = {
     0.7: HOURS_IMMEDIATE,
     1.0: HOURS_SHORT,
@@ -49,16 +51,19 @@ CONFIDENCE_BASE = 0.75
 def _max_hours_for_urgency(urgency: float) -> float:
     """Compute max allowed hours based on urgency level.
 
+    Capital efficiency is key: long-term markets (168h+) tie up capital
+    without meeting the daily return target. Cap at 72h.
+
     Linear interpolation between urgency breakpoints.
     """
     if urgency <= 0.7:
         return HOURS_IMMEDIATE
     elif urgency <= 1.0:
-        # Interpolate 24h → 72h as urgency goes 0.7 → 1.0
+        # Interpolate 24h → 48h as urgency goes 0.7 → 1.0
         t = (urgency - 0.7) / 0.3
         return HOURS_IMMEDIATE + t * (HOURS_SHORT - HOURS_IMMEDIATE)
     elif urgency <= 1.3:
-        # Interpolate 72h → 168h as urgency goes 1.0 → 1.3
+        # Interpolate 48h → 72h as urgency goes 1.0 → 1.3
         t = (urgency - 1.0) / 0.3
         return HOURS_SHORT + t * (HOURS_MEDIUM - HOURS_SHORT)
     else:
@@ -73,8 +78,12 @@ class TimeDecayStrategy(BaseStrategy):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Tunable parameters (exposed to admin API)
+        self.MIN_EDGE = MIN_EDGE
+        self.MIN_PRICE = MIN_PRICE
+        self.MIN_IMPLIED_PROB = MIN_IMPLIED_PROB
+        self.CONFIDENCE_BASE = CONFIDENCE_BASE
         # Adaptive parameters (adjusted by learner)
-        self._min_edge = MIN_EDGE
         self._max_price = MAX_PRICE
         self._confidence_adjustment: dict[str, float] = {}
         self._urgency: float = 1.0
@@ -136,17 +145,18 @@ class TimeDecayStrategy(BaseStrategy):
 
         Closer to resolution → higher max price acceptable because
         less uncertainty remains and the position resolves quickly.
+        Capital efficiency: at $0.97, need $0.03 profit. In 72h that's
+        only 0.6%/day — below the 1% target. So cap prices tighter for
+        longer markets.
         """
         if hours_left <= 12:
-            return 0.995  # Resolves in hours — near certainty OK
+            return 0.99   # Resolves in hours — near certainty OK
         elif hours_left <= 24:
-            return 0.99   # Resolves today
+            return 0.98   # Resolves today
         elif hours_left <= 48:
-            return 0.985  # Resolves tomorrow
-        elif hours_left <= 96:
-            return 0.98   # Resolves in 2-4 days
+            return 0.97   # Resolves in 1-2 days
         else:
-            return 0.97   # Longer term — keep original cap
+            return 0.96   # 2-3 days — need more room for profit
 
     async def _evaluate_market(
         self, market: GammaMarket, now: datetime, max_hours: float
@@ -183,17 +193,24 @@ class TimeDecayStrategy(BaseStrategy):
                 break
 
             # Is this a high-probability outcome?
-            if price < MIN_PRICE or price > max_price:
+            if price < self.MIN_PRICE or price > max_price:
                 continue
 
             # Estimate real probability
             estimated_prob = self._estimate_probability(price, hours_left)
 
-            if estimated_prob < MIN_IMPLIED_PROB:
+            if estimated_prob < self.MIN_IMPLIED_PROB:
                 continue
 
             edge_val = estimated_prob - price
-            if edge_val < MIN_EDGE:
+            if edge_val < self.MIN_EDGE:
+                continue
+
+            # Capital efficiency check: expected daily return must justify
+            # tying up capital. At 1% daily target, a 2% edge over 72h is
+            # only 0.67%/day — not worth it.
+            daily_return = edge_val / max(hours_left, 1.0) * 24.0
+            if daily_return < 0.005:  # 0.5% daily minimum
                 continue
 
             # Calculate confidence based on multiple factors
@@ -244,11 +261,11 @@ class TimeDecayStrategy(BaseStrategy):
         time_factor = max(0, 1.0 - hours_left / HOURS_MEDIUM) * 0.05
 
         # Near-certainty bonus: very high price + close to resolution
-        if market_price >= 0.95 and hours_left <= 24:
+        if market_price >= 0.95 and hours_left <= 12:
             near_certainty = 0.04
-        elif market_price >= 0.93 and hours_left <= 72:
+        elif market_price >= 0.93 and hours_left <= 24:
             near_certainty = 0.03
-        elif market_price >= 0.90 and hours_left <= 168:
+        elif market_price >= 0.90 and hours_left <= 48:
             near_certainty = 0.02
         else:
             near_certainty = 0.0
@@ -261,7 +278,7 @@ class TimeDecayStrategy(BaseStrategy):
 
         Strongly rewards shorter time horizons.
         """
-        confidence = CONFIDENCE_BASE
+        confidence = self.CONFIDENCE_BASE
 
         # Higher price = more confident
         if price >= 0.95:
@@ -277,11 +294,9 @@ class TimeDecayStrategy(BaseStrategy):
         elif hours_left <= 24:
             confidence += 0.10   # Resolves today
         elif hours_left <= 48:
-            confidence += 0.08   # Resolves tomorrow
+            confidence += 0.06   # Resolves in 1-2 days
         elif hours_left <= 72:
-            confidence += 0.05   # 2-3 days
-        elif hours_left <= 168:
-            confidence += 0.02   # 3-7 days
+            confidence += 0.03   # 2-3 days
 
         return min(0.99, confidence)
 

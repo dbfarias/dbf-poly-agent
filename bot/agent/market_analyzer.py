@@ -18,13 +18,41 @@ from .strategies.base import BaseStrategy
 
 logger = structlog.get_logger()
 
+# Category normalization: group related categories together
+# All political categories map to "Politics" for concentration checks
+_CATEGORY_GROUPS = {
+    "politics": "Politics",
+    "republican primary": "Politics",
+    "democratic primary": "Politics",
+    "u.s. elections": "Politics",
+    "us elections": "Politics",
+    "elections": "Politics",
+    "midterms": "Politics",
+    "senate": "Politics",
+    "congress": "Politics",
+    "governor": "Politics",
+    "presidential": "Politics",
+}
+
+
+def normalize_category(category: str) -> str:
+    """Normalize market category for concentration checks.
+
+    Groups related categories (e.g. all political categories → "Politics")
+    to prevent over-concentration in a single domain.
+    """
+    if not category:
+        return "Other"
+    key = category.lower().strip()
+    return _CATEGORY_GROUPS.get(key, category)
+
 
 class MarketAnalyzer:
     """Scans markets and runs strategies to find opportunities."""
 
     # Quality filter thresholds
     MAX_SPREAD = 0.04  # 4 cents max spread
-    MAX_CATEGORY_POSITIONS = 2  # Max pending+open per category
+    MAX_CATEGORY_POSITIONS = 2  # Max pending+open per normalized category
 
     def __init__(
         self,
@@ -164,14 +192,14 @@ class MarketAnalyzer:
         Checks: binary-only, token IDs present, order book depth/spread,
         and category diversification.
         """
-        # Get current open positions per category for diversification check
+        # Get current open positions per NORMALIZED category for diversification check
         category_counts: dict[str, int] = {}
         try:
             async with async_session() as session:
                 pos_repo = PositionRepository(session)
                 open_positions = await pos_repo.get_open()
                 for pos in open_positions:
-                    cat = pos.category or "Other"
+                    cat = normalize_category(pos.category or "Other")
                     category_counts[cat] = category_counts.get(cat, 0) + 1
         except Exception as e:
             logger.warning("quality_filter_position_fetch_failed", error=str(e))
@@ -194,8 +222,8 @@ class MarketAnalyzer:
                 )
                 continue
 
-            # Category diversification check
-            cat = market.category or "Other"
+            # Category diversification check (using normalized categories)
+            cat = normalize_category(market.category or "Other")
             if category_counts.get(cat, 0) >= self.MAX_CATEGORY_POSITIONS:
                 filtered_reasons["category_limit"] = (
                     filtered_reasons.get("category_limit", 0) + 1
