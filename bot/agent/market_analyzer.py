@@ -53,6 +53,8 @@ class MarketAnalyzer:
     # Quality filter thresholds
     MAX_SPREAD = 0.04  # 4 cents max spread
     MAX_CATEGORY_POSITIONS = 2  # Max pending+open per normalized category
+    MIN_BID_RATIO = 0.50  # Best bid must be >= 50% of fair price
+    MIN_VOLUME_24H = 50.0  # Minimum 24h volume to avoid dead markets
 
     def __init__(
         self,
@@ -189,8 +191,9 @@ class MarketAnalyzer:
     ) -> list[GammaMarket]:
         """Filter markets by quality before passing to strategies.
 
-        Checks: binary-only, token IDs present, order book depth/spread,
-        and category diversification.
+        Checks: binary-only, token IDs present, neg_risk exclusion,
+        exit liquidity (bid near fair price), order book spread,
+        24h volume, and category diversification.
         """
         # Get current open positions per NORMALIZED category for diversification check
         category_counts: dict[str, int] = {}
@@ -222,6 +225,41 @@ class MarketAnalyzer:
                 )
                 continue
 
+            # Skip neg_risk markets (multi-candidate primaries with thin books)
+            if market.neg_risk:
+                filtered_reasons["neg_risk"] = (
+                    filtered_reasons.get("neg_risk", 0) + 1
+                )
+                continue
+
+            # 24h volume check (from Gamma API data)
+            if market.volume_24h > 0 and market.volume_24h < self.MIN_VOLUME_24H:
+                filtered_reasons["low_volume"] = (
+                    filtered_reasons.get("low_volume", 0) + 1
+                )
+                continue
+
+            # Exit liquidity check using Gamma API bid/ask data
+            if market.best_bid_price is not None and market.best_ask_price is not None:
+                gamma_spread = market.best_ask_price - market.best_bid_price
+                if gamma_spread > self.MAX_SPREAD:
+                    filtered_reasons["wide_spread_gamma"] = (
+                        filtered_reasons.get("wide_spread_gamma", 0) + 1
+                    )
+                    continue
+
+                # Ensure best bid is reasonable relative to fair price
+                # (prevents entering markets where bids are at $0.001)
+                fair_price = max(
+                    market.best_bid_price, market.best_ask_price,
+                    *(market.outcome_price_list or [0.0]),
+                )
+                if fair_price > 0.10 and market.best_bid_price < fair_price * self.MIN_BID_RATIO:
+                    filtered_reasons["no_exit_liquidity"] = (
+                        filtered_reasons.get("no_exit_liquidity", 0) + 1
+                    )
+                    continue
+
             # Category diversification check (using normalized categories)
             cat = normalize_category(market.category or "Other")
             if category_counts.get(cat, 0) >= self.MAX_CATEGORY_POSITIONS:
@@ -230,8 +268,12 @@ class MarketAnalyzer:
                 )
                 continue
 
-            # Order book quality check (requires CLOB client)
-            if self.clob:
+            # Order book quality check via CLOB (if Gamma data not available)
+            if (
+                self.clob
+                and market.best_bid_price is None
+                and market.best_ask_price is None
+            ):
                 try:
                     book = await self.clob.get_order_book(market.token_ids[0])
                     if not book.bids or not book.asks:
@@ -244,6 +286,14 @@ class MarketAnalyzer:
                             filtered_reasons.get("wide_spread", 0) + 1
                         )
                         continue
+                    # Check bid is near fair price (not $0.001)
+                    if book.best_bid is not None and book.best_ask is not None:
+                        fair = max(book.best_bid, book.best_ask)
+                        if fair > 0.10 and book.best_bid < fair * self.MIN_BID_RATIO:
+                            filtered_reasons["no_exit_liquidity"] = (
+                                filtered_reasons.get("no_exit_liquidity", 0) + 1
+                            )
+                            continue
                 except Exception:
                     # If order book fetch fails, still allow — don't block on API errors
                     pass

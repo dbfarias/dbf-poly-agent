@@ -1,9 +1,9 @@
-"""Tests for MarketAnalyzer deduplication and stop-loss logic."""
+"""Tests for MarketAnalyzer deduplication, stop-loss, and quality filter logic."""
 
 from types import SimpleNamespace
 
-from bot.agent.market_analyzer import MarketAnalyzer
-from bot.polymarket.types import OrderSide, TradeSignal
+from bot.agent.market_analyzer import MarketAnalyzer, normalize_category
+from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 
 def _signal(
@@ -142,3 +142,94 @@ class TestCheckStopLoss:
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
         assert reason is not None
         assert "stop_loss" in reason
+
+
+class TestNormalizeCategory:
+    def test_politics_variants(self):
+        assert normalize_category("Politics") == "Politics"
+        assert normalize_category("Republican Primary") == "Politics"
+        assert normalize_category("Democratic Primary") == "Politics"
+        assert normalize_category("U.S. Elections") == "Politics"
+        assert normalize_category("Governor") == "Politics"
+        assert normalize_category("presidential") == "Politics"
+
+    def test_case_insensitive(self):
+        assert normalize_category("POLITICS") == "Politics"
+        assert normalize_category("republican primary") == "Politics"
+
+    def test_non_political_passed_through(self):
+        assert normalize_category("Sports") == "Sports"
+        assert normalize_category("Crypto") == "Crypto"
+        assert normalize_category("Entertainment") == "Entertainment"
+
+    def test_empty_returns_other(self):
+        assert normalize_category("") == "Other"
+        assert normalize_category(None) == "Other"
+
+
+def _make_gamma_market(
+    market_id: str = "0xabc",
+    question: str = "Will X happen?",
+    outcomes: list[str] | None = None,
+    neg_risk: bool = False,
+    best_bid: float | None = None,
+    best_ask: float | None = None,
+    volume_24h: float = 0.0,
+    category: str = "Sports",
+) -> GammaMarket:
+    if outcomes is None:
+        outcomes = ["Yes", "No"]
+    return GammaMarket(
+        id=market_id,
+        conditionId=market_id,
+        question=question,
+        endDateIso="2026-03-01T12:00:00Z",
+        outcomes=outcomes,
+        outcomePrices='["0.92","0.08"]',
+        clobTokenIds='["tok1","tok2"]',
+        acceptingOrders=True,
+        negRisk=neg_risk,
+        bestBid=best_bid,
+        bestAsk=best_ask,
+        volume24hr=volume_24h,
+        groupItemTitle=category,
+    )
+
+
+class TestQualityFilterConstants:
+    """Test that quality filter thresholds are properly set."""
+
+    def test_neg_risk_excluded(self):
+        """Markets with negRisk=True should be filtered out."""
+        m = _make_gamma_market(neg_risk=True)
+        assert m.neg_risk is True
+
+    def test_min_bid_ratio_set(self):
+        assert MarketAnalyzer.MIN_BID_RATIO == 0.50
+
+    def test_min_volume_24h_set(self):
+        assert MarketAnalyzer.MIN_VOLUME_24H == 50.0
+
+    def test_max_spread_set(self):
+        assert MarketAnalyzer.MAX_SPREAD == 0.04
+
+    def test_gamma_market_new_fields(self):
+        """GammaMarket should expose neg_risk, best_bid_price, best_ask_price, volume_24h."""
+        m = _make_gamma_market(
+            neg_risk=True,
+            best_bid=0.91,
+            best_ask=0.93,
+            volume_24h=500.0,
+        )
+        assert m.neg_risk is True
+        assert m.best_bid_price == 0.91
+        assert m.best_ask_price == 0.93
+        assert m.volume_24h == 500.0
+
+    def test_gamma_market_defaults(self):
+        """New fields should default correctly."""
+        m = GammaMarket(id="0x1", question="Test?")
+        assert m.neg_risk is False
+        assert m.best_bid_price is None
+        assert m.best_ask_price is None
+        assert m.volume_24h == 0.0

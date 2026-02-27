@@ -338,8 +338,15 @@ class TradingEngine:
             logger.debug("mark_scan_traded_failed", error=str(e))
 
     async def _check_liquidity(self, signal) -> bool:
-        """Check order book spread before trading. Skip illiquid markets."""
-        max_spread = 0.05  # 5 cents max spread
+        """Check order book has reasonable exit liquidity before trading.
+
+        Verifies:
+        1. Spread is within limits (4 cents)
+        2. Best bid is near fair price (can actually sell if needed)
+        """
+        max_spread = 0.04  # 4 cents max spread
+        min_bid_ratio = 0.50  # Bid must be >= 50% of fair price
+
         try:
             book = await self.clob_client.get_order_book(signal.token_id)
             spread = book.spread
@@ -351,6 +358,19 @@ class TradingEngine:
                     max_spread=max_spread,
                 )
                 return False
+
+            # Ensure we can exit: best bid must be near fair price
+            if book.best_bid is not None:
+                fair_price = signal.market_price
+                if fair_price > 0.10 and book.best_bid < fair_price * min_bid_ratio:
+                    logger.info(
+                        "no_exit_liquidity",
+                        market_id=signal.market_id,
+                        best_bid=book.best_bid,
+                        fair_price=fair_price,
+                    )
+                    return False
+
             return True
         except Exception as e:
             logger.warning("liquidity_check_failed", error=str(e))

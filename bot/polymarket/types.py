@@ -43,6 +43,10 @@ class GammaMarket(BaseModel):
     category: str = Field(default="", alias="groupItemTitle")
     clob_token_ids: str = Field(default="", alias="clobTokenIds")
     accepting_orders: bool = Field(default=True, alias="acceptingOrders")
+    neg_risk: bool = Field(default=False, alias="negRisk")
+    best_bid_price: float | None = Field(default=None, alias="bestBid")
+    best_ask_price: float | None = Field(default=None, alias="bestAsk")
+    volume_24h: float = Field(default=0.0, alias="volume24hr")
 
     model_config = {"populate_by_name": True}
 
