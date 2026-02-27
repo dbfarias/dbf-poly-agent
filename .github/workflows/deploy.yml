@@ -71,7 +71,20 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
+      - name: Check server reachability
+        id: check
+        run: |
+          if nc -z -w 10 "$SERVER_HOST" 22 2>/dev/null; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Server $SERVER_HOST:22 is not reachable — skipping deploy"
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+
       - name: Deploy to Lightsail
+        if: steps.check.outputs.reachable == 'true'
         uses: appleboy/ssh-action@v1
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
