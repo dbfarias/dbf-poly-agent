@@ -138,6 +138,10 @@ class TestTryRebalance:
                 token_id=loser.token_id,
                 size=loser.size,
                 current_price=loser.current_price,
+                question=loser.question,
+                outcome=loser.outcome,
+                category=loser.category,
+                strategy=loser.strategy,
             )
             engine.portfolio.record_trade_close.assert_called_once()
             engine.risk_manager.update_daily_pnl.assert_called_once()
@@ -306,6 +310,10 @@ class TestTryRebalance:
                 token_id="tok_b",
                 size=10.0,
                 current_price=0.35,
+                question="Will old thing happen?",
+                outcome="Yes",
+                category="crypto",
+                strategy="time_decay",
             )
 
     @pytest.mark.asyncio

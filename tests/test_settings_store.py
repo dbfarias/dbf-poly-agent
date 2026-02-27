@@ -61,7 +61,10 @@ def fake_engine():
 async def test_set_many_and_get_all(settings_session_factory):
     async with settings_session_factory() as session:
         repo = SettingsRepository(session)
-        await repo.set_many({"global.scan_interval_seconds": "30", "global.max_daily_loss_pct": "0.08"})
+        await repo.set_many({
+            "global.scan_interval_seconds": "30",
+            "global.max_daily_loss_pct": "0.08",
+        })
         result = await repo.get_all()
 
     assert result["global.scan_interval_seconds"] == "30"
@@ -316,9 +319,8 @@ async def test_load_and_apply_quality(settings_session_factory, fake_engine):
 
 @pytest.mark.asyncio
 async def test_empty_db_returns_zero(settings_session_factory, fake_engine):
-    from bot.data.settings_store import SettingsStore
-
     import bot.data.settings_store as store_mod
+    from bot.data.settings_store import SettingsStore
 
     original = store_mod.async_session
     store_mod.async_session = settings_session_factory

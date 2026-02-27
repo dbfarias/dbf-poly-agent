@@ -119,6 +119,10 @@ async def force_close_position(
         token_id=position.token_id,
         size=position.size,
         current_price=position.current_price,
+        question=position.question,
+        outcome=position.outcome,
+        category=position.category,
+        strategy=position.strategy,
     )
 
     if not trade:

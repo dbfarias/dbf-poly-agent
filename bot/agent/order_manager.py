@@ -264,7 +264,15 @@ class OrderManager:
     MIN_ORDER_SIZE = 5.0  # Polymarket CLOB minimum order size
 
     async def close_position(
-        self, market_id: str, token_id: str, size: float, current_price: float
+        self,
+        market_id: str,
+        token_id: str,
+        size: float,
+        current_price: float,
+        question: str = "",
+        outcome: str = "",
+        category: str = "",
+        strategy: str = "exit",
     ) -> Trade | None:
         """Close a position by selling."""
         # Polymarket requires minimum 5 shares — reject if below
@@ -302,13 +310,16 @@ class OrderManager:
         trade = Trade(
             market_id=market_id,
             token_id=token_id,
+            question=question,
+            outcome=outcome,
+            category=category,
             order_id=order_id,
             side=OrderSide.SELL.value,
             price=sell_price,
             size=size,
             filled_size=size if self.clob.is_paper else 0,
             cost_usd=size * sell_price,
-            strategy="exit",
+            strategy=strategy,
             status="filled" if self.clob.is_paper else "pending",
             is_paper=settings.is_paper,
         )

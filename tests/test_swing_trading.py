@@ -17,7 +17,6 @@ from bot.agent.strategies.swing_trading import (
 from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

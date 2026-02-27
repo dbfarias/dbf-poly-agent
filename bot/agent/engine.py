@@ -203,6 +203,10 @@ class TradingEngine:
                     token_id=pos.token_id,
                     size=pos.size,
                     current_price=pos.current_price,
+                    question=pos.question,
+                    outcome=pos.outcome,
+                    category=pos.category,
+                    strategy=pos.strategy,
                 )
                 pnl = await self.portfolio.record_trade_close(market_id, pos.current_price)
                 self.risk_manager.update_daily_pnl(pnl)
@@ -496,6 +500,10 @@ class TradingEngine:
             token_id=worst_pos.token_id,
             size=worst_pos.size,
             current_price=worst_pos.current_price,
+            question=worst_pos.question,
+            outcome=worst_pos.outcome,
+            category=worst_pos.category,
+            strategy=worst_pos.strategy,
         )
         if close_result is None:
             logger.warning("rebalance_close_failed", market_id=worst_pos.market_id)
