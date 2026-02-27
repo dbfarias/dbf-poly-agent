@@ -156,6 +156,15 @@ export interface BotConfig {
   snapshot_interval_seconds: number;
   max_daily_loss_pct: number;
   max_drawdown_pct: number;
+  current_tier: string;
+  tier_config: Record<string, number>;
+  strategy_params: Record<string, Record<string, number>>;
+  quality_params: Record<string, number>;
+}
+
+export interface ConfigUpdateResponse {
+  status: string;
+  changes: string[];
 }
 
 export interface HealthCheck {
@@ -196,8 +205,8 @@ export const fetchRiskLimits = () =>
 export const fetchConfig = () =>
   api.get<BotConfig>("/api/config/").then((r) => r.data);
 
-export const updateConfig = (data: Partial<BotConfig>) =>
-  api.put("/api/config/", data).then((r) => r.data);
+export const updateConfig = (data: Record<string, unknown>) =>
+  api.put<ConfigUpdateResponse>("/api/config/", data).then((r) => r.data);
 
 export const pauseTrading = () =>
   api.post("/api/config/trading/pause").then((r) => r.data);

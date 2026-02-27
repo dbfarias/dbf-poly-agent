@@ -87,6 +87,23 @@ def mock_engine():
     engine.cache = MagicMock()
     engine.cache.get_all_markets.return_value = []
 
+    # Analyzer (for config endpoint)
+    mock_strategy = MagicMock()
+    mock_strategy.name = "time_decay"
+    mock_strategy.MAX_HOURS_TO_RESOLUTION = 720.0
+    mock_strategy.MIN_IMPLIED_PROB = 0.85
+    mock_strategy.MAX_PRICE = 0.97
+    mock_strategy.MIN_PRICE = 0.82
+    mock_strategy.MIN_EDGE = 0.015
+    mock_strategy.CONFIDENCE_BASE = 0.75
+    engine.analyzer = MagicMock()
+    engine.analyzer.strategies = [mock_strategy]
+    engine.analyzer.MAX_SPREAD = 0.04
+    engine.analyzer.MAX_CATEGORY_POSITIONS = 2
+    engine.analyzer.STOP_LOSS_PCT = 0.40
+    engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
+    engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
+
     return engine
 
 

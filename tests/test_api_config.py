@@ -23,6 +23,10 @@ class TestGetConfig:
             "snapshot_interval_seconds",
             "max_daily_loss_pct",
             "max_drawdown_pct",
+            "current_tier",
+            "tier_config",
+            "strategy_params",
+            "quality_params",
         }
         assert set(data.keys()) == expected_keys
 
@@ -50,11 +54,24 @@ class TestUpdateConfig:
         assert get_resp.json()["max_daily_loss_pct"] == pytest.approx(0.05)
         assert get_resp.json()["max_drawdown_pct"] == pytest.approx(0.15)
 
+    async def test_update_returns_changes(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "scan_interval_seconds", settings.scan_interval_seconds)
+        resp = await client.put(
+            "/api/config/", json={"scan_interval_seconds": 90}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "updated"
+        assert "changes" in data
+        assert len(data["changes"]) == 1
+
     async def test_empty_update_noop(self, client):
         before = await client.get("/api/config/")
         resp = await client.put("/api/config/", json={})
         assert resp.status_code == 200
-        assert resp.json()["status"] == "updated"
+        data = resp.json()
+        assert data["status"] == "updated"
+        assert data["changes"] == []
         after = await client.get("/api/config/")
         assert before.json() == after.json()
 

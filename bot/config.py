@@ -27,9 +27,9 @@ class CapitalTier(str, Enum):
 
 
 class TierConfig:
-    """Risk parameters per capital tier."""
+    """Risk parameters per capital tier (mutable at runtime via dashboard)."""
 
-    CONFIGS = {
+    _DEFAULTS = {
         CapitalTier.TIER1: {
             "max_positions": 5,
             "max_per_position_pct": 0.35,
@@ -65,9 +65,27 @@ class TierConfig:
         },
     }
 
+    # Runtime-mutable copies
+    CONFIGS: dict[CapitalTier, dict] = {
+        tier: dict(params) for tier, params in _DEFAULTS.items()
+    }
+
     @classmethod
     def get(cls, tier: CapitalTier) -> dict:
         return cls.CONFIGS[tier]
+
+    @classmethod
+    def update(cls, tier: CapitalTier, updates: dict) -> None:
+        """Update tier config at runtime. Only known keys are accepted."""
+        valid_keys = set(cls._DEFAULTS[CapitalTier.TIER1].keys())
+        for key, value in updates.items():
+            if key in valid_keys:
+                cls.CONFIGS[tier][key] = value
+
+    @classmethod
+    def reset(cls, tier: CapitalTier) -> None:
+        """Reset a tier to default values."""
+        cls.CONFIGS[tier] = dict(cls._DEFAULTS[tier])
 
 
 class Settings(BaseSettings):
