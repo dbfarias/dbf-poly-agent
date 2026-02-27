@@ -1,13 +1,16 @@
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
   Brain,
   LineChart,
   LogOut,
+  RefreshCw,
   Settings,
   Shield,
   TrendingUp,
 } from "lucide-react";
+import { useCallback, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useWebSocket } from "../hooks/useWebSocket";
 
@@ -27,13 +30,32 @@ interface LayoutProps {
 
 export default function Layout({ onLogout }: LayoutProps) {
   const { isConnected } = useWebSocket();
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await queryClient.invalidateQueries();
+    setTimeout(() => setIsRefreshing(false), 600);
+  }, [queryClient]);
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
       {/* Sidebar */}
       <nav className="w-56 bg-[#1a1d29] border-r border-[#2a2d3e] flex flex-col" data-testid="sidebar">
         <div className="p-4 border-b border-[#2a2d3e]">
-          <h1 className="text-lg font-bold text-white" data-testid="sidebar-title">PolyBot</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-lg font-bold text-white" data-testid="sidebar-title">PolyBot</h1>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="p-1.5 rounded text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors disabled:opacity-50"
+              data-testid="refresh-btn"
+              title="Refresh all data"
+            >
+              <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+            </button>
+          </div>
           <div className="flex items-center gap-1.5 mt-1">
             <div
               className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}
