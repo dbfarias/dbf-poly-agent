@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from bot.data.activity import _meta, log_signal_found, log_signal_rejected
+from bot.data.activity import MAX_ACTIVITY_ROWS, MAX_SCAN_ROWS, _meta, log_signal_found, log_signal_rejected
 from bot.data.models import BotActivity
 
 
@@ -71,3 +71,16 @@ class TestActivityLogFunctions:
             edge=0.01,
             price=0.95,
         )
+
+
+# ---------------------------------------------------------------------------
+# M3 — MarketScan pruning constants
+# ---------------------------------------------------------------------------
+
+
+class TestPruneConstants:
+    def test_max_scan_rows_exists(self):
+        assert MAX_SCAN_ROWS == 5000
+
+    def test_max_activity_rows_exists(self):
+        assert MAX_ACTIVITY_ROWS == 5000

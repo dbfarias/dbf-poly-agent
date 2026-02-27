@@ -1,7 +1,7 @@
 """Order lifecycle management: creation, monitoring, cancellation."""
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -28,6 +28,9 @@ ORDER_TIMEOUT_SECONDS = 300  # Cancel unfilled orders after 5 minutes
 # Callback type: (signal, shares) -> None
 OnFillCallback = Callable[[TradeSignal, float], Awaitable[None]]
 
+# Callback type for sell fills: (market_id, sell_price) -> None
+OnSellFillCallback = Callable[[str, float], Awaitable[None]]
+
 
 class OrderManager:
     """Manages the full lifecycle of orders."""
@@ -37,10 +40,15 @@ class OrderManager:
         self.data_api = data_api
         self._pending_orders: dict[str, dict] = {}
         self._on_fill_callback: OnFillCallback | None = None
+        self._on_sell_fill_callback: OnSellFillCallback | None = None
 
     def set_on_fill_callback(self, callback: OnFillCallback) -> None:
-        """Set callback invoked when a pending order is confirmed filled."""
+        """Set callback invoked when a pending BUY order is confirmed filled."""
         self._on_fill_callback = callback
+
+    def set_on_sell_fill_callback(self, callback: OnSellFillCallback) -> None:
+        """Set callback invoked when a pending SELL order is confirmed filled."""
+        self._on_sell_fill_callback = callback
 
     @property
     def pending_market_ids(self) -> set[str]:
@@ -155,7 +163,7 @@ class OrderManager:
         if not is_filled:
             self._pending_orders[order_id] = {
                 "trade_id": trade.id,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
                 "signal": signal,
                 "shares": shares,
             }
@@ -213,7 +221,7 @@ class OrderManager:
             logger.error("fill_verification_failed", error=str(e))
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         to_remove = []
 
         for order_id, info in self._pending_orders.items():
@@ -259,6 +267,19 @@ class OrderManager:
                     except Exception as e:
                         logger.error(
                             "on_fill_callback_failed",
+                            order_id=order_id,
+                            error=str(e),
+                        )
+
+                # Record close via callback (SELL orders only)
+                if is_sell and self._on_sell_fill_callback:
+                    sell_market_id = info.get("market_id", "")
+                    sell_price = info.get("sell_price", 0.0)
+                    try:
+                        await self._on_sell_fill_callback(sell_market_id, sell_price)
+                    except Exception as e:
+                        logger.error(
+                            "on_sell_fill_callback_failed",
                             order_id=order_id,
                             error=str(e),
                         )
@@ -373,11 +394,13 @@ class OrderManager:
         if not is_filled and order_id:
             self._pending_orders[order_id] = {
                 "trade_id": trade.id,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
                 "signal": None,  # No signal for SELL orders
                 "shares": size,
                 "is_sell": True,
                 "token_id": token_id,
+                "market_id": market_id,
+                "sell_price": sell_price,
             }
 
         return trade

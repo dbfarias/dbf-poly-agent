@@ -1,6 +1,6 @@
 """Tests for portfolio API endpoints."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -102,7 +102,7 @@ class TestGetEquityCurve:
 
     async def test_with_snapshot(self, client, db_session):
         snap = PortfolioSnapshot(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             total_equity=10.0,
             cash_balance=8.0,
             positions_value=2.0,

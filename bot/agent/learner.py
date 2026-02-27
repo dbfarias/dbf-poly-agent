@@ -7,7 +7,7 @@ The learning loop:
   SCAN -> VALIDATE -> TRADE -> TRACK -> LEARN -> (adjust params) -> SCAN
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import structlog
 
@@ -121,7 +121,7 @@ class PerformanceLearner:
         if (
             self._last_computed is not None
             and self._last_adjustments is not None
-            and (datetime.utcnow() - self._last_computed).total_seconds()
+            and (datetime.now(timezone.utc) - self._last_computed).total_seconds()
             < self.RECOMPUTE_INTERVAL
         ):
             return self._last_adjustments
@@ -131,7 +131,7 @@ class PerformanceLearner:
             trades = await repo.get_recent(limit=500)
 
         # Filter to completed trades from last 30 days
-        cutoff = datetime.utcnow() - timedelta(days=30)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         recent = [
             t for t in trades
             if t.status in ("filled", "completed") and t.created_at >= cutoff
@@ -197,7 +197,7 @@ class PerformanceLearner:
         urgency = self._compute_urgency()
         daily_progress = self._compute_daily_progress()
 
-        self._last_computed = datetime.utcnow()
+        self._last_computed = datetime.now(timezone.utc)
 
         adjustments: LearnerAdjustments = LearnerAdjustments(
             edge_multipliers=edge_multipliers,
@@ -281,7 +281,7 @@ class PerformanceLearner:
         # Check cooldown — if paused, check if cooldown expired
         if strategy in self._paused_strategies:
             paused_at = self._paused_strategies[strategy]
-            elapsed = (datetime.utcnow() - paused_at).total_seconds() / 3600
+            elapsed = (datetime.now(timezone.utc) - paused_at).total_seconds() / 3600
             if elapsed >= PAUSE_COOLDOWN_HOURS:
                 del self._paused_strategies[strategy]
                 logger.info(
@@ -309,7 +309,7 @@ class PerformanceLearner:
         total_pnl = sum(t.pnl for t in last_n)
 
         if win_rate < PAUSE_WIN_RATE and total_pnl < PAUSE_MIN_LOSS:
-            self._paused_strategies[strategy] = datetime.utcnow()
+            self._paused_strategies[strategy] = datetime.now(timezone.utc)
             logger.warning(
                 "strategy_auto_paused",
                 strategy=strategy,
@@ -347,7 +347,7 @@ class PerformanceLearner:
         progress = self._daily_pnl / target_usd
 
         # Time factor: how far through the UTC day are we?
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         hours_elapsed = now.hour + now.minute / 60.0
         day_fraction = max(hours_elapsed / 24.0, 0.01)
 

@@ -8,7 +8,7 @@ from bot.config import CapitalTier
 from bot.data.market_cache import MarketCache
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.gamma import GammaClient
-from bot.polymarket.types import GammaMarket, TradeSignal
+from bot.polymarket.types import GammaMarket, OrderBook, TradeSignal
 
 logger = structlog.get_logger()
 
@@ -29,6 +29,20 @@ class BaseStrategy(ABC):
         self.gamma = gamma_client
         self.cache = cache
         self.logger = logger.bind(strategy=self.name)
+
+    async def get_order_book(self, token_id: str) -> OrderBook:
+        """Fetch order book with cache (10s TTL).
+
+        Checks MarketCache first. On miss, fetches from CLOB and caches.
+        Prevents duplicate API calls when multiple strategies scan the
+        same markets in the same cycle.
+        """
+        cached = self.cache.get_order_book(token_id)
+        if cached is not None:
+            return cached
+        book = await self.clob.get_order_book(token_id)
+        self.cache.set_order_book(token_id, book, ttl=10)
+        return book
 
     def is_enabled_for_tier(self, tier: CapitalTier) -> bool:
         """Check if this strategy is enabled for the given capital tier."""

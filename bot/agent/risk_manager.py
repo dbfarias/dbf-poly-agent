@@ -1,6 +1,6 @@
 """Risk management system with tier-based rules and cascading checks."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -58,7 +58,7 @@ class RiskManager:
         Also resets peak at daily boundary so drawdown doesn't carry
         forward from stale/inflated peaks (e.g., ghost positions).
         """
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self._daily_pnl_date != today:
             # New day — reset peak to current equity
             self._peak_equity = equity
@@ -66,7 +66,7 @@ class RiskManager:
             self._peak_equity = equity
 
     def update_daily_pnl(self, pnl_change: float) -> None:
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self._daily_pnl_date != today:
             self._daily_pnl = 0.0
             self._daily_pnl_date = today

@@ -1,6 +1,6 @@
 """CRUD operations for database models."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -71,7 +71,7 @@ class TradeRepository:
         Returns list of dicts with: strategy, category, total_trades,
         winning_trades, total_pnl, avg_edge, avg_estimated_prob.
         """
-        since = datetime.utcnow() - timedelta(days=days)
+        since = datetime.now(timezone.utc) - timedelta(days=days)
         result = await self.session.execute(
             select(
                 Trade.strategy,
@@ -172,7 +172,7 @@ class PositionRepository:
             # Reopen if position reappears on Polymarket after being closed
             if position.is_open and not existing_pos.is_open:
                 existing_pos.is_open = True
-            existing_pos.updated_at = datetime.utcnow()
+            existing_pos.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
             return existing_pos
         self.session.add(position)
@@ -190,7 +190,7 @@ class PositionRepository:
         await self.session.execute(
             update(Position)
             .where(Position.market_id == market_id)
-            .values(is_open=False, updated_at=datetime.utcnow())
+            .values(is_open=False, updated_at=datetime.now(timezone.utc))
         )
         await self.session.commit()
 
@@ -213,7 +213,7 @@ class PortfolioSnapshotRepository:
         return snapshot
 
     async def get_equity_curve(self, days: int = 30) -> list[PortfolioSnapshot]:
-        since = datetime.utcnow() - timedelta(days=days)
+        since = datetime.now(timezone.utc) - timedelta(days=days)
         result = await self.session.execute(
             select(PortfolioSnapshot)
             .where(PortfolioSnapshot.timestamp >= since)
@@ -278,7 +278,7 @@ class StrategyMetricRepository:
                 "total_pnl", "avg_edge", "sharpe_ratio", "max_drawdown", "avg_hold_time_hours",
             ):
                 setattr(existing_metric, key, getattr(metric, key))
-            existing_metric.recorded_at = datetime.utcnow()
+            existing_metric.recorded_at = datetime.now(timezone.utc)
             await self.session.commit()
             return existing_metric
         self.session.add(metric)
@@ -310,7 +310,7 @@ class SettingsRepository:
 
     async def set_many(self, items: dict[str, str]) -> None:
         """Upsert multiple settings in one transaction."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for key, value in items.items():
             stmt = sqlite_insert(BotSetting).values(
                 key=key, value=value, updated_at=now

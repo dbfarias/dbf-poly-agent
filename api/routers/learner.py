@@ -1,6 +1,6 @@
 """Learner visibility endpoints — exposes adaptive learning state."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 
@@ -106,7 +106,7 @@ async def get_calibration(_: str = Depends(verify_api_key)):
         repo = TradeRepository(session)
         trades = await repo.get_recent(limit=500)
 
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     recent = [
         t for t in trades
         if t.status in ("filled", "completed") and t.created_at >= cutoff
@@ -162,7 +162,7 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
     pauses = []
     for strategy, paused_at in learner._paused_strategies.items():
         elapsed_hours = (
-            (datetime.utcnow() - paused_at).total_seconds() / 3600
+            (datetime.now(timezone.utc) - paused_at).total_seconds() / 3600
         )
         remaining_hours = max(0, 24 - elapsed_hours)
         expires_at = paused_at + timedelta(hours=24)

@@ -1,7 +1,7 @@
 """Main trading engine loop."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -39,6 +39,35 @@ from .strategies.time_decay import TimeDecayStrategy
 from .strategies.value_betting import ValueBettingStrategy
 
 logger = structlog.get_logger()
+
+
+def _apply_urgency_to_edge_multiplier(
+    edge_multiplier: float, urgency: float
+) -> float:
+    """Combine learner edge_multiplier with daily urgency.
+
+    Key insight: urgency should NEVER cancel a learner penalty.
+    - urgency > 1.0 (behind target): only relax if strategy is winning (multiplier <= 1.0).
+      If strategy has a penalty (>1.0), keep the penalty — don't reward bad strategies.
+    - urgency < 1.0 (ahead of target): always tighten (divide by urgency raises the bar).
+    - urgency = 1.0: no change.
+
+    Returns clamped to [0.5, 2.0].
+    """
+    if urgency == 1.0:
+        result = edge_multiplier
+    elif urgency > 1.0:
+        # Behind target — relax ONLY for winning/neutral strategies
+        if edge_multiplier <= 1.0:
+            result = edge_multiplier / urgency
+        else:
+            # Losing strategy: keep penalty, don't reduce it
+            result = edge_multiplier
+    else:
+        # Ahead of target — tighten all strategies
+        result = edge_multiplier / urgency
+
+    return max(0.5, min(2.0, result))
 
 
 class TradingEngine:
@@ -106,8 +135,9 @@ class TradingEngine:
         if restored > 0:
             logger.info("settings_restored_from_db", count=restored)
 
-        # Wire up deferred fill callback for live orders
+        # Wire up deferred fill callbacks for live orders
         self.order_manager.set_on_fill_callback(self._handle_order_fill)
+        self.order_manager.set_on_sell_fill_callback(self._handle_sell_fill)
 
         logger.info(
             "engine_initialized",
@@ -125,14 +155,29 @@ class TradingEngine:
         await self.data_api.close()
         logger.info("engine_shutdown")
 
+    def _task_exception_handler(self, task: asyncio.Task) -> None:
+        """Log unhandled exceptions from background tasks."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "background_task_failed",
+                task=task.get_name(),
+                error=str(exc),
+                exc_type=type(exc).__name__,
+            )
+
     async def run(self) -> None:
         """Main trading loop."""
         self._running = True
         logger.info("engine_started", scan_interval=settings.scan_interval_seconds)
 
-        # Start background tasks
-        asyncio.create_task(self.heartbeat.start())
-        asyncio.create_task(self.ws_manager.connect())
+        # Start background tasks with exception handlers
+        hb_task = asyncio.create_task(self.heartbeat.start())
+        hb_task.add_done_callback(self._task_exception_handler)
+        ws_task = asyncio.create_task(self.ws_manager.connect())
+        ws_task.add_done_callback(self._task_exception_handler)
 
         while self._running:
             try:
@@ -192,31 +237,7 @@ class TradingEngine:
         for market_id in exits:
             pos = next((p for p in self.portfolio.positions if p.market_id == market_id), None)
             if pos:
-                await log_exit_triggered(
-                    market_id=pos.market_id,
-                    question=pos.question,
-                    strategy=pos.strategy,
-                    current_price=pos.current_price,
-                )
-                await self.order_manager.close_position(
-                    market_id=pos.market_id,
-                    token_id=pos.token_id,
-                    size=pos.size,
-                    current_price=pos.current_price,
-                    question=pos.question,
-                    outcome=pos.outcome,
-                    category=pos.category,
-                    strategy=pos.strategy,
-                )
-                pnl = await self.portfolio.record_trade_close(market_id, pos.current_price)
-                self.risk_manager.update_daily_pnl(pnl)
-                await log_position_closed(
-                    market_id=pos.market_id,
-                    question=pos.question,
-                    strategy=pos.strategy,
-                    pnl=pnl,
-                    exit_reason="strategy_exit",
-                )
+                await self._close_position(pos)
 
         # 4. Scan markets for new opportunities
         signals = await self.analyzer.scan_markets(tier)
@@ -296,13 +317,12 @@ class TradingEngine:
                 else 1.0
             )
 
-            # Combine with daily target urgency:
-            # urgency > 1 = behind target → lower edge requirement → more trades
-            # urgency < 1 = ahead of target → raise edge requirement → fewer trades
+            # Combine with daily target urgency (without canceling penalties)
             if self._learner_adjustments:
                 urgency = self._learner_adjustments.urgency_multiplier
-                edge_multiplier = edge_multiplier / urgency
-                edge_multiplier = max(0.5, min(2.0, edge_multiplier))
+                edge_multiplier = _apply_urgency_to_edge_multiplier(
+                    edge_multiplier, urgency
+                )
 
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
@@ -315,12 +335,29 @@ class TradingEngine:
 
             if not approved:
                 # Try rebalancing: close weakest loser to make room for a better signal
+                closed_pos = None
                 if (
                     "Max positions" in reason
                     and not self._rebalanced_this_cycle
-                    and await self._try_rebalance(signal)
                 ):
+                    closed_pos = await self._try_rebalance(signal)
+
+                if closed_pos is not None:
                     self._rebalanced_this_cycle = True
+
+                    # Record PnL for the closed position (sell already on CLOB)
+                    pnl = await self.portfolio.record_trade_close(
+                        closed_pos.market_id, closed_pos.current_price
+                    )
+                    self.risk_manager.update_daily_pnl(pnl)
+                    await log_position_closed(
+                        market_id=closed_pos.market_id,
+                        question=closed_pos.question,
+                        strategy=closed_pos.strategy,
+                        pnl=pnl,
+                        exit_reason="rebalance",
+                    )
+
                     # Re-evaluate with updated positions (one slot freed)
                     approved, size, reason = await self.risk_manager.evaluate_signal(
                         signal=signal,
@@ -331,10 +368,11 @@ class TradingEngine:
                         edge_multiplier=edge_multiplier,
                     )
                     if not approved:
-                        logger.debug(
+                        logger.warning(
                             "signal_rejected_after_rebalance",
                             strategy=signal.strategy,
                             reason=reason,
+                            closed_market=closed_pos.market_id,
                         )
                         await log_signal_rejected(
                             strategy=signal.strategy,
@@ -446,21 +484,23 @@ class TradingEngine:
         if self._cycle_count % 50 == 0:
             await prune_old_activity()
 
-    async def _try_rebalance(self, signal) -> bool:
+    async def _try_rebalance(self, signal):
         """Close the weakest losing position to make room for a better signal.
 
-        Returns True if a position was successfully closed, freeing one slot.
+        Returns the closed Position if successful, None if no rebalance happened.
+        PnL recording is deferred to the caller — the sell already happened on
+        CLOB regardless of whether the replacement signal gets approved.
         """
         min_rebalance_edge = 0.03   # Only rebalance for high-edge signals
         min_hold_seconds = 300      # Don't sell positions held < 5 minutes
         min_sell_shares = 5.0       # Polymarket CLOB minimum
 
         if signal.edge < min_rebalance_edge:
-            return False
+            return None
 
         # Find candidates: losing positions that can actually be sold
         candidates = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for pos in self.portfolio.positions:
             # Skip positions too small to sell on CLOB (paper mode exempt)
             if not settings.is_paper and pos.size < min_sell_shares:
@@ -479,7 +519,7 @@ class TradingEngine:
             candidates.append((pos, pnl_pct))
 
         if not candidates:
-            return False
+            return None
 
         # Pick the worst performer (lowest PnL%)
         candidates.sort(key=lambda x: x[1])
@@ -507,26 +547,13 @@ class TradingEngine:
         )
         if close_result is None:
             logger.warning("rebalance_close_failed", market_id=worst_pos.market_id)
-            return False
+            return None
 
-        # Record the PnL and update portfolio
-        pnl = await self.portfolio.record_trade_close(
-            worst_pos.market_id, worst_pos.current_price
-        )
-        self.risk_manager.update_daily_pnl(pnl)
-
-        await log_position_closed(
-            market_id=worst_pos.market_id,
-            question=worst_pos.question,
-            strategy=worst_pos.strategy,
-            pnl=pnl,
-            exit_reason="rebalance",
-        )
         await log_rebalance(
             closed_market_id=worst_pos.market_id,
             closed_question=worst_pos.question,
             closed_strategy=worst_pos.strategy,
-            closed_pnl=pnl,
+            closed_pnl=0.0,  # PnL deferred to caller
             new_market_id=signal.market_id,
             new_question=signal.question,
             new_strategy=signal.strategy,
@@ -534,15 +561,76 @@ class TradingEngine:
         )
 
         logger.info(
-            "rebalance_success",
+            "rebalance_closed_position",
             closed_market=worst_pos.market_id[:20],
-            closed_pnl=round(pnl, 4),
             new_signal=signal.market_id[:20],
         )
-        return True
+        return worst_pos
+
+    async def _close_position(self, pos) -> None:
+        """Close a position and record PnL if immediately filled.
+
+        In paper mode, the sell is always "filled" so we record immediately.
+        In live mode, the sell may be "pending" on the CLOB — PnL recording
+        is deferred to _handle_sell_fill() callback when the order confirms.
+        """
+        await log_exit_triggered(
+            market_id=pos.market_id,
+            question=pos.question,
+            strategy=pos.strategy,
+            current_price=pos.current_price,
+        )
+        trade = await self.order_manager.close_position(
+            market_id=pos.market_id,
+            token_id=pos.token_id,
+            size=pos.size,
+            current_price=pos.current_price,
+            question=pos.question,
+            outcome=pos.outcome,
+            category=pos.category,
+            strategy=pos.strategy,
+        )
+        if trade is None:
+            return
+
+        if trade.status == "filled":
+            # Paper mode or immediate CLOB match — record now
+            pnl = await self.portfolio.record_trade_close(pos.market_id, pos.current_price)
+            self.risk_manager.update_daily_pnl(pnl)
+            await log_position_closed(
+                market_id=pos.market_id,
+                question=pos.question,
+                strategy=pos.strategy,
+                pnl=pnl,
+                exit_reason="strategy_exit",
+            )
+        else:
+            # Live pending — will be recorded via _handle_sell_fill callback
+            logger.info(
+                "sell_pending_on_clob",
+                market_id=pos.market_id,
+                strategy=pos.strategy,
+            )
+
+    async def _handle_sell_fill(self, market_id: str, sell_price: float) -> None:
+        """Callback when a pending live SELL order is confirmed filled."""
+        logger.info(
+            "deferred_sell_fill",
+            market_id=market_id,
+            sell_price=sell_price,
+        )
+        pnl = await self.portfolio.record_trade_close(market_id, sell_price)
+        self.risk_manager.update_daily_pnl(pnl)
+        await log_position_closed(
+            market_id=market_id,
+            question="",
+            strategy="",
+            pnl=pnl,
+            exit_reason="deferred_sell_fill",
+        )
 
     async def _handle_order_fill(self, signal, shares: float) -> None:
-        """Callback when a pending live order is confirmed filled."""
+        """Callback when a pending live BUY order is confirmed filled."""
         logger.info(
             "deferred_fill_creating_position",
             market_id=signal.market_id,
@@ -626,7 +714,7 @@ class TradingEngine:
 
     async def _maybe_snapshot(self) -> None:
         """Take a snapshot if enough time has passed."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if (
             self._last_snapshot is None
             or (now - self._last_snapshot).total_seconds() >= settings.snapshot_interval_seconds
@@ -636,10 +724,10 @@ class TradingEngine:
 
     async def _maybe_daily_summary(self) -> None:
         """Send daily summary at midnight UTC."""
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self._last_daily_summary == today:
             return
-        if datetime.utcnow().hour == 0 and datetime.utcnow().minute < 2:
+        if datetime.now(timezone.utc).hour == 0 and datetime.now(timezone.utc).minute < 2:
             self._last_daily_summary = today
             overview = self.portfolio.get_overview()
             await notify_daily_summary(

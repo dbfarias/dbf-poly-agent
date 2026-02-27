@@ -29,6 +29,19 @@ class CapitalTier(str, Enum):
 class TierConfig:
     """Risk parameters per capital tier (mutable at runtime via dashboard)."""
 
+    # Validation rules: type, min, max for each known key
+    _VALIDATION: dict[str, dict] = {
+        "max_positions": {"type": int, "min": 1, "max": 50},
+        "max_per_position_pct": {"type": float, "min": 0.01, "max": 1.0},
+        "kelly_fraction": {"type": float, "min": 0.05, "max": 1.0},
+        "min_edge_pct": {"type": float, "min": 0.0, "max": 0.5},
+        "max_drawdown_pct": {"type": float, "min": 0.01, "max": 1.0},
+        "daily_loss_limit_pct": {"type": float, "min": 0.01, "max": 1.0},
+        "max_per_category_pct": {"type": float, "min": 0.01, "max": 1.0},
+        "max_deployed_pct": {"type": float, "min": 0.1, "max": 1.0},
+        "min_win_prob": {"type": float, "min": 0.0, "max": 1.0},
+    }
+
     _DEFAULTS = {
         CapitalTier.TIER1: {
             "max_positions": 3,             # Few focused positions (each ~$5 min)
@@ -76,11 +89,43 @@ class TierConfig:
 
     @classmethod
     def update(cls, tier: CapitalTier, updates: dict) -> None:
-        """Update tier config at runtime. Only known keys are accepted."""
+        """Update tier config at runtime. Only known keys are accepted.
+
+        Validates all values before applying (atomic — rollback if any fail).
+        Raises ValueError on invalid values.
+        """
         valid_keys = set(cls._DEFAULTS[CapitalTier.TIER1].keys())
-        for key, value in updates.items():
-            if key in valid_keys:
-                cls.CONFIGS[tier][key] = value
+
+        # Filter to known keys only (unknown keys silently ignored)
+        known_updates = {k: v for k, v in updates.items() if k in valid_keys}
+
+        # Validate ALL values before applying any
+        for key, value in known_updates.items():
+            rule = cls._VALIDATION.get(key)
+            if rule is None:
+                continue
+
+            expected_type = rule["type"]
+            # For int fields, reject floats (3.5 is not a valid int)
+            if expected_type is int:
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(
+                        f"{key}: expected int, got {type(value).__name__} ({value!r})"
+                    )
+            elif expected_type is float:
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    raise ValueError(
+                        f"{key}: expected number, got {type(value).__name__} ({value!r})"
+                    )
+
+            if value < rule["min"] or value > rule["max"]:
+                raise ValueError(
+                    f"{key}: {value} out of range [{rule['min']}, {rule['max']}]"
+                )
+
+        # All valid — apply atomically
+        for key, value in known_updates.items():
+            cls.CONFIGS[tier][key] = value
 
     @classmethod
     def reset(cls, tier: CapitalTier) -> None:

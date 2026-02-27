@@ -1,6 +1,6 @@
 """Portfolio state tracker with sync from blockchain and paper mode."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -75,7 +75,7 @@ class Portfolio:
         Resets daily PnL and captures day-start equity at midnight UTC.
         """
         # Check if this is a new UTC day (reset PnL, but defer equity capture)
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         need_daily_reset = self._pnl_date != today
         if need_daily_reset:
             if self._pnl_date:
@@ -90,6 +90,8 @@ class Portfolio:
         # Sync positions from Polymarket first
         if self.clob.is_connected and not settings.is_paper:
             await self._sync_from_polymarket()
+        elif settings.is_paper:
+            await self._update_paper_prices()
 
         async with async_session() as session:
             pos_repo = PositionRepository(session)
@@ -184,7 +186,7 @@ class Portfolio:
 
             # Close local positions no longer on Polymarket
             local_positions = await pos_repo.get_open()
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             for lp in local_positions:
                 if lp.market_id in remote_market_ids:
                     continue
@@ -219,6 +221,40 @@ class Portfolio:
             "polymarket_positions_synced",
             remote_count=len(remote_market_ids),
         )
+
+    async def _update_paper_prices(self) -> None:
+        """Fetch current prices for paper-mode positions via Gamma API.
+
+        Paper mode skips _sync_from_polymarket() (no on-chain positions),
+        but prices still need updating so PnL isn't frozen at entry.
+        Does NOT create or remove positions — only updates current_price.
+        """
+        if not self.gamma or not self._positions:
+            return
+
+        prices: dict[str, float] = {}
+        for pos in self._positions:
+            if not pos.is_open:
+                continue
+            try:
+                market = await self.gamma.get_market(pos.market_id)
+                if market is None:
+                    continue
+                token_ids = market.token_ids
+                outcome_prices = market.outcome_price_list
+                for i, tid in enumerate(token_ids):
+                    if tid == pos.token_id and i < len(outcome_prices):
+                        prices[tid] = outcome_prices[i]
+                        break
+            except Exception as e:
+                logger.warning(
+                    "paper_price_update_failed",
+                    market_id=pos.market_id,
+                    error=str(e),
+                )
+
+        if prices:
+            await self.update_position_prices(prices)
 
     async def _close_if_resolved(
         self, position: Position, pos_repo: "PositionRepository"
@@ -379,7 +415,7 @@ class Portfolio:
     async def take_snapshot(self) -> PortfolioSnapshot:
         """Take and persist a portfolio snapshot."""
         snapshot = PortfolioSnapshot(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             total_equity=self.total_equity,
             cash_balance=self._cash,
             positions_value=self.positions_value,

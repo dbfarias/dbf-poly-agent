@@ -278,7 +278,10 @@ class MarketAnalyzer:
                 and market.best_ask_price is None
             ):
                 try:
-                    book = await self.clob.get_order_book(market.token_ids[0])
+                    book = self.cache.get_order_book(market.token_ids[0])
+                    if book is None:
+                        book = await self.clob.get_order_book(market.token_ids[0])
+                        self.cache.set_order_book(market.token_ids[0], book, ttl=10)
                     if not book.bids or not book.asks:
                         filtered_reasons["no_liquidity"] = (
                             filtered_reasons.get("no_liquidity", 0) + 1
@@ -333,7 +336,7 @@ class MarketAnalyzer:
                     hours_to_resolution = round(hours_left, 1)
 
             scan = MarketScan(
-                scanned_at=datetime.utcnow(),
+                scanned_at=datetime.now(timezone.utc),
                 market_id=market.id,
                 question=market.question[:200],
                 category=market.category or "",

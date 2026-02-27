@@ -1,9 +1,13 @@
 """SQLAlchemy ORM models for the trading bot database."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -14,9 +18,9 @@ class Trade(Base):
     __tablename__ = "trades"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utc_now, onupdate=_utc_now
     )
 
     # Market info
@@ -54,9 +58,9 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utc_now, onupdate=_utc_now
     )
 
     market_id: Mapped[str] = mapped_column(String(128), index=True, unique=True)
@@ -81,7 +85,7 @@ class PortfolioSnapshot(Base):
     __tablename__ = "portfolio_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     total_equity: Mapped[float] = mapped_column(Float)
     cash_balance: Mapped[float] = mapped_column(Float)
@@ -97,7 +101,7 @@ class MarketScan(Base):
     __tablename__ = "market_scans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     market_id: Mapped[str] = mapped_column(String(128), index=True)
     question: Mapped[str] = mapped_column(Text, default="")
@@ -119,7 +123,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     level: Mapped[str] = mapped_column(String(16))  # info, warning, error, critical
     category: Mapped[str] = mapped_column(String(64), index=True)
@@ -133,14 +137,14 @@ class BotSetting(Base):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(Text)  # JSON-encoded
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
 
 
 class BotActivity(Base):
     __tablename__ = "bot_activity"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     event_type: Mapped[str] = mapped_column(String(32), index=True)
     level: Mapped[str] = mapped_column(String(16), default="info")  # info, success, warning, error
@@ -158,7 +162,7 @@ class StrategyMetric(Base):
     __tablename__ = "strategy_metrics"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
 
     strategy: Mapped[str] = mapped_column(String(64), index=True)
     total_trades: Mapped[int] = mapped_column(Integer, default=0)

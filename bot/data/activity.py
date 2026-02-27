@@ -9,12 +9,13 @@ import json
 import structlog
 
 from bot.data.database import async_session
-from bot.data.models import BotActivity
+from bot.data.models import BotActivity, MarketScan
 
 logger = structlog.get_logger()
 
-# Maximum rows kept in the activity table (auto-pruned on each write batch).
+# Maximum rows kept in each table (auto-pruned periodically).
 MAX_ACTIVITY_ROWS = 5000
+MAX_SCAN_ROWS = 5000
 
 
 async def _write(event: BotActivity) -> None:
@@ -312,10 +313,14 @@ async def log_price_adjustment(
 
 
 async def prune_old_activity() -> None:
-    """Delete oldest rows if table exceeds MAX_ACTIVITY_ROWS."""
+    """Delete oldest rows if tables exceed their max row limits.
+
+    Prunes both BotActivity and MarketScan tables.
+    """
     try:
         from sqlalchemy import delete, func, select
         async with async_session() as session:
+            # Prune BotActivity
             count = await session.scalar(select(func.count(BotActivity.id)))
             if count and count > MAX_ACTIVITY_ROWS:
                 excess = count - MAX_ACTIVITY_ROWS
@@ -329,6 +334,22 @@ async def prune_old_activity() -> None:
                     await session.execute(
                         delete(BotActivity).where(BotActivity.id.in_(ids_to_delete))
                     )
-                    await session.commit()
+
+            # Prune MarketScan
+            scan_count = await session.scalar(select(func.count(MarketScan.id)))
+            if scan_count and scan_count > MAX_SCAN_ROWS:
+                excess = scan_count - MAX_SCAN_ROWS
+                oldest_scans = await session.execute(
+                    select(MarketScan.id)
+                    .order_by(MarketScan.scanned_at.asc())
+                    .limit(excess)
+                )
+                scan_ids = [row[0] for row in oldest_scans.all()]
+                if scan_ids:
+                    await session.execute(
+                        delete(MarketScan).where(MarketScan.id.in_(scan_ids))
+                    )
+
+            await session.commit()
     except Exception as e:
         logger.debug("activity_prune_failed", error=str(e))

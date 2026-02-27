@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from bot.agent.learner import (
@@ -42,7 +42,7 @@ def make_trade(
         edge=edge,
         estimated_prob=estimated_prob,
         status=status,
-        created_at=created_at or datetime.utcnow(),
+        created_at=created_at or datetime.now(timezone.utc),
     )
 
 
@@ -299,7 +299,7 @@ class TestShouldPauseStrategy:
         learner = PerformanceLearner()
         # Set pause time 25 hours ago
         learner._paused_strategies["time_decay"] = (
-            datetime.utcnow() - timedelta(hours=25)
+            datetime.now(timezone.utc) - timedelta(hours=25)
         )
         assert learner.should_pause_strategy("time_decay", []) is False
         # Should be removed from paused dict

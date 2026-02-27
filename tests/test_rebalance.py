@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -68,7 +68,7 @@ def make_position(
     created_at: datetime | None = None,
 ) -> Position:
     if created_at is None:
-        created_at = datetime.utcnow() - timedelta(hours=1)
+        created_at = datetime.now(timezone.utc) - timedelta(hours=1)
     unrealized = (current_price - avg_price) * size
     return Position(
         market_id=market_id,
@@ -109,7 +109,7 @@ class TestTryRebalance:
 
     @pytest.mark.asyncio
     async def test_rebalance_closes_worst_opens_room(self):
-        """Happy path: worst loser closed, returns True."""
+        """Happy path: worst loser closed, returns Position."""
         with _patch_engine():
             engine = _build_engine()
             loser = make_position(current_price=0.40, avg_price=0.50, size=10.0)
@@ -128,11 +128,11 @@ class TestTryRebalance:
 
             signal = make_signal(edge=0.05)
 
-            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
+            with patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
                 result = await engine._try_rebalance(signal)
 
-            assert result is True
+            assert result is not None
+            assert result.market_id == loser.market_id
             engine.order_manager.close_position.assert_called_once_with(
                 market_id=loser.market_id,
                 token_id=loser.token_id,
@@ -143,8 +143,8 @@ class TestTryRebalance:
                 category=loser.category,
                 strategy=loser.strategy,
             )
-            engine.portfolio.record_trade_close.assert_called_once()
-            engine.risk_manager.update_daily_pnl.assert_called_once()
+            # PnL recording deferred to caller
+            engine.portfolio.record_trade_close.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_rebalance_when_edge_below_3pct(self):
@@ -158,7 +158,7 @@ class TestTryRebalance:
 
             result = await engine._try_rebalance(signal)
 
-            assert result is False
+            assert result is None
             engine.order_manager.close_position.assert_not_called()
 
     @pytest.mark.asyncio
@@ -174,7 +174,7 @@ class TestTryRebalance:
 
             result = await engine._try_rebalance(signal)
 
-            assert result is False
+            assert result is None
             engine.order_manager.close_position.assert_not_called()
 
     @pytest.mark.asyncio
@@ -191,7 +191,7 @@ class TestTryRebalance:
                 mock_settings.is_paper = False
                 result = await engine._try_rebalance(signal)
 
-            assert result is False
+            assert result is None
             engine.order_manager.close_position.assert_not_called()
 
     @pytest.mark.asyncio
@@ -201,7 +201,7 @@ class TestTryRebalance:
             engine = _build_engine()
             recent_loser = make_position(
                 current_price=0.40,
-                created_at=datetime.utcnow() - timedelta(seconds=60),  # 1 min
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=60),  # 1 min
             )
             engine.portfolio.positions = [recent_loser]
 
@@ -209,7 +209,7 @@ class TestTryRebalance:
 
             result = await engine._try_rebalance(signal)
 
-            assert result is False
+            assert result is None
             engine.order_manager.close_position.assert_not_called()
 
     @pytest.mark.asyncio
@@ -233,11 +233,10 @@ class TestTryRebalance:
 
             signal = make_signal(edge=0.05)
 
-            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
+            with patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
                 # First rebalance succeeds
                 result1 = await engine._try_rebalance(signal)
-                assert result1 is True
+                assert result1 is not None
                 engine._rebalanced_this_cycle = True
 
                 # The flag check happens in the calling code (_trading_cycle),
@@ -299,11 +298,11 @@ class TestTryRebalance:
 
             signal = make_signal(edge=0.05)
 
-            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
+            with patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
                 result = await engine._try_rebalance(signal)
 
-            assert result is True
+            assert result is not None
+            assert result.market_id == "mkt_b"
             # Should close mkt_b (worst loser)
             engine.order_manager.close_position.assert_called_once_with(
                 market_id="mkt_b",
@@ -317,7 +316,7 @@ class TestTryRebalance:
             )
 
     @pytest.mark.asyncio
-    async def test_close_fails_returns_false(self):
+    async def test_close_fails_returns_none(self):
         """Handle close_position returning None gracefully."""
         with _patch_engine():
             engine = _build_engine()
@@ -329,7 +328,7 @@ class TestTryRebalance:
 
             result = await engine._try_rebalance(signal)
 
-            assert result is False
+            assert result is None
             engine.portfolio.record_trade_close.assert_not_called()
 
     @pytest.mark.asyncio
@@ -354,12 +353,11 @@ class TestTryRebalance:
             signal = make_signal(edge=0.05)
 
             with patch("bot.agent.engine.settings") as mock_settings, \
-                 patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
                  patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
                 mock_settings.is_paper = True
                 result = await engine._try_rebalance(signal)
 
-            assert result is True
+            assert result is not None
             engine.order_manager.close_position.assert_called_once()
 
     @pytest.mark.asyncio
@@ -392,11 +390,10 @@ class TestTryRebalance:
 
             signal = make_signal(edge=0.05)
 
-            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
+            with patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
                 rebalanced = await engine._try_rebalance(signal)
 
-            assert rebalanced is True
+            assert rebalanced is not None
 
             # Simulate what the engine loop does after rebalance:
             # re-evaluate the signal with updated positions
@@ -417,6 +414,58 @@ class TestTryRebalance:
 
             assert approved is True
             assert size == 5.0
+
+
+# ---------------------------------------------------------------------------
+# C6 — Rebalance returns Position, caller records PnL
+# ---------------------------------------------------------------------------
+
+
+class TestRebalanceReturnPosition:
+    @pytest.mark.asyncio
+    async def test_returns_position_without_recording_pnl(self):
+        """_try_rebalance should return the closed Position, NOT record PnL."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(current_price=0.40, avg_price=0.50, size=10.0)
+            engine.portfolio.positions = [loser]
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id=loser.market_id,
+                    token_id=loser.token_id,
+                    side="SELL",
+                    price=0.40,
+                    size=10.0,
+                    status="filled",
+                    is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
+                result = await engine._try_rebalance(signal)
+
+            # Returns the closed Position (not bool)
+            assert result is not None
+            assert result.market_id == loser.market_id
+            # PnL NOT recorded inside _try_rebalance
+            engine.portfolio.record_trade_close.assert_not_called()
+            engine.risk_manager.update_daily_pnl.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_close_failure_returns_none(self):
+        """If close_position fails, return None (no PnL to record)."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(current_price=0.40)
+            engine.portfolio.positions = [loser]
+            engine.order_manager.close_position = AsyncMock(return_value=None)
+            signal = make_signal(edge=0.05)
+
+            result = await engine._try_rebalance(signal)
+
+            assert result is None
+            engine.portfolio.record_trade_close.assert_not_called()
 
 
 class TestRebalanceFlagReset:

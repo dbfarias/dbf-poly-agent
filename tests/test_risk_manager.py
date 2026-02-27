@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -62,13 +62,13 @@ def make_position(
 @pytest.fixture
 def rm():
     """Fresh RiskManager with initial_bankroll patched to 10.0."""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     original = settings.initial_bankroll
     settings.initial_bankroll = 10.0
     manager = RiskManager()
     # Set daily date so peak equity doesn't reset on same-day calls
-    manager._daily_pnl_date = datetime.utcnow().strftime("%Y-%m-%d")
+    manager._daily_pnl_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     yield manager
     settings.initial_bankroll = original
 
@@ -163,7 +163,7 @@ class TestUpdateDailyPnl:
 
     def test_same_day_no_reset(self, rm):
         rm.update_daily_pnl(1.0)
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         assert rm._daily_pnl_date == today
         rm.update_daily_pnl(0.5)
         assert rm._daily_pnl == pytest.approx(1.5)

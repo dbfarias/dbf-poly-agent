@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -442,7 +442,7 @@ class TestMonitorOrdersFillVerified:
         signal = make_signal(token_id="token-filled")
         manager._pending_orders["order-fill-1"] = {
             "trade_id": 10,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 5.0,
         }
@@ -474,7 +474,7 @@ class TestMonitorOrdersFillVerified:
         signal = make_signal()
         manager._pending_orders["order-err-1"] = {
             "trade_id": 20,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 5.0,
         }
@@ -499,7 +499,7 @@ class TestMonitorOrdersExpired:
         manager, clob, data_api = _build_manager(is_paper=False)
 
         signal = make_signal(token_id="token-expired")
-        created_at = datetime.utcnow() - timedelta(seconds=ORDER_TIMEOUT_SECONDS + 60)
+        created_at = datetime.now(timezone.utc) - timedelta(seconds=ORDER_TIMEOUT_SECONDS + 60)
         manager._pending_orders["order-expired-1"] = {
             "trade_id": 30,
             "created_at": created_at,
@@ -532,7 +532,7 @@ class TestMonitorOrdersExpired:
         signal = make_signal(token_id="token-young")
         manager._pending_orders["order-young-1"] = {
             "trade_id": 31,
-            "created_at": datetime.utcnow(),  # just now
+            "created_at": datetime.now(timezone.utc),  # just now
             "signal": signal,
             "shares": 5.0,
         }
@@ -563,7 +563,7 @@ class TestMonitorOrdersCallback:
         signal = make_signal(token_id="token-cb")
         manager._pending_orders["order-cb-1"] = {
             "trade_id": 40,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 7.5,
         }
@@ -596,7 +596,7 @@ class TestMonitorOrdersCallback:
         signal = make_signal(token_id="token-cb-err")
         manager._pending_orders["order-cb-err-1"] = {
             "trade_id": 41,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 5.0,
         }
@@ -628,7 +628,7 @@ class TestMonitorOrdersCallback:
         signal = make_signal(token_id="token-nocb")
         manager._pending_orders["order-nocb-1"] = {
             "trade_id": 42,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 5.0,
         }
@@ -1151,19 +1151,19 @@ class TestPendingProperties:
 
         manager._pending_orders["o1"] = {
             "trade_id": 1,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal_a,
             "shares": 5.0,
         }
         manager._pending_orders["o2"] = {
             "trade_id": 2,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal_b,
             "shares": 5.0,
         }
         manager._pending_orders["o3"] = {
             "trade_id": 3,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal_a_dup,
             "shares": 5.0,
         }
@@ -1184,13 +1184,13 @@ class TestPendingProperties:
 
         manager._pending_orders["o1"] = {
             "trade_id": 1,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal_a,
             "shares": 5.0,
         }
         manager._pending_orders["o2"] = {
             "trade_id": 2,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal_b,
             "shares": 10.0,
         }
@@ -1209,7 +1209,7 @@ class TestPendingProperties:
         for i in range(3):
             manager._pending_orders[f"o{i}"] = {
                 "trade_id": i,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
                 "signal": make_signal(),
                 "shares": 5.0,
             }
@@ -1361,7 +1361,7 @@ class TestExecuteAndMonitorCycle:
 
         # Artificially age the pending order past timeout
         order_info = manager._pending_orders["expire-001"]
-        order_info["created_at"] = datetime.utcnow() - timedelta(
+        order_info["created_at"] = datetime.now(timezone.utc) - timedelta(
             seconds=ORDER_TIMEOUT_SECONDS + 10
         )
 
@@ -1400,7 +1400,7 @@ class TestSellOrderMonitoring:
 
         manager._pending_orders["sell-001"] = {
             "trade_id": 50,
-            "created_at": datetime.utcnow() - timedelta(seconds=30),
+            "created_at": datetime.now(timezone.utc) - timedelta(seconds=30),
             "signal": None,
             "shares": 10.0,
             "is_sell": True,
@@ -1430,7 +1430,7 @@ class TestSellOrderMonitoring:
 
         manager._pending_orders["sell-002"] = {
             "trade_id": 51,
-            "created_at": datetime.utcnow() - timedelta(seconds=30),
+            "created_at": datetime.now(timezone.utc) - timedelta(seconds=30),
             "signal": None,
             "shares": 10.0,
             "is_sell": True,
@@ -1452,7 +1452,7 @@ class TestSellOrderMonitoring:
 
         manager._pending_orders["sell-003"] = {
             "trade_id": 52,
-            "created_at": datetime.utcnow() - timedelta(seconds=ORDER_TIMEOUT_SECONDS + 10),
+            "created_at": datetime.now(timezone.utc) - timedelta(seconds=ORDER_TIMEOUT_SECONDS + 10),
             "signal": None,
             "shares": 10.0,
             "is_sell": True,
@@ -1480,7 +1480,7 @@ class TestSellOrderMonitoring:
         )
         manager._pending_orders["sell-004"] = {
             "trade_id": 53,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": None,
             "shares": 5.0,
             "is_sell": True,
@@ -1499,13 +1499,13 @@ class TestSellOrderMonitoring:
         signal = make_signal(market_id="buy_mkt")
         manager._pending_orders["buy-001"] = {
             "trade_id": 60,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 5.0,
         }
         manager._pending_orders["sell-001"] = {
             "trade_id": 61,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": None,
             "shares": 10.0,
             "is_sell": True,
@@ -1520,13 +1520,13 @@ class TestSellOrderMonitoring:
         signal = make_signal(market_id="buy_mkt", size_usd=5.0)
         manager._pending_orders["buy-001"] = {
             "trade_id": 60,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 5.0,
         }
         manager._pending_orders["sell-001"] = {
             "trade_id": 61,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "signal": None,
             "shares": 10.0,
             "is_sell": True,

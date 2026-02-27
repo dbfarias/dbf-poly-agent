@@ -1,9 +1,13 @@
 """Tests for MarketAnalyzer deduplication, stop-loss, and quality filter logic."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from bot.agent.market_analyzer import MarketAnalyzer, normalize_category
-from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
+from bot.data.market_cache import MarketCache
+from bot.polymarket.types import GammaMarket, OrderBook, OrderBookEntry, OrderSide, TradeSignal
 
 
 def _signal(
@@ -268,3 +272,44 @@ class TestQualityFilterConstants:
         assert m.best_bid_price is None
         assert m.best_ask_price is None
         assert m.volume_24h == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Quality Filter Order Book Cache (H1-H3)
+# ---------------------------------------------------------------------------
+
+
+class TestQualityFilterCache:
+    @pytest.mark.asyncio
+    async def test_quality_filter_uses_cached_order_book(self):
+        """Quality filter should check cache before calling CLOB API."""
+        cache = MarketCache(default_ttl=60)
+        cached_book = OrderBook(
+            market="test",
+            bids=[OrderBookEntry(price=0.90, size=100)],
+            asks=[OrderBookEntry(price=0.92, size=100)],
+        )
+        cache.set_order_book("tok1", cached_book, ttl=10)
+
+        mock_clob = AsyncMock()
+
+        analyzer = MarketAnalyzer(
+            gamma_client=MagicMock(),
+            cache=cache,
+            strategies=[],
+            clob_client=mock_clob,
+        )
+
+        # Market with no Gamma bid/ask → triggers order book check
+        market = _make_gamma_market(
+            market_id="0xtest",
+            best_bid=None,
+            best_ask=None,
+            volume_24h=200.0,
+        )
+
+        result = await analyzer._filter_quality([market])
+
+        # Should have used cached book, NOT called CLOB
+        mock_clob.get_order_book.assert_not_called()
+        assert len(result) == 1

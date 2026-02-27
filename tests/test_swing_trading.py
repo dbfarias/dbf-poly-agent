@@ -390,7 +390,7 @@ class TestShouldExit:
     async def test_naive_created_at_handled(self):
         """created_at without tzinfo should be treated as UTC."""
         s = _make_strategy()
-        old_time = datetime.utcnow() - timedelta(hours=5)  # Naive datetime
+        old_time = datetime.now(timezone.utc) - timedelta(hours=5)  # Naive datetime
         result = await s.should_exit(
             "mkt1", 0.505, avg_price=0.50, created_at=old_time
         )

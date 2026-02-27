@@ -2,7 +2,7 @@
 
 import asyncio
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 
@@ -164,7 +164,7 @@ class PolymarketClient:
             asset_id=token_id,
             bids=sorted(bids, key=lambda x: x.price, reverse=True),
             asks=sorted(asks, key=lambda x: x.price),
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
     @async_retry(max_attempts=3, min_wait=1, max_wait=15)
@@ -294,7 +294,7 @@ class PolymarketClient:
             "size": size,
             "status": "MATCHED",  # Paper orders fill immediately
             "filled_size": size,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._paper_orders.append(order)
         logger.info(

@@ -86,7 +86,7 @@ class ValueBettingStrategy(BaseStrategy):
 
         # Get order book for analysis
         try:
-            book = await self.clob.get_order_book(token_ids[0])
+            book = await self.get_order_book(token_ids[0])
         except Exception:
             return None
 
