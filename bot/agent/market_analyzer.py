@@ -372,13 +372,22 @@ class MarketAnalyzer:
         return q.strip()
 
     def _deduplicate_correlated(self, signals: list[TradeSignal]) -> list[TradeSignal]:
-        """Keep only the best signal per group of mutually exclusive markets."""
+        """Keep only the best signal per strategy per group of mutually exclusive markets.
+
+        Dedup is scoped per strategy so that different strategies evaluating
+        the same market can each pass through independently — the risk manager
+        decides which is viable.  Within a single strategy, only the best
+        signal per correlated group is kept (e.g. two candidates for the
+        same race).
+        """
         if not signals:
             return signals
 
-        groups: dict[str, TradeSignal] = {}
+        # Key = (strategy, question_group) so cross-strategy signals survive
+        groups: dict[tuple[str, str], TradeSignal] = {}
         for signal in signals:
-            key = self._question_group_key(signal.question)
+            question_key = self._question_group_key(signal.question)
+            key = (signal.strategy, question_key)
             existing = groups.get(key)
             if existing is None or (signal.edge * signal.confidence) > (
                 existing.edge * existing.confidence
@@ -386,9 +395,10 @@ class MarketAnalyzer:
                 if existing is not None:
                     logger.info(
                         "correlated_market_filtered",
+                        strategy=signal.strategy,
                         kept=signal.question[:60],
                         dropped=existing.question[:60],
-                        group_key=key[:40],
+                        group_key=question_key[:40],
                     )
                 groups[key] = signal
 

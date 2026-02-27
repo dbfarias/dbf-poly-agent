@@ -84,6 +84,41 @@ class TestDeduplicateCorrelated:
         result = analyzer._deduplicate_correlated(signals)
         assert len(result) == 1
 
+    def test_cross_strategy_signals_both_kept(self):
+        """Different strategies for the same market should NOT be deduped."""
+        analyzer = MarketAnalyzer.__new__(MarketAnalyzer)
+        td_signal = TradeSignal(
+            strategy="time_decay",
+            market_id="mkt1",
+            token_id="tok1",
+            question="Will Albert Littell be the Democratic nominee for Senate in Mississippi?",
+            side=OrderSide.BUY,
+            outcome="Yes",
+            estimated_prob=0.95,
+            market_price=0.92,
+            edge=0.03,
+            size_usd=1.0,
+            confidence=0.90,
+        )
+        vb_signal = TradeSignal(
+            strategy="value_betting",
+            market_id="mkt1",
+            token_id="tok1",
+            question="Will Albert Littell be the Democratic nominee for Senate in Mississippi?",
+            side=OrderSide.BUY,
+            outcome="Yes",
+            estimated_prob=0.10,
+            market_price=0.08,
+            edge=0.08,
+            size_usd=1.0,
+            confidence=0.70,
+        )
+        result = analyzer._deduplicate_correlated([td_signal, vb_signal])
+        # Both strategies should survive — risk manager decides viability
+        assert len(result) == 2
+        strategies = {s.strategy for s in result}
+        assert strategies == {"time_decay", "value_betting"}
+
 
 def _position(
     market_id: str = "mkt1",
