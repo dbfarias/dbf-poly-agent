@@ -252,6 +252,39 @@ async def log_bot_event(
     ))
 
 
+async def log_rebalance(
+    closed_market_id: str,
+    closed_question: str,
+    closed_strategy: str,
+    closed_pnl: float,
+    new_market_id: str,
+    new_question: str,
+    new_strategy: str,
+    new_edge: float,
+) -> None:
+    """Log a position rebalance: closed a loser to make room for a better signal."""
+    sign = "+" if closed_pnl >= 0 else ""
+    await _write(BotActivity(
+        event_type="rebalance",
+        level="info",
+        title=f"Rebalanced: closed {closed_strategy} for {new_strategy}",
+        detail=(
+            f"Closed: {closed_question[:80]} ({sign}${closed_pnl:.2f})\n"
+            f"Opened room for: {new_question[:80]} (edge {new_edge:.1%})"
+        ),
+        market_id=new_market_id,
+        strategy=new_strategy,
+        metadata_json=_meta({
+            "closed_market_id": closed_market_id,
+            "closed_strategy": closed_strategy,
+            "closed_pnl": closed_pnl,
+            "new_market_id": new_market_id,
+            "new_strategy": new_strategy,
+            "new_edge": new_edge,
+        }),
+    ))
+
+
 async def log_price_adjustment(
     market_id: str,
     strategy: str,

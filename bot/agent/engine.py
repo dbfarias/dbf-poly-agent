@@ -16,6 +16,7 @@ from bot.data.activity import (
     log_exit_triggered,
     log_liquidity_rejected,
     log_position_closed,
+    log_rebalance,
     log_signal_found,
     log_signal_rejected,
     prune_old_activity,
@@ -78,6 +79,7 @@ class TradingEngine:
         self._last_snapshot: datetime | None = None
         self._last_daily_summary: str = ""
         self._learner_adjustments = None
+        self._rebalanced_this_cycle = False
 
     @property
     def is_running(self) -> bool:
@@ -144,6 +146,7 @@ class TradingEngine:
     async def _trading_cycle(self) -> None:
         """Single trading cycle: scan → evaluate → execute → monitor."""
         self._cycle_count += 1
+        self._rebalanced_this_cycle = False
         tier = self.portfolio.tier
 
         logger.info(
@@ -307,16 +310,49 @@ class TradingEngine:
             )
 
             if not approved:
-                logger.debug("signal_rejected", strategy=signal.strategy, reason=reason)
-                await log_signal_rejected(
-                    strategy=signal.strategy,
-                    market_id=signal.market_id,
-                    question=signal.question,
-                    reason=reason,
-                    edge=signal.edge,
-                    price=signal.market_price,
-                )
-                continue
+                # Try rebalancing: close weakest loser to make room for a better signal
+                if (
+                    "Max positions" in reason
+                    and not self._rebalanced_this_cycle
+                    and await self._try_rebalance(signal)
+                ):
+                    self._rebalanced_this_cycle = True
+                    # Re-evaluate with updated positions (one slot freed)
+                    approved, size, reason = await self.risk_manager.evaluate_signal(
+                        signal=signal,
+                        bankroll=self.portfolio.total_equity - cycle_committed,
+                        open_positions=self.portfolio.positions,
+                        tier=tier,
+                        pending_count=pending_count,
+                        edge_multiplier=edge_multiplier,
+                    )
+                    if not approved:
+                        logger.debug(
+                            "signal_rejected_after_rebalance",
+                            strategy=signal.strategy,
+                            reason=reason,
+                        )
+                        await log_signal_rejected(
+                            strategy=signal.strategy,
+                            market_id=signal.market_id,
+                            question=signal.question,
+                            reason=f"Post-rebalance: {reason}",
+                            edge=signal.edge,
+                            price=signal.market_price,
+                        )
+                        continue
+                    # Falls through to liquidity check + execution below
+                else:
+                    logger.debug("signal_rejected", strategy=signal.strategy, reason=reason)
+                    await log_signal_rejected(
+                        strategy=signal.strategy,
+                        market_id=signal.market_id,
+                        question=signal.question,
+                        reason=reason,
+                        edge=signal.edge,
+                        price=signal.market_price,
+                    )
+                    continue
 
             # 5b. Check order book liquidity before executing
             if not await self._check_liquidity(signal):
@@ -405,6 +441,97 @@ class TradingEngine:
         # Prune old activity rows periodically (every 50 cycles)
         if self._cycle_count % 50 == 0:
             await prune_old_activity()
+
+    async def _try_rebalance(self, signal) -> bool:
+        """Close the weakest losing position to make room for a better signal.
+
+        Returns True if a position was successfully closed, freeing one slot.
+        """
+        min_rebalance_edge = 0.03   # Only rebalance for high-edge signals
+        min_hold_seconds = 300      # Don't sell positions held < 5 minutes
+        min_sell_shares = 5.0       # Polymarket CLOB minimum
+
+        if signal.edge < min_rebalance_edge:
+            return False
+
+        # Find candidates: losing positions that can actually be sold
+        candidates = []
+        now = datetime.utcnow()
+        for pos in self.portfolio.positions:
+            # Skip positions too small to sell on CLOB (paper mode exempt)
+            if not settings.is_paper and pos.size < min_sell_shares:
+                continue
+            # Skip positions held less than 5 minutes
+            if pos.created_at and (now - pos.created_at).total_seconds() < min_hold_seconds:
+                continue
+            # Never close winners
+            if pos.unrealized_pnl > 0:
+                continue
+            # Score by unrealized PnL percentage (more negative = worse)
+            pnl_pct = (
+                (pos.current_price - pos.avg_price) / pos.avg_price
+                if pos.avg_price > 0 else 0.0
+            )
+            candidates.append((pos, pnl_pct))
+
+        if not candidates:
+            return False
+
+        # Pick the worst performer (lowest PnL%)
+        candidates.sort(key=lambda x: x[1])
+        worst_pos, worst_pnl_pct = candidates[0]
+
+        logger.info(
+            "rebalance_attempt",
+            closing_market=worst_pos.market_id[:20],
+            closing_strategy=worst_pos.strategy,
+            closing_pnl_pct=round(worst_pnl_pct, 4),
+            new_signal_strategy=signal.strategy,
+            new_signal_edge=round(signal.edge, 4),
+        )
+
+        # Close the worst position
+        close_result = await self.order_manager.close_position(
+            market_id=worst_pos.market_id,
+            token_id=worst_pos.token_id,
+            size=worst_pos.size,
+            current_price=worst_pos.current_price,
+        )
+        if close_result is None:
+            logger.warning("rebalance_close_failed", market_id=worst_pos.market_id)
+            return False
+
+        # Record the PnL and update portfolio
+        pnl = await self.portfolio.record_trade_close(
+            worst_pos.market_id, worst_pos.current_price
+        )
+        self.risk_manager.update_daily_pnl(pnl)
+
+        await log_position_closed(
+            market_id=worst_pos.market_id,
+            question=worst_pos.question,
+            strategy=worst_pos.strategy,
+            pnl=pnl,
+            exit_reason="rebalance",
+        )
+        await log_rebalance(
+            closed_market_id=worst_pos.market_id,
+            closed_question=worst_pos.question,
+            closed_strategy=worst_pos.strategy,
+            closed_pnl=pnl,
+            new_market_id=signal.market_id,
+            new_question=signal.question,
+            new_strategy=signal.strategy,
+            new_edge=signal.edge,
+        )
+
+        logger.info(
+            "rebalance_success",
+            closed_market=worst_pos.market_id[:20],
+            closed_pnl=round(pnl, 4),
+            new_signal=signal.market_id[:20],
+        )
+        return True
 
     async def _handle_order_fill(self, signal, shares: float) -> None:
         """Callback when a pending live order is confirmed filled."""
