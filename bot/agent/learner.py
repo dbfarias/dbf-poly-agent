@@ -64,15 +64,23 @@ class LearnerAdjustments:
         category_confidences: dict[str, float],
         paused_strategies: set[str],
         calibration: dict[str, float],
+        urgency_multiplier: float = 1.0,
+        daily_progress: float = 0.0,
     ):
         self.edge_multipliers = edge_multipliers
         self.category_confidences = category_confidences
         self.paused_strategies = paused_strategies
         self.calibration = calibration
+        self.urgency_multiplier = urgency_multiplier
+        self.daily_progress = daily_progress
 
 
 class PerformanceLearner:
-    """Learns from trade history to adjust strategy parameters."""
+    """Learns from trade history to adjust strategy parameters.
+
+    Tracks daily target progress and computes an urgency multiplier
+    that feeds back into edge requirements and strategy aggressiveness.
+    """
 
     # Minimum seconds between full recomputation (avoid hammering DB every 30s cycle)
     RECOMPUTE_INTERVAL = 300  # 5 minutes
@@ -82,6 +90,25 @@ class PerformanceLearner:
         self._paused_strategies: dict[str, datetime] = {}
         self._last_computed: datetime | None = None
         self._last_adjustments: LearnerAdjustments | None = None
+
+        # Daily target context (set by engine each cycle)
+        self._daily_pnl: float = 0.0
+        self._daily_equity: float = 0.0
+        self._daily_target_pct: float = 0.01
+
+    def set_daily_context(
+        self,
+        realized_pnl: float,
+        equity: float,
+        target_pct: float,
+    ) -> None:
+        """Set daily trading context for urgency calculation.
+
+        Called by the engine before compute_stats() each cycle.
+        """
+        self._daily_pnl = realized_pnl
+        self._daily_equity = equity
+        self._daily_target_pct = target_pct
 
     async def compute_stats(self) -> LearnerAdjustments:
         """Compute per-strategy, per-category performance stats.
@@ -166,6 +193,10 @@ class PerformanceLearner:
         # Update strategy metrics in DB
         await self._update_strategy_metrics(stats)
 
+        # Compute daily target urgency
+        urgency = self._compute_urgency()
+        daily_progress = self._compute_daily_progress()
+
         self._last_computed = datetime.utcnow()
 
         adjustments: LearnerAdjustments = LearnerAdjustments(
@@ -173,6 +204,8 @@ class PerformanceLearner:
             category_confidences=category_confidences,
             paused_strategies=paused,
             calibration=calibration,
+            urgency_multiplier=urgency,
+            daily_progress=daily_progress,
         )
 
         logger.info(
@@ -180,6 +213,8 @@ class PerformanceLearner:
             groups=len(stats),
             paused=list(paused),
             total_recent_trades=len(recent),
+            urgency=round(urgency, 2),
+            daily_progress=round(daily_progress, 2),
         )
 
         self._last_adjustments = adjustments
@@ -285,6 +320,51 @@ class PerformanceLearner:
             return True
 
         return False
+
+    def _compute_daily_progress(self) -> float:
+        """Compute progress toward daily target (0.0 = none, 1.0 = hit)."""
+        target_usd = self._daily_equity * self._daily_target_pct
+        if target_usd <= 0:
+            return 0.0
+        return self._daily_pnl / target_usd
+
+    def _compute_urgency(self) -> float:
+        """Compute urgency multiplier based on daily target progress.
+
+        The urgency multiplier adjusts edge requirements:
+        - urgency > 1.0 = behind target → engine DIVIDES edge_multiplier
+          by urgency, lowering the bar → more trades get through
+        - urgency < 1.0 = ahead of target → engine DIVIDES edge_multiplier
+          by urgency, raising the bar → fewer trades, protect gains
+        - urgency = 1.0 = on pace → no change
+
+        Returns a float clamped to [0.7, 1.5].
+        """
+        target_usd = self._daily_equity * self._daily_target_pct
+        if target_usd <= 0:
+            return 1.0
+
+        progress = self._daily_pnl / target_usd
+
+        # Time factor: how far through the UTC day are we?
+        now = datetime.utcnow()
+        hours_elapsed = now.hour + now.minute / 60.0
+        day_fraction = max(hours_elapsed / 24.0, 0.01)
+
+        if progress >= 1.0:
+            # Hit or exceeded target — be conservative, protect gains
+            return 0.7
+        elif progress >= day_fraction:
+            # On pace or ahead of pace — normal trading
+            return 1.0
+        elif progress >= 0:
+            # Behind pace but positive — slightly more aggressive
+            # Scale from 1.0 to 1.3 based on how far behind
+            behind_ratio = 1.0 - (progress / day_fraction)
+            return min(1.3, 1.0 + behind_ratio * 0.3)
+        else:
+            # Negative PnL — most aggressive (but capped for safety)
+            return 1.5
 
     def _compute_edge_multiplier(self, stats: StrategyStats) -> float:
         """Compute edge multiplier from stats, clamped to safe range."""

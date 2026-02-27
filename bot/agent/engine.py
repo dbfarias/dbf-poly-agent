@@ -141,6 +141,12 @@ class TradingEngine:
         self.risk_manager.update_peak_equity(self.portfolio.total_equity)
 
         # 2. Update learner stats (lightweight — queries recent trades)
+        #    Feed daily context so urgency multiplier reflects target progress
+        self.learner.set_daily_context(
+            realized_pnl=self.portfolio._realized_pnl_today,
+            equity=self.portfolio.total_equity,
+            target_pct=settings.daily_target_pct,
+        )
         try:
             self._learner_adjustments = await self.learner.compute_stats()
             if self._learner_adjustments.paused_strategies:
@@ -206,13 +212,21 @@ class TradingEngine:
 
             effective_bankroll = self.portfolio.total_equity - cycle_committed
 
-            # Get edge multiplier from learner
+            # Get edge multiplier from learner (historical performance)
             category = signal.metadata.get("category", "")
             edge_multiplier = (
                 self.learner.get_edge_multiplier(signal.strategy, category)
                 if self._learner_adjustments
                 else 1.0
             )
+
+            # Combine with daily target urgency:
+            # urgency > 1 = behind target → lower edge requirement → more trades
+            # urgency < 1 = ahead of target → raise edge requirement → fewer trades
+            if self._learner_adjustments:
+                urgency = self._learner_adjustments.urgency_multiplier
+                edge_multiplier = edge_multiplier / urgency
+                edge_multiplier = max(0.5, min(2.0, edge_multiplier))
 
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
@@ -281,6 +295,14 @@ class TradingEngine:
             cycle=self._cycle_count,
             equity=self.portfolio.total_equity,
             pending_orders=self.order_manager.pending_count,
+            daily_urgency=(
+                round(self._learner_adjustments.urgency_multiplier, 2)
+                if self._learner_adjustments else 1.0
+            ),
+            daily_progress=(
+                round(self._learner_adjustments.daily_progress, 2)
+                if self._learner_adjustments else 0.0
+            ),
         )
 
     async def _handle_order_fill(self, signal, shares: float) -> None:

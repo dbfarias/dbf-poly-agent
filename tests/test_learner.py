@@ -442,6 +442,112 @@ class TestComputeStats:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# _compute_urgency (daily target integration)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeUrgency:
+    def test_no_equity_returns_default(self):
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.0, equity=0.0, target_pct=0.01)
+        assert learner._compute_urgency() == 1.0
+
+    def test_target_hit_returns_conservative(self):
+        """When daily target is met, urgency should be low (conservative)."""
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.50, equity=30.0, target_pct=0.01)
+        # Target = $0.30, PnL = $0.50 → progress = 1.67 → hit target
+        assert learner._compute_urgency() == 0.7
+
+    def test_negative_pnl_returns_most_aggressive(self):
+        """When PnL is negative, urgency should be highest."""
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=-0.20, equity=30.0, target_pct=0.01)
+        assert learner._compute_urgency() == 1.5
+
+    def test_zero_pnl_early_in_day_normal(self):
+        """At start of day with no PnL, should be close to normal."""
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.0, equity=30.0, target_pct=0.01)
+        urgency = learner._compute_urgency()
+        # progress = 0, but day_fraction is small early on → behind but not by much
+        # Result depends on current time, but should be between 1.0 and 1.3
+        assert 1.0 <= urgency <= 1.3
+
+    def test_urgency_clamped_range(self):
+        """All urgency values should be within [0.7, 1.5]."""
+        learner = PerformanceLearner()
+        for pnl in [-5.0, -1.0, 0.0, 0.15, 0.30, 1.0, 5.0]:
+            learner.set_daily_context(realized_pnl=pnl, equity=30.0, target_pct=0.01)
+            urgency = learner._compute_urgency()
+            assert 0.7 <= urgency <= 1.5, f"urgency={urgency} for pnl={pnl}"
+
+
+class TestComputeDailyProgress:
+    def test_zero_equity(self):
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.0, equity=0.0, target_pct=0.01)
+        assert learner._compute_daily_progress() == 0.0
+
+    def test_progress_calculation(self):
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.15, equity=30.0, target_pct=0.01)
+        # Target = $0.30, PnL = $0.15 → 50%
+        assert learner._compute_daily_progress() == 0.5
+
+    def test_exceeded_target(self):
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.60, equity=30.0, target_pct=0.01)
+        # Target = $0.30, PnL = $0.60 → 200%
+        assert learner._compute_daily_progress() == 2.0
+
+    def test_negative_pnl(self):
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=-0.15, equity=30.0, target_pct=0.01)
+        # Target = $0.30, PnL = -$0.15 → -50%
+        assert learner._compute_daily_progress() == -0.5
+
+
+class TestLearnerAdjustmentsUrgency:
+    async def test_adjustments_include_urgency(self):
+        """compute_stats should include urgency in adjustments."""
+        learner = PerformanceLearner()
+        learner.set_daily_context(realized_pnl=0.50, equity=30.0, target_pct=0.01)
+
+        with patch("bot.agent.learner.async_session") as mock_session_ctx:
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch(
+                "bot.agent.learner.TradeRepository"
+            ) as mock_trade_repo_cls:
+                mock_trade_repo = AsyncMock()
+                mock_trade_repo.get_recent.return_value = []
+                mock_trade_repo_cls.return_value = mock_trade_repo
+
+                with patch(
+                    "bot.agent.learner.StrategyMetricRepository"
+                ) as mock_metric_repo_cls:
+                    mock_metric_repo = AsyncMock()
+                    mock_metric_repo_cls.return_value = mock_metric_repo
+
+                    adjustments = await learner.compute_stats()
+
+                    # Target hit → conservative urgency
+                    assert adjustments.urgency_multiplier == 0.7
+                    # Progress > 1.0 (PnL $0.50 / target $0.30)
+                    assert adjustments.daily_progress > 1.0
+
+
+# ---------------------------------------------------------------------------
+# _compute_category_confidences
+# ---------------------------------------------------------------------------
+
+
 class TestComputeCategoryConfidences:
     def test_empty_stats(self):
         learner = PerformanceLearner()
