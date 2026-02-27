@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { DollarSign, Layers, Target, TrendingUp } from "lucide-react";
+import { DollarSign, Layers, Target, TrendingUp, Wallet } from "lucide-react";
 import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats } from "../api/client";
 import EquityChart from "../components/EquityChart";
 import HelpTooltip from "../components/HelpTooltip";
 import StatCard from "../components/StatCard";
 import TradeTable from "../components/TradeTable";
+import WinLossChart from "../components/WinLossChart";
 
 export default function Dashboard() {
   const { data: portfolio } = useQuery({
@@ -61,13 +62,20 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="Total Equity"
           value={`$${portfolio?.total_equity.toFixed(2) ?? "—"}`}
           icon={<DollarSign size={16} />}
           testId="total-equity"
           help="Your total portfolio value: cash balance plus the current market value of all open positions."
+        />
+        <StatCard
+          title="Available Cash"
+          value={`$${portfolio?.cash_balance.toFixed(2) ?? "—"}`}
+          icon={<Wallet size={16} />}
+          testId="available-cash"
+          help="USDC available for new trades. This is your Polymarket wallet balance minus any capital deployed in open positions."
         />
         <StatCard
           title="Today's PnL"
@@ -103,8 +111,11 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Equity Chart */}
-      <EquityChart />
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <EquityChart />
+        <WinLossChart />
+      </div>
 
       {/* Active Positions */}
       {positions && positions.length > 0 && (
