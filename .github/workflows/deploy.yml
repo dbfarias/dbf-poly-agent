@@ -98,8 +98,8 @@ jobs:
           script: |
             set -e
             cd ~/polybot
-            git pull origin main
             echo "$GHCR_TOKEN" | docker login ghcr.io -u dbfarias --password-stdin
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
-            docker compose -f docker-compose.prod.yml logs --tail=20 app
+            sleep 5
+            docker compose -f docker-compose.prod.yml logs --tail=30 app
