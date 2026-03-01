@@ -1,6 +1,9 @@
 """Portfolio state tracker with sync from blockchain and paper mode."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -11,6 +14,9 @@ from bot.data.repositories import PortfolioSnapshotRepository, PositionRepositor
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.gamma import GammaClient
+
+if TYPE_CHECKING:
+    from bot.agent.risk_manager import RiskManager
 
 logger = structlog.get_logger()
 
@@ -23,10 +29,12 @@ class Portfolio:
         clob_client: PolymarketClient,
         data_api: DataApiClient,
         gamma_client: GammaClient | None = None,
+        risk_manager: RiskManager | None = None,
     ):
         self.clob = clob_client
         self.data_api = data_api
         self.gamma = gamma_client
+        self._risk_manager = risk_manager
 
         # State
         self._cash: float = settings.initial_bankroll
@@ -230,7 +238,7 @@ class Portfolio:
                     )
                 else:
                     # Bot-opened positions: check if market has resolved
-                    await self._close_if_resolved(lp, pos_repo)
+                    await self._close_if_resolved(lp, pos_repo, session)
 
         logger.debug(
             "polymarket_positions_synced",
@@ -272,7 +280,8 @@ class Portfolio:
             await self.update_position_prices(prices)
 
     async def _close_if_resolved(
-        self, position: Position, pos_repo: "PositionRepository"
+        self, position: Position, pos_repo: "PositionRepository",
+        session=None,
     ) -> None:
         """Close a bot-opened position that no longer exists on Polymarket.
 
@@ -287,6 +296,8 @@ class Portfolio:
             pnl = 0.0
             await pos_repo.close(position.market_id)
             self._realized_pnl_today += pnl
+            if self._risk_manager and pnl != 0:
+                self._risk_manager.update_daily_pnl(pnl)
             logger.info(
                 "position_closed_no_gamma",
                 market_id=position.market_id,
@@ -325,6 +336,9 @@ class Portfolio:
         await pos_repo.close(position.market_id)
         self._realized_pnl_today += pnl
 
+        if self._risk_manager and pnl != 0:
+            self._risk_manager.update_daily_pnl(pnl)
+
         # Write PnL to the original BUY trade (enables learner to learn)
         exit_reason = "resolution" if (
             market is None or market.closed or market.archived or not market.active
@@ -332,11 +346,17 @@ class Portfolio:
         try:
             from bot.data.repositories import TradeRepository
 
-            async with async_session() as session:
+            if session is not None:
                 repo = TradeRepository(session)
                 await repo.close_trade_for_position(
                     position.market_id, pnl, exit_reason,
                 )
+            else:
+                async with async_session() as s:
+                    repo = TradeRepository(s)
+                    await repo.close_trade_for_position(
+                        position.market_id, pnl, exit_reason,
+                    )
         except Exception as e:
             logger.warning(
                 "close_trade_pnl_update_failed",
@@ -429,7 +449,11 @@ class Portfolio:
             repo = PositionRepository(session)
             await repo.close(market_id)
 
-        await self.sync()
+        # Reload positions from DB (full sync deferred to _trading_cycle)
+        async with async_session() as session:
+            repo = PositionRepository(session)
+            self._positions = await repo.get_open()
+
         return pnl
 
     async def update_position_prices(self, prices: dict[str, float]) -> None:

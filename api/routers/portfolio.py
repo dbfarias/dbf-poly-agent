@@ -146,6 +146,23 @@ async def force_close_position(
     )
     engine.risk_manager.update_daily_pnl(pnl)
 
+    # Write exit_reason to the original BUY trade (so learner can learn)
+    try:
+        from bot.data.database import async_session
+        from bot.data.repositories import TradeRepository
+
+        async with async_session() as session:
+            repo = TradeRepository(session)
+            await repo.close_trade_for_position(
+                position.market_id, pnl, req.reason,
+            )
+    except Exception as e:
+        logger.warning(
+            "force_close_trade_update_failed",
+            market_id=position.market_id,
+            error=str(e),
+        )
+
     logger.info(
         "force_close_completed",
         position_id=req.position_id,

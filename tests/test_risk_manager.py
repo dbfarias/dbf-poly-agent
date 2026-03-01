@@ -143,6 +143,16 @@ class TestUpdatePeakEquity:
 # ---------------------------------------------------------------------------
 
 
+class TestPnlDirtyInit:
+    def test_pnl_dirty_initialized_false(self, rm):
+        """_pnl_dirty should be explicitly initialized (not relying on getattr)."""
+        assert rm._pnl_dirty is False
+
+    def test_pnl_dirty_set_after_update(self, rm):
+        rm.update_daily_pnl(0.5)
+        assert rm._pnl_dirty is True
+
+
 class TestUpdateDailyPnl:
     def test_accumulates(self, rm):
         rm.update_daily_pnl(0.5)
@@ -378,7 +388,8 @@ class TestCheckTotalDeployed:
 
 
 class TestCheckCategoryExposure:
-    def test_no_category_passes(self, rm):
+    def test_no_category_maps_to_other(self, rm):
+        """Empty category should map to 'other' and still run exposure check."""
         config = TierConfig.get(CapitalTier.TIER1)
         signal = make_signal(metadata={})
         result = rm._check_category_exposure(signal, [], 10.0, config)

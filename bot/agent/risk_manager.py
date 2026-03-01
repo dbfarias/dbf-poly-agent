@@ -39,6 +39,7 @@ class RiskManager:
         self._daily_pnl_date: str = ""
         self._peak_equity: float = settings.initial_bankroll
         self._is_paused: bool = False
+        self._pnl_dirty: bool = False
 
     @property
     def is_paused(self) -> bool:
@@ -75,7 +76,7 @@ class RiskManager:
 
     async def persist_daily_pnl(self) -> None:
         """Save daily PnL to DB (called by engine after trades)."""
-        if not getattr(self, "_pnl_dirty", False):
+        if not self._pnl_dirty:
             return
         try:
             from bot.data.settings_store import StateStore
@@ -255,7 +256,7 @@ class RiskManager:
     ) -> RiskCheckResult:
         raw_category = signal.metadata.get("category", "")
         if not raw_category:
-            return RiskCheckResult(True)
+            raw_category = "other"
 
         # Use normalized categories so "Republican Primary" and "Politics" group together
         category = normalize_category(raw_category)

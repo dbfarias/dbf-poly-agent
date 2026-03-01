@@ -1237,3 +1237,55 @@ class TestCloseIfResolved:
         mock_repo.close.assert_awaited_once_with("mkt1")
         # "No" price=0.0 → settlement=0.0, pnl=(0.0-0.50)*5=-2.5
         assert portfolio._realized_pnl_today == pytest.approx(-2.5)
+
+    @pytest.mark.asyncio
+    async def test_close_if_resolved_notifies_risk_manager(
+        self, portfolio, mock_gamma
+    ):
+        """When risk_manager is set, _close_if_resolved should call update_daily_pnl."""
+        pos = make_position(
+            market_id="mkt1",
+            avg_price=0.50,
+            current_price=0.80,
+            size=10.0,
+            strategy="time_decay",
+        )
+        mock_gamma.get_market = AsyncMock(return_value=None)
+
+        mock_rm = MagicMock()
+        mock_rm.update_daily_pnl = MagicMock()
+        portfolio._risk_manager = mock_rm
+
+        mock_repo = AsyncMock()
+        mock_repo.close = AsyncMock()
+
+        await portfolio._close_if_resolved(pos, mock_repo)
+
+        # pnl = (0.80 - 0.50) * 10 = 3.0
+        mock_rm.update_daily_pnl.assert_called_once()
+        actual_pnl = mock_rm.update_daily_pnl.call_args[0][0]
+        assert actual_pnl == pytest.approx(3.0)
+
+    @pytest.mark.asyncio
+    async def test_close_if_resolved_no_risk_notify_for_zero_pnl(
+        self, portfolio
+    ):
+        """Zero PnL should not notify risk_manager (avoid spurious updates)."""
+        portfolio.gamma = None
+        pos = make_position(
+            market_id="mkt1",
+            avg_price=0.50,
+            current_price=0.50,
+            size=10.0,
+        )
+
+        mock_rm = MagicMock()
+        mock_rm.update_daily_pnl = MagicMock()
+        portfolio._risk_manager = mock_rm
+
+        mock_repo = AsyncMock()
+        mock_repo.close = AsyncMock()
+
+        await portfolio._close_if_resolved(pos, mock_repo)
+
+        mock_rm.update_daily_pnl.assert_not_called()

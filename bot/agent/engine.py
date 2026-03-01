@@ -93,8 +93,11 @@ class TradingEngine:
         self.cache = MarketCache(default_ttl=120)
 
         # Components
-        self.portfolio = Portfolio(self.clob_client, self.data_api, self.gamma_client)
         self.risk_manager = RiskManager()
+        self.portfolio = Portfolio(
+            self.clob_client, self.data_api, self.gamma_client,
+            risk_manager=self.risk_manager,
+        )
         self.order_manager = OrderManager(self.clob_client, self.data_api)
         self.learner = PerformanceLearner()
         self.closer = PositionCloser(self.order_manager, self.portfolio, self.risk_manager)
