@@ -26,7 +26,7 @@ engine = create_async_engine(
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-def _set_wal_mode(dbapi_conn, connection_record):
+def _set_wal_mode(dbapi_conn, _connection_record):
     """Enable WAL mode for better concurrent read/write performance."""
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -71,9 +71,3 @@ async def _migrate(eng) -> None:
                     table=table,
                     column=column,
                 )
-
-
-async def get_session() -> AsyncSession:
-    """Get a database session."""
-    async with async_session() as session:
-        yield session

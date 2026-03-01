@@ -119,18 +119,6 @@ class MarketScan(Base):
     was_traded: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class Alert(Base):
-    __tablename__ = "alerts"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
-
-    level: Mapped[str] = mapped_column(String(16))  # info, warning, error, critical
-    category: Mapped[str] = mapped_column(String(64), index=True)
-    message: Mapped[str] = mapped_column(Text)
-    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
-    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
-
 
 class BotSetting(Base):
     __tablename__ = "bot_settings"

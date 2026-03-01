@@ -177,7 +177,7 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
         order: str = "volume",
-        ascending: bool = False,
+        _ascending: bool = False,
     ) -> list[GammaMarket]:
         """Fetch active markets. Gamma API primary, CLOB fallback."""
         try:
@@ -270,7 +270,7 @@ class GammaClient:
         return sorted(result, key=lambda m: m.end_date or datetime.max.replace(tzinfo=timezone.utc))
 
     async def get_near_resolution_markets(
-        self, hours: float = 48.0, min_volume: float = 0.0
+        self, hours: float = 48.0, _min_volume: float = 0.0
     ) -> list[GammaMarket]:
         """Get markets resolving within the given hours window.
 
@@ -298,7 +298,7 @@ class GammaClient:
         return sorted(near, key=lambda m: m.end_date)
 
     async def get_high_volume_markets(
-        self, min_volume: float = 0.0, limit: int = 50
+        self, _min_volume: float = 0.0, limit: int = 50
     ) -> list[GammaMarket]:
         """Get active markets accepting orders."""
         markets = await self.get_markets(limit=limit)

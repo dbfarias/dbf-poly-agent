@@ -193,9 +193,12 @@ class Portfolio:
 
                 # Grace period: skip recently created positions to avoid
                 # race condition where Data API hasn't processed the order yet
+                created = lp.created_at
+                if created and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
                 age_seconds = (
-                    (now - lp.created_at).total_seconds()
-                    if lp.created_at else 0
+                    (now - created).total_seconds()
+                    if created else 0
                 )
                 if age_seconds < 600:  # 10 minutes
                     logger.info(
