@@ -566,7 +566,10 @@ class TradingEngine:
             if not settings.is_paper and pos.size < min_sell_shares:
                 continue
             # Skip positions held less than 5 minutes
-            if pos.created_at and (now - pos.created_at).total_seconds() < min_hold_seconds:
+            created = pos.created_at
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created and (now - created).total_seconds() < min_hold_seconds:
                 continue
             # Never close winners
             if pos.unrealized_pnl > 0:
