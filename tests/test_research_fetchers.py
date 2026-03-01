@@ -167,3 +167,56 @@ class TestCryptoFetcher:
 
         # Only one HTTP call should have been made
         assert mock_get.call_count == 1
+
+
+class TestCryptoFetcherGetPrices:
+    """Tests for CryptoFetcher.get_prices() method."""
+
+    @pytest.fixture
+    def fetcher(self):
+        return CryptoFetcher()
+
+    @pytest.mark.asyncio
+    async def test_returns_usd_prices(self, fetcher):
+        mock_response = httpx.Response(
+            status_code=200,
+            json=SAMPLE_COINGECKO,
+            request=httpx.Request("GET", "https://api.coingecko.com/api/v3/simple/price"),
+        )
+
+        with patch.object(fetcher, "_get_client") as mock_client:
+            mock_client.return_value.get = AsyncMock(return_value=mock_response)
+            result = await fetcher.get_prices()
+
+        assert result["bitcoin"] == 62000
+        assert result["ethereum"] == 3400
+
+    @pytest.mark.asyncio
+    async def test_caches_prices(self, fetcher):
+        mock_response = httpx.Response(
+            status_code=200,
+            json=SAMPLE_COINGECKO,
+            request=httpx.Request("GET", "https://api.coingecko.com/api/v3/simple/price"),
+        )
+
+        with patch.object(fetcher, "_get_client") as mock_client:
+            mock_get = AsyncMock(return_value=mock_response)
+            mock_client.return_value.get = mock_get
+
+            await fetcher.get_prices()
+            await fetcher.get_prices()
+
+        # Only 1 HTTP call for 2 calls
+        assert mock_get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_handles_rate_limit(self, fetcher):
+        mock_response = AsyncMock()
+        mock_response.status_code = 429
+
+        with patch.object(fetcher, "_get_client") as mock_client:
+            mock_client.return_value.get = AsyncMock(return_value=mock_response)
+            result = await fetcher.get_prices()
+
+        # No cached data → empty dict
+        assert result == {}

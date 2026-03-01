@@ -78,8 +78,9 @@ class ResearchEngine:
             self.research_cache.record_scan(0)
             return
 
-        # Fetch crypto sentiment once per scan (shared across crypto markets)
+        # Fetch crypto sentiment and prices once per scan (shared across all markets)
         crypto_sentiment = await self.crypto_fetcher.get_market_sentiment()
+        crypto_prices = await self.crypto_fetcher.get_prices()
         scanned = 0
 
         for market in scan_markets:
@@ -88,6 +89,7 @@ class ResearchEngine:
                     market_id=market.id,
                     question=market.question,
                     crypto_sentiment=crypto_sentiment,
+                    crypto_prices=crypto_prices,
                 )
                 if result is not None:
                     self.research_cache.set(market.id, result)
@@ -111,6 +113,7 @@ class ResearchEngine:
         market_id: str,
         question: str,
         crypto_sentiment: dict[str, float],
+        crypto_prices: dict[str, float] | None = None,
     ) -> ResearchResult | None:
         """Research a single market: keywords -> news -> sentiment -> multiplier."""
         keywords = extract_keywords(question)
@@ -140,6 +143,11 @@ class ResearchEngine:
         if any(kw in question_lower for kw in crypto_keywords):
             crypto_score = crypto_sentiment.get("market_trend", 0.0)
 
+        # Convert prices dict to immutable tuple of tuples
+        prices_tuple = tuple(
+            (coin, price) for coin, price in (crypto_prices or {}).items()
+        )
+
         return ResearchResult(
             market_id=market_id,
             keywords=tuple(keywords),
@@ -149,4 +157,5 @@ class ResearchEngine:
             research_multiplier=research_multiplier,
             updated_at=datetime.now(timezone.utc),
             crypto_sentiment=crypto_score,
+            crypto_prices=prices_tuple,
         )

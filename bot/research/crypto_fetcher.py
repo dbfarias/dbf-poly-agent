@@ -19,6 +19,8 @@ class CryptoFetcher:
         self._client: httpx.AsyncClient | None = None
         self._cached_sentiment: dict[str, float] | None = None
         self._cache_expires_at: float = 0.0
+        self._cached_prices: dict[str, float] | None = None
+        self._prices_expires_at: float = 0.0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -86,6 +88,48 @@ class CryptoFetcher:
             "eth_24h_change": round(eth_change, 2),
             "market_trend": round(market_trend, 4),
         }
+
+    async def get_prices(self) -> dict[str, float]:
+        """Get actual USD prices for BTC and ETH.
+
+        Returns dict like {"bitcoin": 102000.0, "ethereum": 3400.0}.
+        Uses the same CoinGecko /simple/price endpoint, with its own cache.
+        """
+        if self._cached_prices and time.monotonic() < self._prices_expires_at:
+            return self._cached_prices
+
+        try:
+            client = await self._get_client()
+            response = await client.get(
+                f"{self.BASE_URL}/simple/price",
+                params={
+                    "ids": "bitcoin,ethereum",
+                    "vs_currencies": "usd",
+                },
+            )
+
+            if response.status_code == 429:
+                logger.warning("coingecko_prices_rate_limited")
+                return self._cached_prices or {}
+
+            response.raise_for_status()
+            data = response.json()
+
+            result = {
+                coin: info.get("usd", 0.0)
+                for coin, info in data.items()
+                if isinstance(info, dict)
+            }
+            self._cached_prices = result
+            self._prices_expires_at = time.monotonic() + self.CACHE_TTL
+            return result
+
+        except httpx.HTTPError as e:
+            logger.warning("crypto_prices_fetch_failed", error=str(e))
+            return self._cached_prices or {}
+        except Exception as e:
+            logger.warning("crypto_prices_parse_failed", error=str(e))
+            return self._cached_prices or {}
 
     def _neutral_result(self) -> dict[str, float]:
         return {

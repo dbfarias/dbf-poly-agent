@@ -36,6 +36,7 @@ from bot.utils.notifications import notify_daily_summary, notify_error
 
 from .strategies.arbitrage import ArbitrageStrategy
 from .strategies.market_making import MarketMakingStrategy
+from .strategies.price_divergence import PriceDivergenceStrategy
 from .strategies.swing_trading import SwingTradingStrategy
 from .strategies.time_decay import TimeDecayStrategy
 from .strategies.value_betting import ValueBettingStrategy
@@ -100,6 +101,10 @@ class TradingEngine:
         strategies = [
             ArbitrageStrategy(self.clob_client, self.gamma_client, self.cache),
             TimeDecayStrategy(self.clob_client, self.gamma_client, self.cache),
+            PriceDivergenceStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                research_cache=self.research_cache,
+            ),
             SwingTradingStrategy(self.clob_client, self.gamma_client, self.cache),
             ValueBettingStrategy(self.clob_client, self.gamma_client, self.cache),
             MarketMakingStrategy(self.clob_client, self.gamma_client, self.cache),

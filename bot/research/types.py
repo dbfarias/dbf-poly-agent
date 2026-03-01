@@ -27,3 +27,4 @@ class ResearchResult:
     research_multiplier: float  # 0.7 - 1.3
     updated_at: datetime
     crypto_sentiment: float = 0.0  # BTC/ETH market sentiment
+    crypto_prices: tuple[tuple[str, float], ...] = ()  # (("bitcoin", 102000.0), ...)
