@@ -93,7 +93,13 @@ class PositionCloser:
             )
 
     async def handle_sell_fill(
-        self, market_id: str, sell_price: float, trade_id: int, shares: float,
+        self,
+        market_id: str,
+        sell_price: float,
+        trade_id: int,
+        shares: float,
+        strategy: str = "",
+        question: str = "",
     ) -> None:
         """Callback when a pending live SELL order is confirmed filled."""
         logger.info(
@@ -101,6 +107,7 @@ class PositionCloser:
             market_id=market_id,
             sell_price=sell_price,
             trade_id=trade_id,
+            strategy=strategy,
         )
         pnl = await self.portfolio.record_trade_close(market_id, sell_price)
         self.risk_manager.update_daily_pnl(pnl)
@@ -119,8 +126,8 @@ class PositionCloser:
 
         await log_position_closed(
             market_id=market_id,
-            question="",
-            strategy="",
+            question=question,
+            strategy=strategy,
             pnl=pnl,
             exit_reason="deferred_sell_fill",
         )
@@ -128,8 +135,8 @@ class PositionCloser:
             "trade_filled",
             trade_event="sell_filled",
             market_id=market_id,
-            question="",
-            strategy="",
+            question=question,
+            strategy=strategy,
             side="SELL",
             price=sell_price,
             size=shares,
@@ -169,7 +176,9 @@ class PositionCloser:
     async def try_rebalance(self, signal, positions):
         """Close the weakest losing position to make room for a better signal.
 
-        Returns the closed Position if successful, None if no rebalance happened.
+        Returns (closed_position, close_trade) if successful, None otherwise.
+        The caller should check close_trade.status to decide whether to record
+        PnL immediately (filled) or defer to handle_sell_fill (pending).
         """
         min_rebalance_edge = 0.03
         min_hold_seconds = 300
@@ -211,7 +220,7 @@ class PositionCloser:
             new_signal_edge=round(signal.edge, 4),
         )
 
-        close_result = await self.order_manager.close_position(
+        close_trade = await self.order_manager.close_position(
             market_id=worst_pos.market_id,
             token_id=worst_pos.token_id,
             size=worst_pos.size,
@@ -221,7 +230,7 @@ class PositionCloser:
             category=worst_pos.category,
             strategy=worst_pos.strategy,
         )
-        if close_result is None:
+        if close_trade is None:
             logger.warning("rebalance_close_failed", market_id=worst_pos.market_id)
             return None
 
@@ -240,5 +249,6 @@ class PositionCloser:
             "rebalance_closed_position",
             closed_market=worst_pos.market_id[:20],
             new_signal=signal.market_id[:20],
+            trade_status=close_trade.status,
         )
-        return worst_pos
+        return worst_pos, close_trade

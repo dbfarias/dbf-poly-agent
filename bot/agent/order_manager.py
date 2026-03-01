@@ -30,8 +30,9 @@ SELL_ORDER_TIMEOUT_SECONDS = 600  # Give SELL orders 10 minutes (less liquid)
 # Callback type: (signal, shares) -> None
 OnFillCallback = Callable[[TradeSignal, float], Awaitable[None]]
 
-# Callback type for sell fills: (market_id, sell_price, trade_id, shares) -> None
-OnSellFillCallback = Callable[[str, float, int, float], Awaitable[None]]
+# Callback type for sell fills:
+# (market_id, sell_price, trade_id, shares, *, strategy, question) -> None
+OnSellFillCallback = Callable[..., Awaitable[None]]
 
 
 class OrderManager:
@@ -294,9 +295,12 @@ class OrderManager:
                 if is_sell and self._on_sell_fill_callback:
                     sell_market_id = info.get("market_id", "")
                     sell_price = info.get("sell_price", 0.0)
+                    sell_strategy = info.get("strategy", "")
+                    sell_question = info.get("question", "")
                     try:
                         await self._on_sell_fill_callback(
                             sell_market_id, sell_price, trade_id, shares,
+                            strategy=sell_strategy, question=sell_question,
                         )
                     except Exception as e:
                         logger.error(
@@ -423,6 +427,8 @@ class OrderManager:
                 "token_id": token_id,
                 "market_id": market_id,
                 "sell_price": sell_price,
+                "strategy": strategy,
+                "question": question,
             }
 
         return trade

@@ -1022,7 +1022,10 @@ class TestTryRebalance:
         with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
             result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
-        assert result is loser
+        assert result is not None
+        closed_pos, rebal_trade = result
+        assert closed_pos is loser
+        assert rebal_trade.status == "filled"
         engine.order_manager.close_position.assert_called_once()
 
     @pytest.mark.asyncio

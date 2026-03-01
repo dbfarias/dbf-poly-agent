@@ -554,39 +554,48 @@ class TradingEngine:
 
             if not approved:
                 # Try rebalancing: close weakest loser to make room
-                closed_pos = None
+                rebalance_result = None
                 if (
                     "Max positions" in reason
                     and not self._rebalanced_this_cycle
                 ):
-                    closed_pos = await self.closer.try_rebalance(
+                    rebalance_result = await self.closer.try_rebalance(
                         signal, self.portfolio.positions
                     )
 
-                if closed_pos is not None:
+                if rebalance_result is not None:
+                    closed_pos, rebal_trade = rebalance_result
                     self._rebalanced_this_cycle = True
 
-                    # Record PnL for the closed position
-                    pnl = await self.portfolio.record_trade_close(
-                        closed_pos.market_id, closed_pos.current_price
-                    )
-                    self.risk_manager.update_daily_pnl(pnl)
-
-                    from bot.data.repositories import TradeRepository
-
-                    async with async_session() as session:
-                        repo = TradeRepository(session)
-                        await repo.close_trade_for_position(
-                            closed_pos.market_id, pnl, "rebalance",
+                    if rebal_trade.status == "filled":
+                        # Paper mode or instantly matched — record PnL now
+                        pnl = await self.portfolio.record_trade_close(
+                            closed_pos.market_id, closed_pos.current_price
                         )
+                        self.risk_manager.update_daily_pnl(pnl)
 
-                    await log_position_closed(
-                        market_id=closed_pos.market_id,
-                        question=closed_pos.question,
-                        strategy=closed_pos.strategy,
-                        pnl=pnl,
-                        exit_reason="rebalance",
-                    )
+                        from bot.data.repositories import TradeRepository
+
+                        async with async_session() as session:
+                            repo = TradeRepository(session)
+                            await repo.close_trade_for_position(
+                                closed_pos.market_id, pnl, "rebalance",
+                            )
+
+                        await log_position_closed(
+                            market_id=closed_pos.market_id,
+                            question=closed_pos.question,
+                            strategy=closed_pos.strategy,
+                            pnl=pnl,
+                            exit_reason="rebalance",
+                        )
+                    else:
+                        # Live pending — handle_sell_fill will record PnL on fill
+                        logger.info(
+                            "rebalance_sell_pending",
+                            market_id=closed_pos.market_id,
+                            strategy=closed_pos.strategy,
+                        )
 
                     # Re-evaluate with updated positions (one slot freed)
                     approved, size, reason = await self.risk_manager.evaluate_signal(

@@ -136,7 +136,9 @@ class TestTryRebalance:
                 result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
             assert result is not None
-            assert result.market_id == loser.market_id
+            closed_pos, rebal_trade = result
+            assert closed_pos.market_id == loser.market_id
+            assert rebal_trade.status == "filled"
             engine.order_manager.close_position.assert_called_once_with(
                 market_id=loser.market_id,
                 token_id=loser.token_id,
@@ -239,8 +241,8 @@ class TestTryRebalance:
 
             with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
                 # First rebalance succeeds
-                result1 = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
-                assert result1 is not None
+                rebalance_result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+                assert rebalance_result is not None
                 engine._rebalanced_this_cycle = True
 
                 # The flag check happens in the calling code (_trading_cycle),
@@ -306,7 +308,9 @@ class TestTryRebalance:
                 result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
             assert result is not None
-            assert result.market_id == "mkt_b"
+            closed_pos, rebal_trade = result
+            assert closed_pos.market_id == "mkt_b"
+            assert rebal_trade.status == "filled"
             # Should close mkt_b (worst loser)
             engine.order_manager.close_position.assert_called_once_with(
                 market_id="mkt_b",
@@ -362,6 +366,8 @@ class TestTryRebalance:
                 result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
             assert result is not None
+            closed_pos, rebal_trade = result
+            assert closed_pos is not None
             engine.order_manager.close_position.assert_called_once()
 
     @pytest.mark.asyncio
@@ -395,9 +401,9 @@ class TestTryRebalance:
             signal = make_signal(edge=0.05)
 
             with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
-                rebalanced = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+                rebalance_result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
-            assert rebalanced is not None
+            assert rebalance_result is not None
 
             # Simulate what the engine loop does after rebalance:
             # re-evaluate the signal with updated positions
@@ -449,10 +455,12 @@ class TestRebalanceReturnPosition:
             with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
                 result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
-            # Returns the closed Position (not bool)
+            # Returns (closed_position, trade) tuple
             assert result is not None
-            assert result.market_id == loser.market_id
-            # PnL NOT recorded inside _try_rebalance
+            closed_pos, rebal_trade = result
+            assert closed_pos.market_id == loser.market_id
+            assert rebal_trade.status == "filled"
+            # PnL NOT recorded inside try_rebalance
             engine.portfolio.record_trade_close.assert_not_called()
             engine.risk_manager.update_daily_pnl.assert_not_called()
 
