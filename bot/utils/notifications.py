@@ -56,6 +56,41 @@ async def notify_error(category: str, message: str) -> None:
     await send_telegram(msg)
 
 
+async def notify_strategy_paused(strategy: str, reason: str) -> None:
+    """Notify when a strategy is paused by the learner."""
+    msg = (
+        f"⏸️ <b>Strategy Paused</b>\n"
+        f"Strategy: {strategy}\n"
+        f"Reason: {reason}\n"
+        f"Cooldown: 24 hours"
+    )
+    await send_telegram(msg)
+
+
+async def notify_risk_limit(limit_type: str, current: float, threshold: float) -> None:
+    """Notify when a risk limit is hit (daily loss, drawdown)."""
+    msg = (
+        f"🚨 <b>Risk Limit Hit</b>\n"
+        f"Type: {limit_type}\n"
+        f"Current: {current:.1%}\n"
+        f"Threshold: {threshold:.1%}\n"
+        f"Trading paused automatically."
+    )
+    await send_telegram(msg)
+
+
+async def notify_daily_target(equity: float, daily_pnl: float, target_pct: float) -> None:
+    """Notify when the daily profit target is achieved."""
+    msg = (
+        f"🎯 <b>Daily Target Reached!</b>\n"
+        f"Equity: ${equity:.2f}\n"
+        f"Daily PnL: ${daily_pnl:+.2f}\n"
+        f"Target: {target_pct:.1%}\n"
+        f"Strategy edges will tighten."
+    )
+    await send_telegram(msg)
+
+
 async def notify_daily_summary(
     equity: float, daily_pnl: float, daily_return: float, trades: int, win_rate: float
 ) -> None:

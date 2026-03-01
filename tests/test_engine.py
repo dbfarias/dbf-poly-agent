@@ -1211,3 +1211,94 @@ class TestSeedStrategyMetrics:
         assert mock_repo.upsert.call_count == 1
         call_arg = mock_repo.upsert.call_args[0][0]
         assert call_arg.strategy == "arbitrage"
+
+
+# ---------------------------------------------------------------------------
+# Notification wiring: strategy pause, daily target, risk limits
+# ---------------------------------------------------------------------------
+
+
+class TestEngineNotifications:
+    """Test that the engine sends notifications + activity logs for key events."""
+
+    def _setup_engine(self):
+        """Create a patched engine with mock portfolio and risk manager."""
+        engine = _make_engine()
+        engine.portfolio = MagicMock()
+        engine.portfolio.total_equity = 10.0
+        engine.portfolio._realized_pnl_today = 0.15
+        engine.portfolio._day_start_equity = 10.0
+        engine.risk_manager = MagicMock()
+        engine.risk_manager._daily_pnl = -1.5
+        engine.risk_manager.get_risk_metrics.return_value = {
+            "daily_loss_limit_pct": 0.10,
+            "current_drawdown_pct": 0.25,
+            "max_drawdown_limit_pct": 0.20,
+        }
+        return engine
+
+    async def test_maybe_notify_risk_limit_daily_loss(self):
+        """_maybe_notify_risk_limit fires once for daily loss."""
+        engine = self._setup_engine()
+
+        with patch("bot.agent.engine.log_risk_limit_hit", new_callable=AsyncMock) as mock_log, \
+             patch("bot.agent.engine.notify_risk_limit", new_callable=AsyncMock) as mock_notify:
+            await engine._maybe_notify_risk_limit("Daily loss limit reached: $-1.50")
+            mock_log.assert_called_once()
+            mock_notify.assert_called_once()
+            # First positional arg is limit_type
+            assert mock_log.call_args[0][0] == "daily_loss"
+
+    async def test_maybe_notify_risk_limit_drawdown(self):
+        """_maybe_notify_risk_limit fires once for max drawdown."""
+        engine = self._setup_engine()
+
+        with patch("bot.agent.engine.log_risk_limit_hit", new_callable=AsyncMock) as mock_log, \
+             patch("bot.agent.engine.notify_risk_limit", new_callable=AsyncMock) as mock_notify:
+            await engine._maybe_notify_risk_limit("Max drawdown exceeded: 25.0% > 20.0%")
+            mock_log.assert_called_once()
+            mock_notify.assert_called_once()
+
+    async def test_risk_limit_notifies_once_per_day(self):
+        """Second call on the same day should NOT send another notification."""
+        engine = self._setup_engine()
+
+        with patch("bot.agent.engine.log_risk_limit_hit", new_callable=AsyncMock) as mock_log, \
+             patch("bot.agent.engine.notify_risk_limit", new_callable=AsyncMock) as mock_notify:
+            await engine._maybe_notify_risk_limit("Daily loss limit reached")
+            await engine._maybe_notify_risk_limit("Daily loss limit reached")
+            # Should be called only once despite two invocations
+            assert mock_log.call_count == 1
+            assert mock_notify.call_count == 1
+
+    async def test_risk_limit_ignores_unrelated_reasons(self):
+        """Reasons that don't mention daily loss or drawdown should be ignored."""
+        engine = self._setup_engine()
+
+        with patch("bot.agent.engine.log_risk_limit_hit", new_callable=AsyncMock) as mock_log, \
+             patch("bot.agent.engine.notify_risk_limit", new_callable=AsyncMock) as mock_notify:
+            await engine._maybe_notify_risk_limit("Max positions reached: 3 >= 3")
+            mock_log.assert_not_called()
+            mock_notify.assert_not_called()
+
+    async def test_strategy_pause_notification_wiring(self):
+        """Engine should send notifications for newly paused strategies."""
+        engine = self._setup_engine()
+        engine.learner = MagicMock()
+        engine.learner._newly_paused = [("time_decay", 0.20, -2.5)]
+
+        with patch("bot.agent.engine.log_strategy_paused", new_callable=AsyncMock) as mock_log, \
+             patch("bot.agent.engine.notify_strategy_paused", new_callable=AsyncMock) as mock_notify:
+            for s_name, s_wr, s_pnl in engine.learner._newly_paused:
+                await mock_log(s_name, s_wr, s_pnl)
+                await mock_notify(s_name, f"Win rate {s_wr:.0%}, PnL ${s_pnl:+.2f}")
+
+            mock_log.assert_called_once_with("time_decay", 0.20, -2.5)
+            mock_notify.assert_called_once()
+            assert "time_decay" in mock_notify.call_args[0][0]
+
+    async def test_init_has_notification_tracking_attrs(self):
+        """Engine init should have _target_notified_day and _risk_limit_notified."""
+        engine = _make_engine()
+        assert engine._target_notified_day == ""
+        assert engine._risk_limit_notified == {}

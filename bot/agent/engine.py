@@ -13,12 +13,15 @@ from bot.agent.risk_manager import RiskManager
 from bot.config import settings
 from bot.data.activity import (
     log_cycle_summary,
+    log_daily_target_reached,
     log_exit_triggered,
     log_liquidity_rejected,
     log_position_closed,
     log_rebalance,
+    log_risk_limit_hit,
     log_signal_found,
     log_signal_rejected,
+    log_strategy_paused,
     prune_old_activity,
 )
 from bot.data.database import async_session
@@ -32,7 +35,13 @@ from bot.polymarket.heartbeat import HeartbeatManager
 from bot.polymarket.websocket_manager import WebSocketManager
 from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
-from bot.utils.notifications import notify_daily_summary, notify_error
+from bot.utils.notifications import (
+    notify_daily_summary,
+    notify_daily_target,
+    notify_error,
+    notify_risk_limit,
+    notify_strategy_paused,
+)
 
 from .strategies.arbitrage import ArbitrageStrategy
 from .strategies.market_making import MarketMakingStrategy
@@ -121,6 +130,8 @@ class TradingEngine:
         self._learner_adjustments = None
         self._rebalanced_this_cycle = False
         self.disabled_strategies: set[str] = set()
+        self._target_notified_day: str = ""
+        self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
 
     @property
     def is_running(self) -> bool:
@@ -235,6 +246,29 @@ class TradingEngine:
                     "learner_paused_strategies",
                     strategies=list(self._learner_adjustments.paused_strategies),
                 )
+            # Notify on newly paused strategies
+            for s_name, s_wr, s_pnl in self.learner._newly_paused:
+                await log_strategy_paused(s_name, s_wr, s_pnl)
+                await notify_strategy_paused(
+                    s_name, f"Win rate {s_wr:.0%}, PnL ${s_pnl:+.2f}"
+                )
+
+            # Check if daily target was reached (notify once per day)
+            if self._learner_adjustments.urgency_multiplier < 1.0:
+                day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if self._target_notified_day != day_key:
+                    self._target_notified_day = day_key
+                    await log_daily_target_reached(
+                        self.portfolio.total_equity,
+                        self.portfolio._realized_pnl_today,
+                        settings.daily_target_pct,
+                    )
+                    await notify_daily_target(
+                        self.portfolio.total_equity,
+                        self.portfolio._realized_pnl_today,
+                        settings.daily_target_pct,
+                    )
+
             # Apply adjustments to strategies (including urgency for dynamic horizons)
             adj_dict = {
                 "edge_multipliers": self._learner_adjustments.edge_multipliers,
@@ -418,6 +452,8 @@ class TradingEngine:
                         edge=signal.edge,
                         price=signal.market_price,
                     )
+                    # Notify on risk limit breaches (once per day per type)
+                    await self._maybe_notify_risk_limit(reason)
                     continue
 
             # 5b. Check order book liquidity before executing
@@ -590,6 +626,41 @@ class TradingEngine:
             new_signal=signal.market_id[:20],
         )
         return worst_pos
+
+    async def _maybe_notify_risk_limit(self, reason: str) -> None:
+        """Send a one-time daily notification when a risk limit is breached."""
+        day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        if "Daily loss limit" in reason:
+            if self._risk_limit_notified.get("daily_loss") != day_key:
+                self._risk_limit_notified["daily_loss"] = day_key
+                config = self.risk_manager.get_risk_metrics(self.portfolio.total_equity)
+                await log_risk_limit_hit(
+                    "daily_loss",
+                    abs(self.risk_manager._daily_pnl / self.portfolio.total_equity)
+                    if self.portfolio.total_equity > 0 else 0.0,
+                    config["daily_loss_limit_pct"],
+                )
+                await notify_risk_limit(
+                    "daily_loss",
+                    abs(self.risk_manager._daily_pnl / self.portfolio.total_equity)
+                    if self.portfolio.total_equity > 0 else 0.0,
+                    config["daily_loss_limit_pct"],
+                )
+        elif "Max drawdown" in reason:
+            if self._risk_limit_notified.get("max_drawdown") != day_key:
+                self._risk_limit_notified["max_drawdown"] = day_key
+                config = self.risk_manager.get_risk_metrics(self.portfolio.total_equity)
+                await log_risk_limit_hit(
+                    "max_drawdown",
+                    config["current_drawdown_pct"],
+                    config["max_drawdown_limit_pct"],
+                )
+                await notify_risk_limit(
+                    "max_drawdown",
+                    config["current_drawdown_pct"],
+                    config["max_drawdown_limit_pct"],
+                )
 
     async def _close_position(self, pos) -> None:
         """Close a position and record PnL if immediately filled.

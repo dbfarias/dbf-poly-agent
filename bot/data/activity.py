@@ -286,6 +286,67 @@ async def log_rebalance(
     ))
 
 
+async def log_strategy_paused(
+    strategy: str,
+    win_rate: float,
+    total_pnl: float,
+) -> None:
+    """Log when the learner auto-pauses a strategy."""
+    await _write(BotActivity(
+        event_type="bot_event",
+        level="warning",
+        title=f"Strategy paused: {strategy}",
+        detail=(
+            f"Auto-paused for 24h due to poor performance.\n"
+            f"Last {10} trades: {win_rate:.0%} win rate, ${total_pnl:+.2f} PnL"
+        ),
+        strategy=strategy,
+        metadata_json=_meta({
+            "reason": "auto_pause",
+            "win_rate": win_rate,
+            "total_pnl": total_pnl,
+        }),
+    ))
+
+
+async def log_risk_limit_hit(
+    limit_type: str,
+    current: float,
+    threshold: float,
+) -> None:
+    """Log when a risk limit is breached."""
+    await _write(BotActivity(
+        event_type="bot_event",
+        level="error",
+        title=f"Risk limit hit: {limit_type}",
+        detail=f"{limit_type}: {current:.1%} exceeds {threshold:.1%} threshold.",
+        metadata_json=_meta({
+            "limit_type": limit_type,
+            "current": current,
+            "threshold": threshold,
+        }),
+    ))
+
+
+async def log_daily_target_reached(
+    equity: float,
+    daily_pnl: float,
+    target_pct: float,
+) -> None:
+    """Log when the daily profit target is achieved."""
+    await _write(BotActivity(
+        event_type="bot_event",
+        level="success",
+        title="Daily target reached!",
+        detail=f"PnL: ${daily_pnl:+.2f} on ${equity:.2f} equity (target: {target_pct:.1%})",
+        metadata_json=_meta({
+            "equity": equity,
+            "daily_pnl": daily_pnl,
+            "target_pct": target_pct,
+        }),
+    ))
+
+
 async def log_price_adjustment(
     market_id: str,
     strategy: str,

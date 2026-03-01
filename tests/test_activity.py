@@ -15,6 +15,7 @@ from bot.data.activity import (
     _meta,
     log_bot_event,
     log_cycle_summary,
+    log_daily_target_reached,
     log_exit_triggered,
     log_liquidity_rejected,
     log_order_expired,
@@ -23,8 +24,10 @@ from bot.data.activity import (
     log_position_closed,
     log_price_adjustment,
     log_rebalance,
+    log_risk_limit_hit,
     log_signal_found,
     log_signal_rejected,
+    log_strategy_paused,
     prune_old_activity,
 )
 from bot.data.models import Base, BotActivity, MarketScan
@@ -733,3 +736,78 @@ class TestLogSignalFoundBranch:
         )
         rows = await _fetch_all_activities(patched_async_session)
         assert "to resolution" in rows[0].detail
+
+
+# ---------------------------------------------------------------------------
+# log_strategy_paused — covers lines 289-309
+# ---------------------------------------------------------------------------
+
+
+class TestLogStrategyPaused:
+    async def test_creates_warning_event(self, patched_async_session):
+        """log_strategy_paused should create a warning-level bot_event."""
+        await log_strategy_paused(strategy="time_decay", win_rate=0.25, total_pnl=-2.5)
+        rows = await _fetch_all_activities(patched_async_session)
+        assert len(rows) == 1
+        assert rows[0].event_type == "bot_event"
+        assert rows[0].level == "warning"
+        assert "time_decay" in rows[0].title
+
+    async def test_metadata_contains_reason_and_stats(self, patched_async_session):
+        """metadata_json should include auto_pause reason, win_rate, and total_pnl."""
+        await log_strategy_paused(strategy="arbitrage", win_rate=0.20, total_pnl=-3.0)
+        rows = await _fetch_all_activities(patched_async_session)
+        meta = json.loads(rows[0].metadata_json)
+        assert meta["reason"] == "auto_pause"
+        assert meta["win_rate"] == pytest.approx(0.20)
+        assert meta["total_pnl"] == pytest.approx(-3.0)
+
+
+# ---------------------------------------------------------------------------
+# log_risk_limit_hit — covers lines 312-328
+# ---------------------------------------------------------------------------
+
+
+class TestLogRiskLimitHit:
+    async def test_creates_error_event(self, patched_async_session):
+        """log_risk_limit_hit should create an error-level bot_event."""
+        await log_risk_limit_hit(limit_type="daily_loss", current=0.12, threshold=0.10)
+        rows = await _fetch_all_activities(patched_async_session)
+        assert len(rows) == 1
+        assert rows[0].event_type == "bot_event"
+        assert rows[0].level == "error"
+        assert "daily_loss" in rows[0].title
+
+    async def test_metadata_contains_limit_details(self, patched_async_session):
+        """metadata_json should include limit_type, current, and threshold."""
+        await log_risk_limit_hit(limit_type="max_drawdown", current=0.25, threshold=0.20)
+        rows = await _fetch_all_activities(patched_async_session)
+        meta = json.loads(rows[0].metadata_json)
+        assert meta["limit_type"] == "max_drawdown"
+        assert meta["current"] == pytest.approx(0.25)
+        assert meta["threshold"] == pytest.approx(0.20)
+
+
+# ---------------------------------------------------------------------------
+# log_daily_target_reached — covers lines 331-347
+# ---------------------------------------------------------------------------
+
+
+class TestLogDailyTargetReached:
+    async def test_creates_success_event(self, patched_async_session):
+        """log_daily_target_reached should create a success-level bot_event."""
+        await log_daily_target_reached(equity=15.0, daily_pnl=0.20, target_pct=0.01)
+        rows = await _fetch_all_activities(patched_async_session)
+        assert len(rows) == 1
+        assert rows[0].event_type == "bot_event"
+        assert rows[0].level == "success"
+        assert "target" in rows[0].title.lower()
+
+    async def test_metadata_contains_financial_details(self, patched_async_session):
+        """metadata_json should include equity, daily_pnl, and target_pct."""
+        await log_daily_target_reached(equity=20.0, daily_pnl=0.30, target_pct=0.015)
+        rows = await _fetch_all_activities(patched_async_session)
+        meta = json.loads(rows[0].metadata_json)
+        assert meta["equity"] == pytest.approx(20.0)
+        assert meta["daily_pnl"] == pytest.approx(0.30)
+        assert meta["target_pct"] == pytest.approx(0.015)

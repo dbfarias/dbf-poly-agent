@@ -90,6 +90,7 @@ class PerformanceLearner:
         self._paused_strategies: dict[str, datetime] = {}
         self._last_computed: datetime | None = None
         self._last_adjustments: LearnerAdjustments | None = None
+        self._newly_paused: list[tuple[str, float, float]] = []
 
         # Daily target context (set by engine each cycle)
         self._daily_pnl: float = 0.0
@@ -117,6 +118,8 @@ class PerformanceLearner:
         and strategy pause states. Skips recomputation if called within
         RECOMPUTE_INTERVAL seconds of the last computation.
         """
+        self._newly_paused = []
+
         # Skip if recently computed (avoid hammering DB every 30s cycle)
         if (
             self._last_computed is not None
@@ -310,6 +313,9 @@ class PerformanceLearner:
 
         if win_rate < PAUSE_WIN_RATE and total_pnl < PAUSE_MIN_LOSS:
             self._paused_strategies[strategy] = datetime.now(timezone.utc)
+            self._newly_paused.append(
+                (strategy, win_rate, total_pnl)
+            )
             logger.warning(
                 "strategy_auto_paused",
                 strategy=strategy,
