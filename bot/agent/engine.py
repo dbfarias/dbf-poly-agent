@@ -160,6 +160,9 @@ class TradingEngine:
         if restored > 0:
             logger.info("settings_restored_from_db", count=restored)
 
+        # Restore ephemeral state (daily PnL, cooldowns, paused strategies)
+        await self._restore_state()
+
         # Wire up deferred fill callbacks for live orders
         self.order_manager.set_on_fill_callback(self.closer.handle_order_fill)
         self.order_manager.set_on_sell_fill_callback(self.closer.handle_sell_fill)
@@ -191,9 +194,54 @@ class TradingEngine:
         except Exception as e:
             logger.error("expire_stale_pending_failed", error=str(e))
 
+    async def _restore_state(self) -> None:
+        """Restore ephemeral state from DB after restart."""
+        await self.risk_manager.restore_daily_pnl()
+        await self.learner.restore_paused_strategies()
+
+        # Restore market cooldowns
+        try:
+            from bot.data.settings_store import StateStore
+
+            cooldowns = await StateStore.load_market_cooldowns()
+            now = datetime.now(timezone.utc)
+            for market_id, iso_str in cooldowns.items():
+                expires = datetime.fromisoformat(iso_str)
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if expires > now:
+                    self._market_cooldown[market_id] = expires
+            if self._market_cooldown:
+                logger.info(
+                    "market_cooldowns_restored",
+                    count=len(self._market_cooldown),
+                )
+        except Exception as e:
+            logger.error("restore_cooldowns_failed", error=str(e))
+
+    async def _persist_state(self) -> None:
+        """Persist ephemeral state to DB (called after trades)."""
+        await self.risk_manager.persist_daily_pnl()
+        await self.learner.persist_paused_strategies()
+
+        # Persist active cooldowns
+        try:
+            from bot.data.settings_store import StateStore
+
+            now = datetime.now(timezone.utc)
+            active = {
+                mid: dt.isoformat()
+                for mid, dt in self._market_cooldown.items()
+                if dt > now
+            }
+            await StateStore.save_market_cooldowns(active)
+        except Exception as e:
+            logger.error("persist_cooldowns_failed", error=str(e))
+
     async def shutdown(self) -> None:
         """Clean shutdown."""
         self._running = False
+        await self._persist_state()
         await self.research_engine.stop()
         await self.heartbeat.stop()
         await self.ws_manager.disconnect()
@@ -268,7 +316,11 @@ class TradingEngine:
         # 7. Monitor pending orders
         await self.order_manager.monitor_orders()
 
-        # 8. Take periodic snapshot
+        # 8. Persist state (daily PnL, cooldowns, paused strategies)
+        if orders_placed > 0 or self._cycle_count % 10 == 0:
+            await self._persist_state()
+
+        # 9. Take periodic snapshot
         await self._maybe_snapshot()
 
         # 9. Daily summary

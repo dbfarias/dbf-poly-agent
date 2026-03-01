@@ -23,6 +23,10 @@ class CryptoFetcher:
         self._cached_prices: dict[str, float] | None = None
         self._prices_expires_at: float = 0.0
 
+        from bot.utils.circuit_breaker import CircuitBreaker
+
+        self._breaker = CircuitBreaker("coingecko", failure_threshold=3, recovery_seconds=300)
+
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
@@ -43,6 +47,10 @@ class CryptoFetcher:
         if self._cached_sentiment and time.monotonic() < self._cache_expires_at:
             return self._cached_sentiment
 
+        # Circuit breaker — return cached data when CoinGecko is down
+        if not self._breaker.allow_request():
+            return self._cached_sentiment or self._neutral_result()
+
         try:
             client = await self._get_client()
             response = await client.get(
@@ -56,6 +64,7 @@ class CryptoFetcher:
 
             if response.status_code == 429:
                 logger.warning("coingecko_rate_limited")
+                self._breaker.record_failure()
                 return self._cached_sentiment or self._neutral_result()
 
             response.raise_for_status()
@@ -64,12 +73,15 @@ class CryptoFetcher:
             result = self._parse_response(data)
             self._cached_sentiment = result
             self._cache_expires_at = time.monotonic() + self.CACHE_TTL
+            self._breaker.record_success()
             return result
 
         except httpx.HTTPError as e:
+            self._breaker.record_failure()
             logger.warning("crypto_fetch_failed", error=str(e))
             return self._cached_sentiment or self._neutral_result()
         except Exception as e:
+            self._breaker.record_failure()
             logger.warning("crypto_parse_failed", error=str(e))
             return self._cached_sentiment or self._neutral_result()
 

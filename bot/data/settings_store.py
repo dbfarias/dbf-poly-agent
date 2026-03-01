@@ -172,3 +172,89 @@ def _apply_quality(engine, param: str, value) -> int:
         setattr(engine.analyzer, attr, value)
         return 1
     return 0
+
+
+class StateStore:
+    """Persist and restore ephemeral bot state (daily PnL, cooldowns, pauses).
+
+    Uses the same settings DB table but with 'state.' key prefix.
+    State is volatile — it's saved frequently and restored on restart
+    to avoid losing in-memory progress.
+    """
+
+    @staticmethod
+    async def save_daily_pnl(daily_pnl: float, daily_pnl_date: str) -> None:
+        """Persist daily PnL and its date."""
+        items = {
+            "state.daily_pnl": json.dumps(daily_pnl),
+            "state.daily_pnl_date": json.dumps(daily_pnl_date),
+        }
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many(items)
+
+    @staticmethod
+    async def load_daily_pnl() -> tuple[float, str]:
+        """Load persisted daily PnL. Returns (pnl, date_str)."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            pnl_raw = await repo.get("state.daily_pnl")
+            date_raw = await repo.get("state.daily_pnl_date")
+
+        if pnl_raw is None or date_raw is None:
+            return 0.0, ""
+
+        try:
+            return float(json.loads(pnl_raw)), json.loads(date_raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return 0.0, ""
+
+    @staticmethod
+    async def save_market_cooldowns(cooldowns: dict[str, str]) -> None:
+        """Persist market cooldowns as JSON (market_id → ISO datetime)."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many(
+                {"state.market_cooldowns": json.dumps(cooldowns)}
+            )
+
+    @staticmethod
+    async def load_market_cooldowns() -> dict[str, str]:
+        """Load persisted market cooldowns."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("state.market_cooldowns")
+
+        if raw is None:
+            return {}
+
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    @staticmethod
+    async def save_paused_strategies(paused: dict[str, str]) -> None:
+        """Persist paused strategies (strategy_name → ISO pause datetime)."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many(
+                {"state.paused_strategies": json.dumps(paused)}
+            )
+
+    @staticmethod
+    async def load_paused_strategies() -> dict[str, str]:
+        """Load persisted paused strategies."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("state.paused_strategies")
+
+        if raw is None:
+            return {}
+
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}

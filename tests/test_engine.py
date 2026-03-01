@@ -144,6 +144,7 @@ class TestEngineInit:
                 "bot.data.settings_store.SettingsStore.load_and_apply"
             )
             with patch.object(engine, "_seed_strategy_metrics", new_callable=AsyncMock), \
+                 patch.object(engine, "_restore_state", new_callable=AsyncMock), \
                  patch(settings_path, new_callable=AsyncMock, return_value=0):
                 await engine.initialize()
 
@@ -178,6 +179,7 @@ class TestEngineInit:
 
             settings_path = "bot.data.settings_store.SettingsStore.load_and_apply"
             with patch.object(engine, "_seed_strategy_metrics", new_callable=AsyncMock), \
+                 patch.object(engine, "_restore_state", new_callable=AsyncMock), \
                  patch(settings_path, new_callable=AsyncMock, return_value=3), \
                  patch("bot.agent.engine.logger") as mock_logger:
                 await engine.initialize()

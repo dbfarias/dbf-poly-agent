@@ -71,6 +71,37 @@ class RiskManager:
             self._daily_pnl = 0.0
             self._daily_pnl_date = today
         self._daily_pnl += pnl_change
+        self._pnl_dirty = True
+
+    async def persist_daily_pnl(self) -> None:
+        """Save daily PnL to DB (called by engine after trades)."""
+        if not getattr(self, "_pnl_dirty", False):
+            return
+        try:
+            from bot.data.settings_store import StateStore
+
+            await StateStore.save_daily_pnl(self._daily_pnl, self._daily_pnl_date)
+            self._pnl_dirty = False
+        except Exception as e:
+            logger.error("persist_daily_pnl_failed", error=str(e))
+
+    async def restore_daily_pnl(self) -> None:
+        """Restore daily PnL from DB on startup."""
+        try:
+            from bot.data.settings_store import StateStore
+
+            pnl, date_str = await StateStore.load_daily_pnl()
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if date_str == today:
+                self._daily_pnl = pnl
+                self._daily_pnl_date = date_str
+                logger.info(
+                    "daily_pnl_restored",
+                    daily_pnl=pnl,
+                    date=date_str,
+                )
+        except Exception as e:
+            logger.error("restore_daily_pnl_failed", error=str(e))
 
     async def evaluate_signal(
         self,

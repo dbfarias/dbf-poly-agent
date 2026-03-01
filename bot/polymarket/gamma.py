@@ -110,6 +110,11 @@ class GammaClient:
         self._clob_client: httpx.AsyncClient | None = None
         self._gamma_client: httpx.AsyncClient | None = None
 
+        from bot.utils.circuit_breaker import CircuitBreaker
+
+        self._gamma_breaker = CircuitBreaker("gamma_api", failure_threshold=5, recovery_seconds=120)
+        self._clob_breaker = CircuitBreaker("clob_api", failure_threshold=5, recovery_seconds=120)
+
     async def initialize(self) -> None:
         self._clob_client = httpx.AsyncClient(
             base_url=CLOB_API_URL,
@@ -134,41 +139,59 @@ class GammaClient:
         params: dict,
     ) -> list[GammaMarket]:
         """Fetch markets from Gamma API with given params."""
-        resp = await self._gamma_client.get("/markets", params=params)
-        resp.raise_for_status()
-        raw_markets = resp.json()
+        if not self._gamma_breaker.allow_request():
+            return []
 
-        markets = []
-        for raw in raw_markets:
-            if not raw.get("active", True) or raw.get("closed", False):
-                continue
-            try:
-                transformed = _transform_gamma_api_market(raw)
-                markets.append(GammaMarket.model_validate(transformed))
-            except Exception as e:
-                logger.debug("gamma_market_parse_skipped", error=str(e))
-        return markets
+        try:
+            resp = await self._gamma_client.get("/markets", params=params)
+            resp.raise_for_status()
+            raw_markets = resp.json()
+
+            markets = []
+            for raw in raw_markets:
+                if not raw.get("active", True) or raw.get("closed", False):
+                    continue
+                try:
+                    transformed = _transform_gamma_api_market(raw)
+                    markets.append(GammaMarket.model_validate(transformed))
+                except Exception as e:
+                    logger.debug("gamma_market_parse_skipped", error=str(e))
+
+            self._gamma_breaker.record_success()
+            return markets
+        except Exception:
+            self._gamma_breaker.record_failure()
+            raise
 
     @async_retry(max_attempts=3, min_wait=2, max_wait=30)
     async def _fetch_clob_markets(self, limit: int = 200) -> list[GammaMarket]:
         """Fetch markets from CLOB /sampling-markets (fallback)."""
-        resp = await self._clob_client.get(
-            "/sampling-markets", params={"next_cursor": "MA=="}
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        if not self._clob_breaker.allow_request():
+            return []
 
-        raw_markets = data.get("data", [])
-        markets = []
-        for raw in raw_markets:
-            if not raw.get("active", True) or raw.get("closed", False):
-                continue
-            try:
-                transformed = _transform_clob_market(raw)
-                markets.append(GammaMarket.model_validate(transformed))
-            except Exception as e:
-                logger.debug("clob_market_parse_skipped", error=str(e))
-        return markets[:limit]
+        try:
+            resp = await self._clob_client.get(
+                "/sampling-markets", params={"next_cursor": "MA=="}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            raw_markets = data.get("data", [])
+            markets = []
+            for raw in raw_markets:
+                if not raw.get("active", True) or raw.get("closed", False):
+                    continue
+                try:
+                    transformed = _transform_clob_market(raw)
+                    markets.append(GammaMarket.model_validate(transformed))
+                except Exception as e:
+                    logger.debug("clob_market_parse_skipped", error=str(e))
+
+            self._clob_breaker.record_success()
+            return markets[:limit]
+        except Exception:
+            self._clob_breaker.record_failure()
+            raise
 
     async def get_markets(
         self,

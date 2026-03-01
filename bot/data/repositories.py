@@ -484,6 +484,14 @@ class SettingsRepository:
             await self.session.execute(stmt)
         await self.session.commit()
 
+    async def get(self, key: str) -> str | None:
+        """Read a single persisted setting by key."""
+        result = await self.session.execute(
+            select(BotSetting).where(BotSetting.key == key)
+        )
+        row = result.scalar_one_or_none()
+        return row.value if row else None
+
     async def get_all(self) -> dict[str, str]:
         """Read all persisted settings."""
         result = await self.session.execute(select(BotSetting))

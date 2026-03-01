@@ -282,6 +282,51 @@ class PerformanceLearner:
         else:
             return 0.7
 
+    async def persist_paused_strategies(self) -> None:
+        """Save paused strategies to DB."""
+        if not self._paused_strategies:
+            try:
+                from bot.data.settings_store import StateStore
+
+                await StateStore.save_paused_strategies({})
+            except Exception as e:
+                logger.error("persist_paused_strategies_failed", error=str(e))
+            return
+        try:
+            from bot.data.settings_store import StateStore
+
+            paused = {
+                name: dt.isoformat()
+                for name, dt in self._paused_strategies.items()
+            }
+            await StateStore.save_paused_strategies(paused)
+        except Exception as e:
+            logger.error("persist_paused_strategies_failed", error=str(e))
+
+    async def restore_paused_strategies(self) -> None:
+        """Restore paused strategies from DB on startup."""
+        try:
+            from bot.data.settings_store import StateStore
+
+            paused = await StateStore.load_paused_strategies()
+            now = datetime.now(timezone.utc)
+            restored = 0
+            for name, iso_str in paused.items():
+                paused_at = datetime.fromisoformat(iso_str)
+                if paused_at.tzinfo is None:
+                    paused_at = paused_at.replace(tzinfo=timezone.utc)
+                elapsed_h = (now - paused_at).total_seconds() / 3600
+                if elapsed_h < PAUSE_COOLDOWN_HOURS:
+                    self._paused_strategies[name] = paused_at
+                    restored += 1
+            if restored > 0:
+                logger.info(
+                    "paused_strategies_restored",
+                    strategies=list(self._paused_strategies.keys()),
+                )
+        except Exception as e:
+            logger.error("restore_paused_strategies_failed", error=str(e))
+
     def should_pause_strategy(
         self, strategy: str, recent_trades: list[Trade] | None = None
     ) -> bool:
