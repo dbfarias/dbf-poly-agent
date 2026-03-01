@@ -1362,3 +1362,355 @@ class TestEngineNotifications:
         engine = _make_engine()
         assert engine._target_notified_day == ""
         assert engine._risk_limit_notified == {}
+
+
+# ---------------------------------------------------------------------------
+# Trading cycle integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_learner_adjustments(
+    paused_strategies: set[str] | None = None,
+    urgency_multiplier: float = 1.0,
+):
+    """Create a mock learner adjustments object."""
+    adj = MagicMock()
+    adj.paused_strategies = paused_strategies or set()
+    adj.urgency_multiplier = urgency_multiplier
+    adj.daily_progress = 0.0
+    adj.edge_multipliers = {}
+    adj.category_confidences = {}
+    adj.calibration = {}
+    return adj
+
+
+class TestTradingCycleIntegration:
+    """Integration tests for _trading_cycle, _evaluate_signals, and _process_exits."""
+
+    @pytest.mark.asyncio
+    async def test_full_buy_flow(self):
+        """Signal -> approved -> filled -> position recorded."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+        engine.portfolio.total_equity = 20.0
+        engine.portfolio.positions = []
+        engine.portfolio.tier = CapitalTier.TIER1
+        engine.portfolio.open_position_count = 0
+
+        engine.analyzer = AsyncMock()
+        signal = make_signal(market_id="mkt_buy", strategy="time_decay")
+        engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
+
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.evaluate_signal = AsyncMock(
+            return_value=(True, 5.0, "approved")
+        )
+
+        filled_trade = MagicMock()
+        filled_trade.status = "filled"
+        filled_trade.id = 1
+        filled_trade.size = 10.0
+        filled_trade.price = 0.50
+        filled_trade.cost_usd = 5.0
+        engine.order_manager = AsyncMock()
+        engine.order_manager.execute_signal = AsyncMock(return_value=filled_trade)
+        engine.order_manager.pending_count = 0
+        engine.order_manager.pending_market_ids = set()
+
+        engine._learner_adjustments = _make_learner_adjustments()
+        engine.learner = MagicMock()
+        engine.learner.get_edge_multiplier = MagicMock(return_value=1.0)
+        engine.research_cache = MagicMock()
+        engine.research_cache.get = MagicMock(return_value=None)
+
+        _rewire_closer(engine)
+
+        with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock), \
+             patch("bot.agent.engine.event_bus") as mock_bus, \
+             patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
+             patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
+            mock_bus.emit = AsyncMock()
+            signals_found, approved, placed = await engine._evaluate_signals(
+                CapitalTier.TIER1
+            )
+
+        assert signals_found == 1
+        assert approved == 1
+        assert placed == 1
+        engine.order_manager.execute_signal.assert_called_once_with(signal)
+        engine.portfolio.record_trade_open.assert_called_once()
+        call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
+        assert call_kwargs["market_id"] == "mkt_buy"
+        assert call_kwargs["strategy"] == "time_decay"
+        assert call_kwargs["size"] == 10.0
+        assert call_kwargs["price"] == 0.50
+
+    @pytest.mark.asyncio
+    async def test_skip_paused_strategy(self):
+        """Signal from a paused strategy is skipped."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+        engine.portfolio.total_equity = 20.0
+        engine.portfolio.positions = []
+        engine.portfolio.tier = CapitalTier.TIER1
+
+        engine.analyzer = AsyncMock()
+        signal = make_signal(market_id="mkt_paused", strategy="value_betting")
+        engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
+
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.evaluate_signal = AsyncMock()
+
+        engine.order_manager = AsyncMock()
+        engine.order_manager.pending_count = 0
+        engine.order_manager.pending_market_ids = set()
+
+        engine._learner_adjustments = _make_learner_adjustments(
+            paused_strategies={"value_betting"}
+        )
+        engine.learner = MagicMock()
+        engine.research_cache = MagicMock()
+        engine.research_cache.get = MagicMock(return_value=None)
+
+        _rewire_closer(engine)
+
+        with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
+            signals_found, approved, placed = await engine._evaluate_signals(
+                CapitalTier.TIER1
+            )
+
+        assert signals_found == 1
+        assert approved == 0
+        assert placed == 0
+        engine.risk_manager.evaluate_signal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skip_market_in_cooldown(self):
+        """Signal for a market in cooldown is skipped."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+        engine.portfolio.total_equity = 20.0
+        engine.portfolio.positions = []
+        engine.portfolio.tier = CapitalTier.TIER1
+
+        engine.analyzer = AsyncMock()
+        signal = make_signal(market_id="mkt_cool", strategy="time_decay")
+        engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
+
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.evaluate_signal = AsyncMock()
+
+        engine.order_manager = AsyncMock()
+        engine.order_manager.pending_count = 0
+        engine.order_manager.pending_market_ids = set()
+
+        engine._learner_adjustments = _make_learner_adjustments()
+        engine.learner = MagicMock()
+        engine.research_cache = MagicMock()
+        engine.research_cache.get = MagicMock(return_value=None)
+
+        # Set cooldown for this market far in the future
+        engine._market_cooldown["mkt_cool"] = datetime(
+            2099, 1, 1, tzinfo=timezone.utc
+        )
+
+        _rewire_closer(engine)
+
+        with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
+            signals_found, approved, placed = await engine._evaluate_signals(
+                CapitalTier.TIER1
+            )
+
+        assert signals_found == 1
+        assert approved == 0
+        assert placed == 0
+        engine.risk_manager.evaluate_signal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skip_pending_market(self):
+        """Signal for a market with a pending order is skipped."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+        engine.portfolio.total_equity = 20.0
+        engine.portfolio.positions = []
+        engine.portfolio.tier = CapitalTier.TIER1
+
+        engine.analyzer = AsyncMock()
+        signal = make_signal(market_id="mkt_pending", strategy="time_decay")
+        engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
+
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.evaluate_signal = AsyncMock()
+
+        engine.order_manager = AsyncMock()
+        engine.order_manager.pending_count = 1
+        engine.order_manager.pending_market_ids = {"mkt_pending"}
+
+        engine._learner_adjustments = _make_learner_adjustments()
+        engine.learner = MagicMock()
+        engine.research_cache = MagicMock()
+        engine.research_cache.get = MagicMock(return_value=None)
+
+        _rewire_closer(engine)
+
+        with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
+            signals_found, approved, placed = await engine._evaluate_signals(
+                CapitalTier.TIER1
+            )
+
+        assert signals_found == 1
+        assert approved == 0
+        assert placed == 0
+        engine.risk_manager.evaluate_signal.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cycle_committed_tracking(self):
+        """Second signal gets reduced bankroll (cycle_committed tracks spending)."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+        engine.portfolio.total_equity = 50.0
+        engine.portfolio.positions = []
+        engine.portfolio.tier = CapitalTier.TIER1
+
+        signal1 = make_signal(market_id="mkt_a", strategy="time_decay")
+        signal2 = make_signal(market_id="mkt_b", strategy="arbitrage")
+        engine.analyzer = AsyncMock()
+        engine.analyzer.scan_markets = AsyncMock(return_value=[signal1, signal2])
+
+        # Track bankroll passed to evaluate_signal
+        bankroll_calls: list[float] = []
+
+        async def capture_evaluate(
+            signal, bankroll, open_positions, tier, pending_count, edge_multiplier
+        ):
+            bankroll_calls.append(bankroll)
+            return (True, 5.0, "approved")
+
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.evaluate_signal = AsyncMock(side_effect=capture_evaluate)
+
+        filled_trade = MagicMock()
+        filled_trade.status = "filled"
+        filled_trade.id = 1
+        filled_trade.size = 10.0
+        filled_trade.price = 0.50
+        filled_trade.cost_usd = 5.0
+        engine.order_manager = AsyncMock()
+        engine.order_manager.execute_signal = AsyncMock(return_value=filled_trade)
+        engine.order_manager.pending_count = 0
+        engine.order_manager.pending_market_ids = set()
+
+        engine._learner_adjustments = _make_learner_adjustments()
+        engine.learner = MagicMock()
+        engine.learner.get_edge_multiplier = MagicMock(return_value=1.0)
+        engine.research_cache = MagicMock()
+        engine.research_cache.get = MagicMock(return_value=None)
+
+        _rewire_closer(engine)
+
+        with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock), \
+             patch("bot.agent.engine.event_bus") as mock_bus, \
+             patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
+             patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
+            mock_bus.emit = AsyncMock()
+            signals_found, approved, placed = await engine._evaluate_signals(
+                CapitalTier.TIER1
+            )
+
+        assert signals_found == 2
+        assert approved == 2
+        assert placed == 2
+        # First signal: full bankroll 50.0
+        assert bankroll_calls[0] == 50.0
+        # Second signal: reduced by cost_usd of first trade (50.0 - 5.0 = 45.0)
+        assert bankroll_calls[1] == 45.0
+
+    @pytest.mark.asyncio
+    async def test_process_exits_closes_positions(self):
+        """_process_exits calls closer.close_position for exiting positions."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+
+        pos = make_position(market_id="mkt_exit", current_price=0.90)
+        engine.portfolio.positions = [pos]
+
+        engine.analyzer = AsyncMock()
+        engine.analyzer.check_exits = AsyncMock(return_value=["mkt_exit"])
+
+        engine.order_manager = AsyncMock()
+        engine.risk_manager = MagicMock()
+        engine.closer = AsyncMock()
+        engine.closer.close_position = AsyncMock()
+
+        await engine._process_exits(CapitalTier.TIER1)
+
+        engine.analyzer.check_exits.assert_called_once_with(
+            [pos], CapitalTier.TIER1
+        )
+        engine.closer.close_position.assert_called_once_with(pos)
+
+    @pytest.mark.asyncio
+    async def test_evaluate_signals_returns_counts(self):
+        """_evaluate_signals returns (signals_found, approved, placed) tuple."""
+        engine = _make_engine()
+        engine.portfolio = AsyncMock()
+        engine.portfolio.total_equity = 20.0
+        engine.portfolio.positions = []
+        engine.portfolio.tier = CapitalTier.TIER1
+
+        signal1 = make_signal(market_id="mkt_r1", strategy="time_decay")
+        signal2 = make_signal(market_id="mkt_r2", strategy="arbitrage")
+        engine.analyzer = AsyncMock()
+        engine.analyzer.scan_markets = AsyncMock(return_value=[signal1, signal2])
+
+        # First signal approved, second rejected
+        engine.risk_manager = MagicMock()
+        engine.risk_manager.evaluate_signal = AsyncMock(
+            side_effect=[
+                (True, 5.0, "approved"),
+                (False, 0.0, "Max positions reached"),
+            ]
+        )
+
+        filled_trade = MagicMock()
+        filled_trade.status = "filled"
+        filled_trade.id = 1
+        filled_trade.size = 10.0
+        filled_trade.price = 0.50
+        filled_trade.cost_usd = 5.0
+        engine.order_manager = AsyncMock()
+        engine.order_manager.execute_signal = AsyncMock(return_value=filled_trade)
+        engine.order_manager.pending_count = 0
+        engine.order_manager.pending_market_ids = set()
+
+        engine._learner_adjustments = _make_learner_adjustments()
+        engine.learner = MagicMock()
+        engine.learner.get_edge_multiplier = MagicMock(return_value=1.0)
+        engine.research_cache = MagicMock()
+        engine.research_cache.get = MagicMock(return_value=None)
+
+        # No open positions to rebalance
+        engine.closer = AsyncMock()
+        engine.closer.try_rebalance = AsyncMock(return_value=None)
+
+        with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock), \
+             patch("bot.agent.engine.log_risk_limit_hit", new_callable=AsyncMock), \
+             patch("bot.agent.engine.notify_risk_limit", new_callable=AsyncMock), \
+             patch("bot.agent.engine.event_bus") as mock_bus, \
+             patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
+             patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
+            mock_bus.emit = AsyncMock()
+            result = await engine._evaluate_signals(CapitalTier.TIER1)
+
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+        signals_found, approved, placed = result
+        assert signals_found == 2
+        assert approved == 1
+        assert placed == 1
