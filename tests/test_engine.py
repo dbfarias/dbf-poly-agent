@@ -675,7 +675,7 @@ class TestSellConfirmation:
 
     @pytest.mark.asyncio
     async def test_sell_fill_callback_records_close(self):
-        """_handle_sell_fill callback should record the trade close."""
+        """_handle_sell_fill callback should record the trade close and update Trade PnL."""
         with patch("bot.agent.engine.PolymarketClient"), \
              patch("bot.agent.engine.GammaClient"), \
              patch("bot.agent.engine.DataApiClient"), \
@@ -687,11 +687,19 @@ class TestSellConfirmation:
             engine.portfolio.record_trade_close = AsyncMock(return_value=-0.3)
             engine.risk_manager = MagicMock()
 
-            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock):
-                await engine._handle_sell_fill("mkt1", 0.45)
+            mock_repo = AsyncMock()
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=False)
+
+            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
+                 patch("bot.agent.engine.async_session", return_value=mock_session), \
+                 patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+                await engine._handle_sell_fill("mkt1", 0.45, trade_id=99, shares=10.0)
 
             engine.portfolio.record_trade_close.assert_called_once_with("mkt1", 0.45)
             engine.risk_manager.update_daily_pnl.assert_called_once_with(-0.3)
+            mock_repo.update_status.assert_awaited_once_with(99, "filled", pnl=-0.3)
 
     @pytest.mark.asyncio
     async def test_close_position_records_correct_pnl(self):
@@ -723,10 +731,18 @@ class TestSellConfirmation:
         engine.portfolio.record_trade_close = AsyncMock(return_value=2.0)
         engine.risk_manager = MagicMock()
 
-        with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock):
-            await engine._handle_sell_fill("mkt_win", 0.95)
+        mock_repo = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
+             patch("bot.agent.engine.async_session", return_value=mock_session), \
+             patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+            await engine._handle_sell_fill("mkt_win", 0.95, trade_id=77, shares=5.0)
 
         engine.risk_manager.update_daily_pnl.assert_called_once_with(2.0)
+        mock_repo.update_status.assert_awaited_once_with(77, "filled", pnl=2.0)
 
 
 # ---------------------------------------------------------------------------

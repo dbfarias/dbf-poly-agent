@@ -1417,7 +1417,7 @@ class TestSellOrderMonitoring:
             await manager.monitor_orders()
 
         assert manager.pending_count == 0
-        mock_repo.update_status.assert_awaited_once_with(50, "filled")
+        mock_repo.update_status.assert_awaited_once_with(50, "filled", filled_size=10.0)
 
     @pytest.mark.asyncio
     async def test_sell_not_filled_when_token_still_present(self):

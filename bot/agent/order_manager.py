@@ -28,8 +28,8 @@ ORDER_TIMEOUT_SECONDS = 300  # Cancel unfilled orders after 5 minutes
 # Callback type: (signal, shares) -> None
 OnFillCallback = Callable[[TradeSignal, float], Awaitable[None]]
 
-# Callback type for sell fills: (market_id, sell_price) -> None
-OnSellFillCallback = Callable[[str, float], Awaitable[None]]
+# Callback type for sell fills: (market_id, sell_price, trade_id, shares) -> None
+OnSellFillCallback = Callable[[str, float, int, float], Awaitable[None]]
 
 
 class OrderManager:
@@ -242,14 +242,24 @@ class OrderManager:
                 fill_confirmed = token_id in real_token_ids
 
             if fill_confirmed:
+                trade_id = info["trade_id"]
+                shares = info["shares"]
+
+                # BUY: mark filled immediately (no PnL yet)
+                # SELL: mark filled; PnL is set by callback below
                 async with async_session() as session:
                     repo = TradeRepository(session)
-                    await repo.update_status(info["trade_id"], "filled")
+                    if is_sell:
+                        await repo.update_status(
+                            trade_id, "filled", filled_size=shares,
+                        )
+                    else:
+                        await repo.update_status(trade_id, "filled")
                 to_remove.append(order_id)
                 logger.info(
                     "order_fill_verified",
                     order_id=order_id,
-                    trade_id=info["trade_id"],
+                    trade_id=trade_id,
                     token_id=token_id[:20],
                     is_sell=is_sell,
                 )
@@ -263,7 +273,7 @@ class OrderManager:
                 # Create position via callback (BUY orders only)
                 if not is_sell and self._on_fill_callback and signal:
                     try:
-                        await self._on_fill_callback(signal, info["shares"])
+                        await self._on_fill_callback(signal, shares)
                     except Exception as e:
                         logger.error(
                             "on_fill_callback_failed",
@@ -276,7 +286,9 @@ class OrderManager:
                     sell_market_id = info.get("market_id", "")
                     sell_price = info.get("sell_price", 0.0)
                     try:
-                        await self._on_sell_fill_callback(sell_market_id, sell_price)
+                        await self._on_sell_fill_callback(
+                            sell_market_id, sell_price, trade_id, shares,
+                        )
                     except Exception as e:
                         logger.error(
                             "on_sell_fill_callback_failed",

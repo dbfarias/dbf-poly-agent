@@ -710,15 +710,30 @@ class TradingEngine:
                 strategy=pos.strategy,
             )
 
-    async def _handle_sell_fill(self, market_id: str, sell_price: float) -> None:
-        """Callback when a pending live SELL order is confirmed filled."""
+    async def _handle_sell_fill(
+        self, market_id: str, sell_price: float, trade_id: int, shares: float,
+    ) -> None:
+        """Callback when a pending live SELL order is confirmed filled.
+
+        Calculates PnL via portfolio, then writes it back to the Trade record
+        so the dashboard shows accurate profit/loss for sell orders.
+        """
         logger.info(
             "deferred_sell_fill",
             market_id=market_id,
             sell_price=sell_price,
+            trade_id=trade_id,
         )
         pnl = await self.portfolio.record_trade_close(market_id, sell_price)
         self.risk_manager.update_daily_pnl(pnl)
+
+        # Write PnL back to the Trade record (fixes stale $0 PnL on sells)
+        from bot.data.repositories import TradeRepository
+
+        async with async_session() as session:
+            repo = TradeRepository(session)
+            await repo.update_status(trade_id, "filled", pnl=pnl)
+
         await log_position_closed(
             market_id=market_id,
             question="",

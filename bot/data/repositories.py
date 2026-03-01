@@ -26,9 +26,18 @@ class TradeRepository:
         await self.session.refresh(trade)
         return trade
 
-    async def update_status(self, trade_id: int, status: str, pnl: float = 0.0) -> None:
+    async def update_status(
+        self,
+        trade_id: int,
+        status: str,
+        pnl: float = 0.0,
+        filled_size: float | None = None,
+    ) -> None:
+        values: dict = {"status": status, "pnl": pnl}
+        if filled_size is not None:
+            values["filled_size"] = filled_size
         await self.session.execute(
-            update(Trade).where(Trade.id == trade_id).values(status=status, pnl=pnl)
+            update(Trade).where(Trade.id == trade_id).values(**values)
         )
         await self.session.commit()
 
