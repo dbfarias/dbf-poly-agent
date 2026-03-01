@@ -1,5 +1,7 @@
 """Telegram notification system for trade alerts and errors."""
 
+import re
+
 import httpx
 import structlog
 
@@ -8,6 +10,35 @@ from bot.config import settings
 logger = structlog.get_logger()
 
 TELEGRAM_API = "https://api.telegram.org"
+
+# Error message sanitization
+_MAX_ERROR_LEN = 200
+_REDACT_RE = re.compile(r"0x[0-9a-fA-F]{20,}")
+
+# Connection pooling — reuse a single httpx client for all Telegram requests
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Get or create a shared httpx client for Telegram API calls."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=10)
+    return _client
+
+
+async def close_telegram_client() -> None:
+    """Close the shared httpx client (call during shutdown)."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+        _client = None
+
+
+def _safe_error_msg(error: str) -> str:
+    """Sanitize error messages for Telegram — truncate and redact secrets."""
+    msg = error[:_MAX_ERROR_LEN]
+    return _REDACT_RE.sub("0x[REDACTED]", msg)
 
 
 async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
@@ -24,10 +55,10 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            return True
+        client = _get_client()
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        return True
     except Exception as e:
         logger.error("telegram_send_failed", error=str(e))
         return False
@@ -51,8 +82,8 @@ async def notify_trade(
 
 
 async def notify_error(category: str, message: str) -> None:
-    """Send error notification."""
-    msg = f"⚠️ <b>ERROR: {category}</b>\n{message}"
+    """Send error notification (sanitized — no secrets leak to Telegram)."""
+    msg = f"⚠️ <b>ERROR: {category}</b>\n{_safe_error_msg(message)}"
     await send_telegram(msg)
 
 
@@ -74,7 +105,7 @@ async def notify_risk_limit(limit_type: str, current: float, threshold: float) -
         f"Type: {limit_type}\n"
         f"Current: {current:.1%}\n"
         f"Threshold: {threshold:.1%}\n"
-        f"Trading paused automatically."
+        f"New entries blocked until next cycle reset."
     )
     await send_telegram(msg)
 

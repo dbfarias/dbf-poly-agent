@@ -282,6 +282,15 @@ class PerformanceLearner:
         else:
             return 0.7
 
+    def consume_newly_paused(self) -> list[tuple[str, float, float]]:
+        """Return and clear the list of newly paused strategies.
+
+        Returns list of (strategy_name, win_rate, pnl) tuples.
+        """
+        result = list(self._newly_paused)
+        self._newly_paused = []
+        return result
+
     async def persist_paused_strategies(self) -> None:
         """Save paused strategies to DB."""
         if not self._paused_strategies:

@@ -36,6 +36,7 @@ from bot.polymarket.websocket_manager import WebSocketManager
 from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
 from bot.utils.notifications import (
+    close_telegram_client,
     notify_daily_summary,
     notify_daily_target,
     notify_error,
@@ -250,6 +251,7 @@ class TradingEngine:
         await self.ws_manager.disconnect()
         await self.gamma_client.close()
         await self.data_api.close()
+        await close_telegram_client()
         logger.info("engine_shutdown")
 
     def _task_exception_handler(self, task: asyncio.Task) -> None:
@@ -278,14 +280,17 @@ class TradingEngine:
         research_task = asyncio.create_task(self.research_engine.start())
         research_task.add_done_callback(self._task_exception_handler)
 
-        while self._running:
-            try:
-                await self._trading_cycle()
-            except Exception as e:
-                logger.error("trading_cycle_error", error=str(e), cycle=self._cycle_count)
-                await notify_error("trading_cycle", str(e))
+        try:
+            while self._running:
+                try:
+                    await self._trading_cycle()
+                except Exception as e:
+                    logger.error("trading_cycle_error", error=str(e), cycle=self._cycle_count)
+                    await notify_error("trading_cycle", str(e))
 
-            await asyncio.sleep(settings.scan_interval_seconds)
+                await asyncio.sleep(settings.scan_interval_seconds)
+        finally:
+            await self._persist_state()
 
     async def _trading_cycle(self) -> None:
         """Single trading cycle: scan → evaluate → execute → monitor."""
@@ -326,7 +331,7 @@ class TradingEngine:
         # 9. Take periodic snapshot
         await self._maybe_snapshot()
 
-        # 9. Daily summary
+        # 10. Daily summary
         await self._maybe_daily_summary()
 
         _urgency = (
@@ -379,7 +384,7 @@ class TradingEngine:
                     strategies=list(self._learner_adjustments.paused_strategies),
                 )
             # Notify on newly paused strategies
-            for s_name, s_wr, s_pnl in self.learner._newly_paused:
+            for s_name, s_wr, s_pnl in self.learner.consume_newly_paused():
                 await log_strategy_paused(s_name, s_wr, s_pnl)
                 await notify_strategy_paused(
                     s_name, f"Win rate {s_wr:.0%}, PnL ${s_pnl:+.2f}"

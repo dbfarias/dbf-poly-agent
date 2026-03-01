@@ -38,7 +38,7 @@ class EventBus:
 
         Errors in individual handlers are logged but don't affect other handlers.
         """
-        for handler in self._handlers.get(event, []):
+        for handler in list(self._handlers.get(event, [])):
             try:
                 result = handler(**kwargs)
                 if asyncio.iscoroutine(result):
