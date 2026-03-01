@@ -79,6 +79,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         snapshot_interval_seconds=settings.snapshot_interval_seconds,
         max_daily_loss_pct=settings.max_daily_loss_pct,
         max_drawdown_pct=settings.max_drawdown_pct,
+        daily_target_pct=settings.daily_target_pct,
         current_tier=tier.value,
         tier_config=TierConfig.get(tier),
         strategy_params=strategy_params,
@@ -101,6 +102,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
     if update.max_drawdown_pct is not None:
         settings.max_drawdown_pct = update.max_drawdown_pct
         changes.append(f"max_drawdown={update.max_drawdown_pct:.0%}")
+    if update.daily_target_pct is not None:
+        settings.daily_target_pct = update.daily_target_pct
+        changes.append(f"daily_target={update.daily_target_pct:.1%}")
 
     # Tier config updates
     if update.tier_config:

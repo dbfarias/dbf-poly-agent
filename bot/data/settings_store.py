@@ -22,7 +22,12 @@ _QUALITY_ATTR_MAP = {
 }
 
 # Global settings that are persisted
-_GLOBAL_ATTRS = ("scan_interval_seconds", "max_daily_loss_pct", "max_drawdown_pct")
+_GLOBAL_ATTRS = (
+    "scan_interval_seconds",
+    "max_daily_loss_pct",
+    "max_drawdown_pct",
+    "daily_target_pct",
+)
 
 
 class SettingsStore:

@@ -146,6 +146,7 @@ class BotConfig(BaseModel):
     snapshot_interval_seconds: int
     max_daily_loss_pct: float
     max_drawdown_pct: float
+    daily_target_pct: float
     # Current tier parameters
     current_tier: str
     tier_config: dict
@@ -161,6 +162,7 @@ class BotConfigUpdate(BaseModel):
     scan_interval_seconds: int | None = Field(default=None, ge=5, le=3600)
     max_daily_loss_pct: float | None = Field(default=None, gt=0.0, le=0.5)
     max_drawdown_pct: float | None = Field(default=None, gt=0.0, le=0.5)
+    daily_target_pct: float | None = Field(default=None, gt=0.0, le=0.2)
     # Tier config overrides
     tier_config: dict | None = None
     # Strategy parameter overrides

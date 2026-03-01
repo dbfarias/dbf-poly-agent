@@ -97,6 +97,7 @@ export default function Settings() {
     scan_interval_seconds: 0,
     max_daily_loss_pct: 0,
     max_drawdown_pct: 0,
+    daily_target_pct: 0,
   });
   const [tier, setTier] = useState<Record<string, number>>({});
   const [quality, setQuality] = useState<Record<string, number>>({});
@@ -114,6 +115,7 @@ export default function Settings() {
       scan_interval_seconds: config.scan_interval_seconds,
       max_daily_loss_pct: config.max_daily_loss_pct * 100,
       max_drawdown_pct: config.max_drawdown_pct * 100,
+      daily_target_pct: config.daily_target_pct * 100,
     });
     setTier(config.tier_config);
     setQuality(config.quality_params);
@@ -167,6 +169,7 @@ export default function Settings() {
       scan_interval_seconds: general.scan_interval_seconds,
       max_daily_loss_pct: general.max_daily_loss_pct / 100,
       max_drawdown_pct: general.max_drawdown_pct / 100,
+      daily_target_pct: general.daily_target_pct / 100,
     });
   };
 
@@ -444,6 +447,19 @@ export default function Settings() {
             min={1}
             max={50}
             testId="input-max-drawdown"
+          />
+          <NumberField
+            label="Daily Target"
+            suffix="(%)"
+            tooltip="Daily profit target as percentage of bankroll. The learner uses this to adjust strategy urgency."
+            value={general.daily_target_pct}
+            onChange={(v) =>
+              setGeneral((p) => ({ ...p, daily_target_pct: v }))
+            }
+            step={0.5}
+            min={0.1}
+            max={20}
+            testId="input-daily-target"
           />
           <button
             onClick={saveGeneral}

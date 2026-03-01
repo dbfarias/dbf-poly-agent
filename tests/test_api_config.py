@@ -23,6 +23,7 @@ class TestGetConfig:
             "snapshot_interval_seconds",
             "max_daily_loss_pct",
             "max_drawdown_pct",
+            "daily_target_pct",
             "current_tier",
             "tier_config",
             "strategy_params",
@@ -115,6 +116,17 @@ class TestUpdateConfig:
         assert data["status"] == "updated"
         assert "changes" in data
         assert len(data["changes"]) == 1
+
+    async def test_update_daily_target_pct(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "daily_target_pct", settings.daily_target_pct)
+        resp = await client.put(
+            "/api/config/", json={"daily_target_pct": 0.02}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any("daily_target" in c for c in data["changes"])
+        get_resp = await client.get("/api/config/")
+        assert get_resp.json()["daily_target_pct"] == pytest.approx(0.02)
 
     async def test_empty_update_noop(self, client):
         before = await client.get("/api/config/")
