@@ -24,6 +24,7 @@ class ResearchEngine:
     """
 
     SCAN_INTERVAL = 1800  # 30 minutes
+    WARMUP_DELAY = 90  # Wait for market cache before first scan
     MAX_MARKETS = 30  # Limit markets per scan to avoid rate limits
 
     def __init__(
@@ -50,6 +51,10 @@ class ResearchEngine:
         """Background loop: scan markets for news every SCAN_INTERVAL seconds."""
         self._running = True
         logger.info("research_engine_started", interval=self.SCAN_INTERVAL)
+
+        # Wait briefly for market cache to populate from first trading cycle,
+        # then run an immediate warm-up scan so strategies have data from cycle 1
+        await asyncio.sleep(self.WARMUP_DELAY)
 
         while self._running:
             try:
