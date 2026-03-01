@@ -45,3 +45,14 @@ async def get_performance(_: str = Depends(verify_api_key), db: AsyncSession = D
         ))
 
     return result
+
+
+@router.get("/category-stats")
+async def get_category_stats(
+    days: int = 30,
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get trade stats grouped by (strategy, category) for the last N days."""
+    trade_repo = TradeRepository(db)
+    return await trade_repo.get_strategy_category_stats(days=days)
