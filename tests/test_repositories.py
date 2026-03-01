@@ -67,8 +67,11 @@ def make_trade(
     category: str = "crypto",
     edge: float = 0.05,
     estimated_prob: float = 0.90,
+    cost_usd: float = 9.0,
+    created_at: datetime | None = None,
+    updated_at: datetime | None = None,
 ) -> Trade:
-    return Trade(
+    trade = Trade(
         market_id=market_id,
         token_id="token1",
         question="Will X happen?",
@@ -77,12 +80,18 @@ def make_trade(
         side="BUY",
         price=0.90,
         size=10.0,
+        cost_usd=cost_usd,
         strategy=strategy,
         status=status,
         pnl=pnl,
         edge=edge,
         estimated_prob=estimated_prob,
     )
+    if created_at is not None:
+        trade.created_at = created_at
+    if updated_at is not None:
+        trade.updated_at = updated_at
+    return trade
 
 
 def make_position(
@@ -805,3 +814,71 @@ class TestSettingsRepositoryGetAll:
         result = await repo.get_all()
         for v in result.values():
             assert isinstance(v, str)
+
+
+class TestTradeRepositoryAdvancedStats:
+    async def test_empty_table_returns_empty(self, session):
+        repo = TradeRepository(session)
+        stats = await repo.get_strategy_advanced_stats()
+        assert stats == {}
+
+    async def test_avg_hold_time_computed(self, session):
+        repo = TradeRepository(session)
+        now = datetime.now(timezone.utc)
+        t1 = make_trade(
+            strategy="time_decay",
+            status="filled",
+            pnl=0.5,
+            created_at=now,
+            updated_at=now.replace(hour=now.hour),  # same time => 0h
+        )
+        # Create with explicit 2-hour gap
+        from datetime import timedelta
+
+        t2 = make_trade(
+            strategy="time_decay",
+            status="filled",
+            pnl=0.3,
+            created_at=now - timedelta(hours=4),
+            updated_at=now - timedelta(hours=2),  # 2h hold
+        )
+        await repo.create(t1)
+        await repo.create(t2)
+        stats = await repo.get_strategy_advanced_stats()
+        assert "time_decay" in stats
+        # Average of 0h and 2h = 1h
+        assert stats["time_decay"]["avg_hold_time_hours"] == pytest.approx(1.0, abs=0.1)
+
+    async def test_sharpe_ratio_computed(self, session):
+        repo = TradeRepository(session)
+        # 3 trades: +10%, +20%, -5% returns
+        await repo.create(make_trade(strategy="arb", status="filled", pnl=1.0, cost_usd=10.0))
+        await repo.create(make_trade(strategy="arb", status="filled", pnl=2.0, cost_usd=10.0))
+        await repo.create(make_trade(strategy="arb", status="filled", pnl=-0.5, cost_usd=10.0))
+        stats = await repo.get_strategy_advanced_stats()
+        assert "arb" in stats
+        # Returns: 0.1, 0.2, -0.05 → mean=0.0833, std=0.126 → sharpe≈0.66
+        assert stats["arb"]["sharpe_ratio"] > 0.0
+
+    async def test_max_drawdown_computed(self, session):
+        repo = TradeRepository(session)
+        # Sequence: +1, +1, -3 → peak=2, trough=-1, drawdown=3
+        await repo.create(make_trade(strategy="td", status="filled", pnl=1.0))
+        await repo.create(make_trade(strategy="td", status="filled", pnl=1.0))
+        await repo.create(make_trade(strategy="td", status="filled", pnl=-3.0))
+        stats = await repo.get_strategy_advanced_stats()
+        assert stats["td"]["max_drawdown"] == pytest.approx(3.0)
+
+    async def test_excludes_pending_trades(self, session):
+        repo = TradeRepository(session)
+        await repo.create(make_trade(strategy="time_decay", status="pending", pnl=5.0))
+        stats = await repo.get_strategy_advanced_stats()
+        assert stats == {}
+
+    async def test_multiple_strategies(self, session):
+        repo = TradeRepository(session)
+        await repo.create(make_trade(strategy="arb", status="filled", pnl=1.0))
+        await repo.create(make_trade(strategy="td", status="filled", pnl=-0.5))
+        stats = await repo.get_strategy_advanced_stats()
+        assert "arb" in stats
+        assert "td" in stats

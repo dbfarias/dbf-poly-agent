@@ -158,6 +158,82 @@ class TradeRepository:
             })
         return rows
 
+    async def get_strategy_advanced_stats(self) -> dict[str, dict]:
+        """Compute sharpe_ratio, max_drawdown, avg_hold_time per strategy.
+
+        Uses individual trade-level data for accurate computation.
+        Returns {strategy_name: {sharpe_ratio, max_drawdown, avg_hold_time_hours}}.
+        """
+        import math
+
+        result = await self.session.execute(
+            select(
+                Trade.strategy,
+                Trade.pnl,
+                Trade.cost_usd,
+                Trade.created_at,
+                Trade.updated_at,
+            ).where(Trade.status.in_(["filled", "completed"]))
+            .order_by(Trade.strategy, Trade.created_at)
+        )
+        rows = result.all()
+
+        # Group by strategy
+        strategy_trades: dict[str, list] = {}
+        for row in rows:
+            strategy_trades.setdefault(row.strategy, []).append(row)
+
+        stats: dict[str, dict] = {}
+        for name, trades in strategy_trades.items():
+            # --- Avg hold time ---
+            hold_times = []
+            for t in trades:
+                if t.created_at and t.updated_at:
+                    created = t.created_at
+                    updated = t.updated_at
+                    # Handle naive datetimes from SQLite
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    if updated.tzinfo is None:
+                        updated = updated.replace(tzinfo=timezone.utc)
+                    hours = (updated - created).total_seconds() / 3600
+                    if hours >= 0:
+                        hold_times.append(hours)
+            avg_hold = sum(hold_times) / len(hold_times) if hold_times else 0.0
+
+            # --- Sharpe ratio (per-trade returns) ---
+            returns = []
+            for t in trades:
+                if t.cost_usd and t.cost_usd > 0:
+                    returns.append(t.pnl / t.cost_usd)
+            if len(returns) >= 2:
+                mean_r = sum(returns) / len(returns)
+                variance = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+                std_r = math.sqrt(variance) if variance > 0 else 0.0
+                sharpe = mean_r / std_r if std_r > 0 else 0.0
+            else:
+                sharpe = 0.0
+
+            # --- Max drawdown (cumulative PnL peak-to-trough) ---
+            cumulative = 0.0
+            peak = 0.0
+            max_dd = 0.0
+            for t in trades:
+                cumulative += t.pnl
+                if cumulative > peak:
+                    peak = cumulative
+                dd = peak - cumulative
+                if dd > max_dd:
+                    max_dd = dd
+
+            stats[name] = {
+                "sharpe_ratio": round(sharpe, 3),
+                "max_drawdown": round(max_dd, 4),
+                "avg_hold_time_hours": round(avg_hold, 2),
+            }
+
+        return stats
+
     async def mark_scan_traded(self, market_id: str, strategy: str) -> None:
         """Mark the most recent scan for a market as traded."""
         from bot.data.models import MarketScan
