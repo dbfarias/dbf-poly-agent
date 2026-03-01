@@ -57,6 +57,7 @@ def _get_quality_params(engine) -> dict:
 
 @router.get("/", response_model=BotConfig)
 async def get_config(_: str = Depends(verify_api_key)):
+    engine = None
     try:
         engine = get_engine()
         tier = engine.portfolio.tier
@@ -69,7 +70,8 @@ async def get_config(_: str = Depends(verify_api_key)):
 
     disabled = []
     try:
-        disabled = sorted(engine.disabled_strategies)
+        if engine is not None:
+            disabled = sorted(engine.disabled_strategies)
     except Exception:
         pass
 

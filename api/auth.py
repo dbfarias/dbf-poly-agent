@@ -1,9 +1,9 @@
 """JWT authentication for the dashboard."""
 
-import hashlib
 import hmac
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 import jwt
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -27,12 +27,22 @@ class LoginResponse(BaseModel):
     expires_at: str
 
 
-def _verify_password(plain: str, expected: str) -> bool:
-    """Constant-time password comparison."""
-    return hmac.compare_digest(
-        hashlib.sha256(plain.encode()).hexdigest(),
-        hashlib.sha256(expected.encode()).hexdigest(),
-    )
+_cached_hash: bytes | None = None
+
+
+def _get_hash() -> bytes:
+    """Get or compute the bcrypt hash of the configured password."""
+    global _cached_hash
+    if _cached_hash is None:
+        _cached_hash = bcrypt.hashpw(
+            settings.dashboard_password.encode(), bcrypt.gensalt()
+        )
+    return _cached_hash
+
+
+def _verify_password(plain: str, _expected: str) -> bool:
+    """Verify password against bcrypt hash (constant-time)."""
+    return bcrypt.checkpw(plain.encode(), _get_hash())
 
 
 def create_jwt(username: str) -> tuple[str, datetime]:
@@ -77,8 +87,11 @@ async def login(req: LoginRequest, request: Request):
 
     token, expires = create_jwt(req.username)
 
-    # Auto-detect HTTPS via X-Forwarded-Proto (set by nginx)
-    is_https = request.headers.get("x-forwarded-proto") == "https"
+    # Auto-detect HTTPS via X-Forwarded-Proto (set by nginx) or config
+    is_https = (
+        settings.force_https_cookies
+        or request.headers.get("x-forwarded-proto") == "https"
+    )
 
     response = JSONResponse(
         content={"expires_at": expires.isoformat()},
@@ -115,8 +128,15 @@ async def me(request: Request):
 
 
 @router.post("/logout")
-async def logout():
+async def logout(request: Request):
     """Clear the session cookie."""
+    is_https = (
+        settings.force_https_cookies
+        or request.headers.get("x-forwarded-proto") == "https"
+    )
     response = JSONResponse(content={"ok": True})
-    response.delete_cookie(key=COOKIE_NAME, path="/", httponly=True, samesite="lax")
+    response.delete_cookie(
+        key=COOKIE_NAME, path="/", httponly=True,
+        samesite="lax", secure=is_https,
+    )
     return response

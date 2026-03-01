@@ -137,24 +137,33 @@ class TestDecodeJwt:
 
 
 class TestVerifyPassword:
-    """Tests for _verify_password()."""
+    """Tests for _verify_password() — uses bcrypt against settings.dashboard_password."""
+
+    def _reset_hash(self):
+        """Clear cached bcrypt hash so it re-hashes on next call."""
+        import api.auth as auth_mod
+        auth_mod._cached_hash = None
 
     def test_returns_true_for_matching_passwords(self):
-        assert _verify_password("hunter2", "hunter2") is True
+        self._reset_hash()
+        with patch.object(settings, "dashboard_password", "hunter2"):
+            assert _verify_password("hunter2", "") is True
 
     def test_returns_false_for_different_passwords(self):
-        assert _verify_password("hunter2", "hunter3") is False
+        self._reset_hash()
+        with patch.object(settings, "dashboard_password", "hunter3"):
+            assert _verify_password("hunter2", "") is False
 
-    def test_returns_false_for_empty_vs_nonempty(self):
-        assert _verify_password("", "something") is False
-        assert _verify_password("something", "") is False
-
-    def test_returns_true_for_empty_vs_empty(self):
-        assert _verify_password("", "") is True
+    def test_returns_false_for_wrong_password(self):
+        self._reset_hash()
+        with patch.object(settings, "dashboard_password", "correct"):
+            assert _verify_password("wrong", "") is False
 
     def test_unicode_passwords(self):
-        assert _verify_password("senha\u00e7a", "senha\u00e7a") is True
-        assert _verify_password("senha\u00e7a", "senhaca") is False
+        self._reset_hash()
+        with patch.object(settings, "dashboard_password", "senha\u00e7a"):
+            assert _verify_password("senha\u00e7a", "") is True
+            assert _verify_password("senhaca", "") is False
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +174,13 @@ class TestVerifyPassword:
 class TestLoginEndpoint:
     """Tests for POST /api/auth/login."""
 
+    def _reset_hash(self):
+        """Clear cached bcrypt hash so it re-hashes per test."""
+        import api.auth as auth_mod
+        auth_mod._cached_hash = None
+
     async def test_successful_login_returns_expiry_and_cookie(self, auth_client):
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "secret123"),
@@ -186,6 +201,7 @@ class TestLoginEndpoint:
         assert "httponly" in cookie_header.lower()
 
     async def test_wrong_password_returns_401(self, auth_client):
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "correct_password"),
@@ -199,6 +215,7 @@ class TestLoginEndpoint:
         assert "Invalid credentials" in resp.json()["detail"]
 
     async def test_wrong_username_returns_401(self, auth_client):
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "secret123"),
@@ -225,6 +242,7 @@ class TestLoginEndpoint:
         assert "not configured" in resp.json()["detail"]
 
     async def test_empty_username_rejected_by_validation(self, auth_client):
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "secret123"),
@@ -241,6 +259,7 @@ class TestLoginEndpoint:
         assert resp.status_code == 422
 
     async def test_login_cookie_contains_valid_jwt(self, auth_client):
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "mypass"),
@@ -264,6 +283,7 @@ class TestLoginEndpoint:
 
     async def test_login_secure_cookie_with_https_header(self, auth_client):
         """When x-forwarded-proto is https, cookie should have secure flag."""
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "secret"),
@@ -517,8 +537,14 @@ class TestVerifyApiKeyMiddleware:
 class TestFullLoginFlow:
     """End-to-end login -> access protected -> logout flow."""
 
+    def _reset_hash(self):
+        """Clear cached bcrypt hash so it re-hashes per test."""
+        import api.auth as auth_mod
+        auth_mod._cached_hash = None
+
     async def test_login_then_access_protected_then_logout(self, auth_client):
         # Step 1: Login
+        self._reset_hash()
         with (
             patch.object(settings, "dashboard_user", "admin"),
             patch.object(settings, "dashboard_password", "pass123"),

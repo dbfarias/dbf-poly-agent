@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/trades", tags=["trades"])
 @router.get("/history", response_model=list[TradeResponse])
 async def get_trade_history(
     limit: int = Query(default=50, ge=1, le=500),
-    strategy: str | None = None,
+    strategy: str | None = Query(default=None, max_length=100),
     _: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
 ):

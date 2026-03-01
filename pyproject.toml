@@ -18,6 +18,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "tenacity>=9.0.0",
     "PyJWT>=2.0.0",
+    "bcrypt>=4.0.0",
     "vadersentiment>=3.3.2",
     "feedparser>=6.0.12",
 ]

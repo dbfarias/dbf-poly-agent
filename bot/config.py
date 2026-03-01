@@ -85,7 +85,7 @@ class TierConfig:
 
     @classmethod
     def get(cls, tier: CapitalTier) -> dict:
-        return cls.CONFIGS[tier]
+        return dict(cls.CONFIGS[tier])
 
     @classmethod
     def update(cls, tier: CapitalTier, updates: dict) -> None:
@@ -168,6 +168,7 @@ class Settings(BaseSettings):
     # Dashboard auth
     dashboard_user: str = "admin"
     dashboard_password: str = ""
+    force_https_cookies: bool = False
 
     # Telegram
     telegram_bot_token: str = ""

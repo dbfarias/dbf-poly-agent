@@ -171,11 +171,13 @@ class TestHalfOpenTransition:
 
     def test_half_open_at_exact_recovery_boundary(self):
         cb = _make_breaker(failure_threshold=2, recovery_seconds=60.0)
-        cb.record_failure()
-        cb.record_failure()
+        # Patch monotonic for the failures too, ensuring deterministic timing
+        with patch("bot.utils.circuit_breaker.time.monotonic", return_value=1000.0):
+            cb.record_failure()
+            cb.record_failure()
         with patch(
             "bot.utils.circuit_breaker.time.monotonic",
-            return_value=cb._last_failure_time + 60.0,
+            return_value=1000.0 + 60.0,
         ):
             assert cb.state == "half_open"
 
