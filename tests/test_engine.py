@@ -86,7 +86,15 @@ def _make_engine(**kwargs):
         engine = TradingEngine()
         for attr, val in kwargs.items():
             setattr(engine, attr, val)
+        _rewire_closer(engine)
         return engine
+
+
+def _rewire_closer(engine):
+    """Update closer references after mocking engine components."""
+    engine.closer.order_manager = engine.order_manager
+    engine.closer.portfolio = engine.portfolio
+    engine.closer.risk_manager = engine.risk_manager
 
 
 # ---------------------------------------------------------------------------
@@ -406,9 +414,10 @@ class TestHandleOrderFill:
             engine = TradingEngine()
             engine.portfolio = AsyncMock()
             engine.portfolio.record_trade_open = AsyncMock()
+            _rewire_closer(engine)
 
             signal = make_signal(market_id="mkt_fill")
-            await engine._handle_order_fill(signal, shares=10.0)
+            await engine.closer.handle_order_fill(signal, shares=10.0)
 
             engine.portfolio.record_trade_open.assert_called_once()
             call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
@@ -421,9 +430,10 @@ class TestHandleOrderFill:
         engine = _make_engine()
         engine.portfolio = AsyncMock()
         engine.portfolio.record_trade_open = AsyncMock()
+        _rewire_closer(engine)
 
         signal = make_signal(market_id="mkt_price", market_price=0.77)
-        await engine._handle_order_fill(signal, shares=5.0)
+        await engine.closer.handle_order_fill(signal, shares=5.0)
 
         call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
         assert call_kwargs["price"] == pytest.approx(0.77)
@@ -434,9 +444,10 @@ class TestHandleOrderFill:
         engine = _make_engine()
         engine.portfolio = AsyncMock()
         engine.portfolio.record_trade_open = AsyncMock()
+        _rewire_closer(engine)
 
         signal = make_signal(metadata={"category": "sports"})
-        await engine._handle_order_fill(signal, shares=6.0)
+        await engine.closer.handle_order_fill(signal, shares=6.0)
 
         call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
         assert call_kwargs["category"] == "sports"
@@ -447,6 +458,7 @@ class TestHandleOrderFill:
         engine = _make_engine()
         engine.portfolio = AsyncMock()
         engine.portfolio.record_trade_open = AsyncMock()
+        _rewire_closer(engine)
 
         # Build a signal with no category key in metadata
         signal = TradeSignal(
@@ -463,7 +475,7 @@ class TestHandleOrderFill:
             confidence=0.80,
             metadata={},  # explicitly empty — no "category" key
         )
-        await engine._handle_order_fill(signal, shares=5.0)
+        await engine.closer.handle_order_fill(signal, shares=5.0)
 
         call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
         assert call_kwargs["category"] == ""
@@ -625,11 +637,13 @@ class TestSellConfirmation:
 
             pos = make_position()
 
-            with patch("bot.agent.engine.log_exit_triggered", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.async_session", return_value=mock_session), \
+            _rewire_closer(engine)
+
+            with patch("bot.agent.position_closer.log_exit_triggered", new_callable=AsyncMock), \
+                 patch("bot.agent.position_closer.log_position_closed", new_callable=AsyncMock), \
+                 patch("bot.agent.position_closer.async_session", return_value=mock_session), \
                  patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
-                await engine._close_position(pos)
+                await engine.closer.close_position(pos)
 
             engine.portfolio.record_trade_close.assert_called_once()
             mock_repo.update_status.assert_awaited_once()
@@ -652,11 +666,12 @@ class TestSellConfirmation:
             trade = MagicMock()
             trade.status = "pending"
             engine.order_manager.close_position = AsyncMock(return_value=trade)
+            _rewire_closer(engine)
 
             pos = make_position()
 
-            with patch("bot.agent.engine.log_exit_triggered", new_callable=AsyncMock):
-                await engine._close_position(pos)
+            with patch("bot.agent.position_closer.log_exit_triggered", new_callable=AsyncMock):
+                await engine.closer.close_position(pos)
 
             engine.portfolio.record_trade_close.assert_not_called()
 
@@ -674,11 +689,12 @@ class TestSellConfirmation:
             engine.risk_manager = MagicMock()
             engine.order_manager = AsyncMock()
             engine.order_manager.close_position = AsyncMock(return_value=None)
+            _rewire_closer(engine)
 
             pos = make_position()
 
-            with patch("bot.agent.engine.log_exit_triggered", new_callable=AsyncMock):
-                await engine._close_position(pos)
+            with patch("bot.agent.position_closer.log_exit_triggered", new_callable=AsyncMock):
+                await engine.closer.close_position(pos)
 
             engine.portfolio.record_trade_close.assert_not_called()
 
@@ -695,16 +711,17 @@ class TestSellConfirmation:
             engine.portfolio = AsyncMock()
             engine.portfolio.record_trade_close = AsyncMock(return_value=-0.3)
             engine.risk_manager = MagicMock()
+            _rewire_closer(engine)
 
             mock_repo = AsyncMock()
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=False)
 
-            with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.async_session", return_value=mock_session), \
+            with patch("bot.agent.position_closer.log_position_closed", new_callable=AsyncMock), \
+                 patch("bot.agent.position_closer.async_session", return_value=mock_session), \
                  patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
-                await engine._handle_sell_fill("mkt1", 0.45, trade_id=99, shares=10.0)
+                await engine.closer.handle_sell_fill("mkt1", 0.45, trade_id=99, shares=10.0)
 
             engine.portfolio.record_trade_close.assert_called_once_with("mkt1", 0.45)
             engine.risk_manager.update_daily_pnl.assert_called_once_with(-0.3)
@@ -723,6 +740,7 @@ class TestSellConfirmation:
         trade.status = "filled"
         trade.id = 42
         engine.order_manager.close_position = AsyncMock(return_value=trade)
+        _rewire_closer(engine)
 
         mock_repo = AsyncMock()
         mock_session = AsyncMock()
@@ -731,11 +749,11 @@ class TestSellConfirmation:
 
         pos = make_position(market_id="mkt_pnl", current_price=0.88)
 
-        with patch("bot.agent.engine.log_exit_triggered", new_callable=AsyncMock), \
-             patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-             patch("bot.agent.engine.async_session", return_value=mock_session), \
+        with patch("bot.agent.position_closer.log_exit_triggered", new_callable=AsyncMock), \
+             patch("bot.agent.position_closer.log_position_closed", new_callable=AsyncMock), \
+             patch("bot.agent.position_closer.async_session", return_value=mock_session), \
              patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
-            await engine._close_position(pos)
+            await engine.closer.close_position(pos)
 
         engine.portfolio.record_trade_close.assert_called_once_with("mkt_pnl", 0.88)
         engine.risk_manager.update_daily_pnl.assert_called_once_with(1.5)
@@ -748,16 +766,17 @@ class TestSellConfirmation:
         engine.portfolio = AsyncMock()
         engine.portfolio.record_trade_close = AsyncMock(return_value=2.0)
         engine.risk_manager = MagicMock()
+        _rewire_closer(engine)
 
         mock_repo = AsyncMock()
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
-             patch("bot.agent.engine.async_session", return_value=mock_session), \
+        with patch("bot.agent.position_closer.log_position_closed", new_callable=AsyncMock), \
+             patch("bot.agent.position_closer.async_session", return_value=mock_session), \
              patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
-            await engine._handle_sell_fill("mkt_win", 0.95, trade_id=77, shares=5.0)
+            await engine.closer.handle_sell_fill("mkt_win", 0.95, trade_id=77, shares=5.0)
 
         engine.risk_manager.update_daily_pnl.assert_called_once_with(2.0)
         mock_repo.update_status.assert_awaited_once_with(77, "filled", pnl=2.0)
@@ -947,9 +966,10 @@ class TestTryRebalance:
         engine = _make_engine()
         engine.portfolio = MagicMock()
         engine.portfolio.positions = []
+        _rewire_closer(engine)
 
         signal = make_signal(edge=0.01)  # Below 0.03 threshold
-        result = await engine._try_rebalance(signal)
+        result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
         assert result is None
 
     @pytest.mark.asyncio
@@ -966,9 +986,10 @@ class TestTryRebalance:
         )
         engine.portfolio = MagicMock()
         engine.portfolio.positions = [winning_pos]
+        _rewire_closer(engine)
 
         signal = make_signal(edge=0.05)
-        result = await engine._try_rebalance(signal)
+        result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
         assert result is None
 
     @pytest.mark.asyncio
@@ -992,11 +1013,12 @@ class TestTryRebalance:
         )
         engine.portfolio = MagicMock()
         engine.portfolio.positions = [loser]
+        _rewire_closer(engine)
 
         signal = make_signal(edge=0.05)
 
-        with patch("bot.agent.engine.log_rebalance", new_callable=AsyncMock):
-            result = await engine._try_rebalance(signal)
+        with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+            result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 
         assert result is loser
         engine.order_manager.close_position.assert_called_once()
@@ -1019,9 +1041,10 @@ class TestTryRebalance:
         )
         engine.portfolio = MagicMock()
         engine.portfolio.positions = [loser]
+        _rewire_closer(engine)
 
         signal = make_signal(edge=0.05)
-        result = await engine._try_rebalance(signal)
+        result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
         assert result is None
 
     @pytest.mark.asyncio
@@ -1040,9 +1063,10 @@ class TestTryRebalance:
         )
         engine.portfolio = MagicMock()
         engine.portfolio.positions = [fresh_loser]
+        _rewire_closer(engine)
 
         signal = make_signal(edge=0.05)
-        result = await engine._try_rebalance(signal)
+        result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
         assert result is None
 
 

@@ -66,6 +66,18 @@ class Portfolio:
     def open_position_count(self) -> int:
         return len(self.positions)
 
+    @property
+    def realized_pnl_today(self) -> float:
+        return self._realized_pnl_today
+
+    @property
+    def day_start_equity(self) -> float:
+        return self._day_start_equity
+
+    @property
+    def peak_equity(self) -> float:
+        return self._peak_equity
+
     async def sync(self) -> None:
         """Sync portfolio state from blockchain / paper state.
 
