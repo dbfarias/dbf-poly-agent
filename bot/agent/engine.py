@@ -747,18 +747,35 @@ class TradingEngine:
 
     async def _maybe_daily_summary(self) -> None:
         """Send daily summary at midnight UTC."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc)
+        today = now.strftime("%Y-%m-%d")
         if self._last_daily_summary == today:
             return
-        if datetime.now(timezone.utc).hour == 0 and datetime.now(timezone.utc).minute < 2:
+        if now.hour == 0 and now.minute < 2:
             self._last_daily_summary = today
             overview = self.portfolio.get_overview()
+
+            # Compute real daily stats from trade history
+            try:
+                async with async_session() as session:
+                    from bot.data.repositories import TradeRepository
+
+                    repo = TradeRepository(session)
+                    today_stats = await repo.get_today_stats()
+            except Exception:
+                today_stats = {"trades_today": 0, "win_rate_today": 0.0}
+
+            equity = overview["total_equity"]
+            daily_pnl = overview["realized_pnl_today"]
+            day_start = overview.get("day_start_equity", equity)
+            daily_return = daily_pnl / day_start if day_start > 0 else 0.0
+
             await notify_daily_summary(
-                equity=overview["total_equity"],
-                daily_pnl=overview["realized_pnl_today"],
-                daily_return=0.0,
-                trades=0,
-                win_rate=0.0,
+                equity=equity,
+                daily_pnl=daily_pnl,
+                daily_return=daily_return,
+                trades=today_stats["trades_today"],
+                win_rate=today_stats["win_rate_today"],
             )
 
     async def _seed_strategy_metrics(self) -> None:

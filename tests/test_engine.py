@@ -867,11 +867,13 @@ class TestMaybeDailySummary:
         engine.portfolio.get_overview.return_value = {
             "total_equity": 11.5,
             "realized_pnl_today": 0.3,
+            "day_start_equity": 11.5,
         }
         engine._last_daily_summary = "1999-01-01"  # Force "not sent today" state
 
         with patch("bot.agent.engine.notify_daily_summary", new_callable=AsyncMock) as mock_notify, \
-             patch("bot.agent.engine.datetime") as mock_dt_module:
+             patch("bot.agent.engine.datetime") as mock_dt_module, \
+             patch("bot.agent.engine.async_session") as mock_session_ctx:
             # Make every datetime.now(timezone.utc) call return a midnight-like datetime
             mock_now = MagicMock()
             mock_now.strftime.return_value = "2099-06-01"
@@ -879,15 +881,24 @@ class TestMaybeDailySummary:
             mock_now.minute = 0
             mock_dt_module.now.return_value = mock_now
 
-            await engine._maybe_daily_summary()
+            # Mock the DB session for get_today_stats
+            mock_repo = MagicMock()
+            mock_repo.get_today_stats = AsyncMock(return_value={
+                "trades_today": 5,
+                "win_rate_today": 0.60,
+            })
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__.return_value = mock_session
+            with patch("bot.data.repositories.TradeRepository.get_today_stats", new=mock_repo.get_today_stats):
+                await engine._maybe_daily_summary()
 
-        mock_notify.assert_called_once_with(
-            equity=11.5,
-            daily_pnl=0.3,
-            daily_return=0.0,
-            trades=0,
-            win_rate=0.0,
-        )
+        # daily_return = 0.3 / 11.5 ≈ 0.02608...
+        call_kwargs = mock_notify.call_args.kwargs
+        assert call_kwargs["equity"] == 11.5
+        assert call_kwargs["daily_pnl"] == 0.3
+        assert abs(call_kwargs["daily_return"] - 0.3 / 11.5) < 0.001
+        assert call_kwargs["trades"] == 5
+        assert call_kwargs["win_rate"] == 0.60
 
 
 # ---------------------------------------------------------------------------

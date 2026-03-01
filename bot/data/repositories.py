@@ -63,6 +63,30 @@ class TradeRepository:
             "win_rate": (wins / total) if total else 0.0,
         }
 
+    async def get_today_stats(self) -> dict:
+        """Get today's trade count and win rate (UTC day boundary)."""
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        total = await self.session.scalar(
+            select(func.count(Trade.id)).where(
+                Trade.created_at >= today_start,
+                Trade.status.in_(["filled", "completed"]),
+            )
+        ) or 0
+        wins = await self.session.scalar(
+            select(func.count(Trade.id)).where(
+                Trade.created_at >= today_start,
+                Trade.status.in_(["filled", "completed"]),
+                Trade.pnl > 0,
+            )
+        ) or 0
+        return {
+            "trades_today": total,
+            "wins_today": wins,
+            "win_rate_today": wins / total if total > 0 else 0.0,
+        }
+
     async def get_strategy_category_stats(
         self, days: int = 30
     ) -> list[dict]:
