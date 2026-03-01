@@ -497,6 +497,9 @@ class PerformanceLearner:
                         win_rate=wins / total if total > 0 else 0.0,
                         total_pnl=total_pnl,
                         avg_edge=avg_edge,
+                        sharpe_ratio=0.0,
+                        max_drawdown=0.0,
+                        avg_hold_time_hours=0.0,
                     )
                     await repo.upsert(metric)
         except Exception as e:
