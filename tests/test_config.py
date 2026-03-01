@@ -26,7 +26,7 @@ def test_tier_config_values():
     assert t1["max_deployed_pct"] == 0.85
     assert t1["max_per_category_pct"] == 0.40
     assert t1["min_win_prob"] == 0.65
-    assert t1["kelly_fraction"] == 0.20
+    assert t1["kelly_fraction"] == 0.25
 
     t2 = TierConfig.get(CapitalTier.TIER2)
     assert t2["max_positions"] == 6

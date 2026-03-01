@@ -296,17 +296,17 @@ class RiskManager:
         if available_capital is not None and size > available_capital * 0.95:
             size = available_capital * 0.95
 
-        # Floor to 1 share if Kelly produced a positive value but it's below
-        # 1 share. This allows natural $0.50-$6 trade sizes while ensuring
-        # at least 1 share when there IS an edge.
+        # Floor to minimum sellable position (5 shares) to ensure every
+        # position can later be closed via SELL order on the CLOB.
         if signal.market_price > 0 and size > 0:
-            min_usd = 1.0 * signal.market_price  # 1 share at current price
+            min_shares = 5.0  # Polymarket CLOB minimum for sell orders
+            min_usd = min_shares * signal.market_price
             max_position = bankroll * config["max_per_position_pct"]
             if size < min_usd:
-                # Only bump if 1 share is within position limits
+                # Only bump if min position is within risk limits
                 if min_usd <= max_position and min_usd <= (available_capital or bankroll) * 0.95:
                     logger.info(
-                        "size_bumped_to_min_1_share",
+                        "size_bumped_to_min_5_shares",
                         kelly_usd=round(size, 2),
                         min_usd=round(min_usd, 2),
                     )

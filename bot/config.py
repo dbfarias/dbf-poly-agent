@@ -52,7 +52,7 @@ class TierConfig:
             "min_edge_pct": 0.01,
             "min_win_prob": 0.65,
             "max_per_category_pct": 0.40,   # Better diversification across categories
-            "kelly_fraction": 0.20,         # Slightly more aggressive for learning
+            "kelly_fraction": 0.25,         # Higher for small bankroll (need 5-share minimums)
         },
         CapitalTier.TIER2: {
             "max_positions": 6,             # Enough slots for diversified short-term trades

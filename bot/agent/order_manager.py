@@ -1,5 +1,6 @@
 """Order lifecycle management: creation, monitoring, cancellation."""
 
+import math
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
@@ -23,7 +24,8 @@ from bot.utils.notifications import notify_trade
 
 logger = structlog.get_logger()
 
-ORDER_TIMEOUT_SECONDS = 300  # Cancel unfilled orders after 5 minutes
+ORDER_TIMEOUT_SECONDS = 300  # Cancel unfilled BUY orders after 5 minutes
+SELL_ORDER_TIMEOUT_SECONDS = 600  # Give SELL orders 10 minutes (less liquid)
 
 # Callback type: (signal, shares) -> None
 OnFillCallback = Callable[[TradeSignal, float], Awaitable[None]]
@@ -94,7 +96,8 @@ class OrderManager:
         # Ensure minimum share count AND minimum notional ($1.00)
         from bot.polymarket.client import MIN_ORDER_SIZE_USD
 
-        min_shares_for_notional = MIN_ORDER_SIZE_USD / actual_price
+        # Ceil to avoid floating-point under-count (e.g. 1.28*0.78=0.998<1.0)
+        min_shares_for_notional = math.ceil(MIN_ORDER_SIZE_USD / actual_price * 100) / 100
         effective_min = max(self.MIN_BUY_SHARES, min_shares_for_notional)
 
         if shares < effective_min:
@@ -304,7 +307,8 @@ class OrderManager:
                 continue
 
             # Check for timeout - order not filled within time limit
-            if age > ORDER_TIMEOUT_SECONDS:
+            timeout = SELL_ORDER_TIMEOUT_SECONDS if is_sell else ORDER_TIMEOUT_SECONDS
+            if age > timeout:
                 # Try to cancel (might already be gone)
                 await self.clob.cancel_order(order_id)
                 async with async_session() as session:
@@ -328,7 +332,7 @@ class OrderManager:
         for oid in to_remove:
             self._pending_orders.pop(oid, None)
 
-    MIN_BUY_SHARES = 1.0   # Minimum shares for BUY orders
+    MIN_BUY_SHARES = 5.0   # Minimum shares (CLOB constraint); ensures positions can be sold later
     MIN_SELL_SHARES = 5.0  # Minimum shares for SELL orders (CLOB constraint)
 
     async def close_position(

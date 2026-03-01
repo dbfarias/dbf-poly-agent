@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from bot.agent.order_manager import ORDER_TIMEOUT_SECONDS, OrderManager
+from bot.agent.order_manager import ORDER_TIMEOUT_SECONDS, SELL_ORDER_TIMEOUT_SECONDS, OrderManager
 from bot.data.models import Trade
 from bot.polymarket.types import (
     OrderBook,
@@ -358,16 +358,16 @@ class TestExecuteSignalMinShares:
             mock_settings.is_paper = False
             await manager.execute_signal(signal)
 
-        # At $0.91/share, notional minimum requires ceil(1.0/0.91) ≈ 1.1 shares
+        # MIN_BUY_SHARES=5.0: tiny $0.50 signal bumps to 5 shares
         call_kwargs = clob.place_order.call_args
-        assert call_kwargs.kwargs["size"] == 1.1
+        assert call_kwargs.kwargs["size"] == 5.0
         assert call_kwargs.kwargs["size"] * call_kwargs.kwargs["price"] >= 1.0
 
     @pytest.mark.asyncio
-    async def test_live_mode_allows_small_trades(self):
-        """Live mode allows trades of $1-$2 without bumping to $5."""
+    async def test_live_mode_bumps_small_trades_to_min(self):
+        """Live mode bumps trades below 5 shares to MIN_BUY_SHARES=5."""
         manager, clob, _ = _build_manager(is_paper=False)
-        # $2 at $0.91 = ~2.20 shares, above 1-share min
+        # $2 at $0.91 = ~2.20 shares, below MIN_BUY_SHARES=5
         signal = make_signal(market_price=0.90, size_usd=2.0)
 
         book = make_order_book(best_ask=0.91)
@@ -394,9 +394,9 @@ class TestExecuteSignalMinShares:
             mock_settings.is_paper = False
             await manager.execute_signal(signal)
 
-        # 2.0 / 0.91 ≈ 2.20 shares — should not be bumped to 5
+        # 2.20 shares < 5 → bumped to MIN_BUY_SHARES=5
         call_kwargs = clob.place_order.call_args
-        assert call_kwargs.kwargs["size"] == 2.20  # round(2.197..., 2)
+        assert call_kwargs.kwargs["size"] == 5.0
 
     @pytest.mark.asyncio
     async def test_paper_mode_min_shares_is_1(self):
@@ -1453,7 +1453,7 @@ class TestSellOrderMonitoring:
 
         manager._pending_orders["sell-003"] = {
             "trade_id": 52,
-            "created_at": datetime.now(timezone.utc) - timedelta(seconds=ORDER_TIMEOUT_SECONDS + 10),
+            "created_at": datetime.now(timezone.utc) - timedelta(seconds=SELL_ORDER_TIMEOUT_SECONDS + 10),
             "signal": None,
             "shares": 10.0,
             "is_sell": True,
