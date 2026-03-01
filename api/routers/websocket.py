@@ -1,15 +1,15 @@
 """WebSocket endpoint for real-time dashboard updates."""
 
 import asyncio
-import hmac
 from datetime import datetime, timezone
 
+import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from api.auth import decode_jwt
 from api.dependencies import get_engine
-from bot.config import settings
 
+logger = structlog.get_logger()
 router = APIRouter(tags=["websocket"])
 
 MAX_CONNECTIONS = 10
@@ -38,7 +38,10 @@ class ConnectionManager:
         for ws in self.active:
             try:
                 await ws.send_json(data)
+            except WebSocketDisconnect:
+                dead.append(ws)
             except Exception:
+                logger.warning("ws_broadcast_error", exc_info=True)
                 dead.append(ws)
         for ws in dead:
             if ws in self.active:
@@ -75,21 +78,16 @@ async def broadcast_trade_event(
     })
 
 
+MAX_MESSAGE_SIZE = 1024
+
+
 @router.websocket("/ws/live")
 async def websocket_endpoint(ws: WebSocket):
-    # Validate auth — accept API key (query param), JWT (query param), or httpOnly cookie
+    # Validate auth — httpOnly cookie only (no token in URL)
     from api.auth import COOKIE_NAME
 
-    token = ws.query_params.get("token", "")
-    is_api_key = hmac.compare_digest(token, settings.api_secret_key) if token else False
-    is_jwt = not is_api_key and bool(token) and decode_jwt(token) is not None
-
-    # Fallback: check httpOnly session cookie
-    if not is_api_key and not is_jwt:
-        cookie_token = ws.cookies.get(COOKIE_NAME, "")
-        is_jwt = bool(cookie_token) and decode_jwt(cookie_token) is not None
-
-    if not is_api_key and not is_jwt:
+    cookie_token = ws.cookies.get(COOKIE_NAME, "")
+    if not cookie_token or decode_jwt(cookie_token) is None:
         await ws.close(code=4001, reason="Unauthorized")
         return
 
@@ -113,7 +111,10 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Wait for next update or client message
             try:
-                await asyncio.wait_for(ws.receive_text(), timeout=5.0)
+                msg = await asyncio.wait_for(ws.receive_text(), timeout=5.0)
+                if len(msg) > MAX_MESSAGE_SIZE:
+                    await ws.close(code=1009, reason="Message too large")
+                    return
             except asyncio.TimeoutError:
                 pass  # No message from client, send next update
     except WebSocketDisconnect:
