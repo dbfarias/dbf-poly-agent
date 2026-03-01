@@ -312,6 +312,26 @@ class Portfolio:
         pnl = (settlement_price - position.avg_price) * position.size
         await pos_repo.close(position.market_id)
         self._realized_pnl_today += pnl
+
+        # Write PnL to the original BUY trade (enables learner to learn)
+        exit_reason = "resolution" if (
+            market is None or market.closed or market.archived or not market.active
+        ) else "external_close"
+        try:
+            from bot.data.repositories import TradeRepository
+
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.close_trade_for_position(
+                    position.market_id, pnl, exit_reason,
+                )
+        except Exception as e:
+            logger.warning(
+                "close_trade_pnl_update_failed",
+                market_id=position.market_id,
+                error=str(e),
+            )
+
         logger.info(
             "position_closed",
             market_id=position.market_id,

@@ -447,6 +447,16 @@ class TradingEngine:
                         closed_pos.market_id, closed_pos.current_price
                     )
                     self.risk_manager.update_daily_pnl(pnl)
+
+                    # Write PnL to the original BUY trade (enables learner to learn)
+                    from bot.data.repositories import TradeRepository
+
+                    async with async_session() as session:
+                        repo = TradeRepository(session)
+                        await repo.close_trade_for_position(
+                            closed_pos.market_id, pnl, "rebalance",
+                        )
+
                     await log_position_closed(
                         market_id=closed_pos.market_id,
                         question=closed_pos.question,
@@ -739,13 +749,20 @@ class TradingEngine:
             pnl = await self.portfolio.record_trade_close(pos.market_id, pos.current_price)
             self.risk_manager.update_daily_pnl(pnl)
 
-            # Write PnL back to Trade record (was missing — all trades had pnl=$0)
+            # Write PnL back to the SELL trade record
             from bot.data.repositories import TradeRepository
 
             async with async_session() as session:
                 repo = TradeRepository(session)
                 await repo.update_status(
                     trade.id, "filled", pnl=pnl, filled_size=pos.size,
+                )
+
+            # Write PnL to the original BUY trade (enables learner to learn)
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.close_trade_for_position(
+                    pos.market_id, pnl, "strategy_exit",
                 )
 
             await log_position_closed(
@@ -780,12 +797,19 @@ class TradingEngine:
         pnl = await self.portfolio.record_trade_close(market_id, sell_price)
         self.risk_manager.update_daily_pnl(pnl)
 
-        # Write PnL back to the Trade record (fixes stale $0 PnL on sells)
+        # Write PnL back to the SELL trade record
         from bot.data.repositories import TradeRepository
 
         async with async_session() as session:
             repo = TradeRepository(session)
             await repo.update_status(trade_id, "filled", pnl=pnl)
+
+        # Write PnL to the original BUY trade (enables learner to learn)
+        async with async_session() as session:
+            repo = TradeRepository(session)
+            await repo.close_trade_for_position(
+                market_id, pnl, "deferred_sell_fill",
+            )
 
         await log_position_closed(
             market_id=market_id,

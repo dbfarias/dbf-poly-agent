@@ -816,6 +816,74 @@ class TestSettingsRepositoryGetAll:
             assert isinstance(v, str)
 
 
+class TestTradeRepositoryCloseTrade:
+    async def test_close_trade_updates_buy_trade(self, session):
+        """close_trade_for_position() should stamp PnL and exit_reason on the BUY trade."""
+        repo = TradeRepository(session)
+        trade = await repo.create(make_trade(market_id="mkt1", status="filled", pnl=0.0))
+
+        updated = await repo.close_trade_for_position("mkt1", pnl=0.50, exit_reason="strategy_exit")
+        assert updated is True
+
+        trades = await repo.get_recent()
+        t = next(t for t in trades if t.id == trade.id)
+        assert t.pnl == pytest.approx(0.50)
+        assert t.exit_reason == "strategy_exit"
+
+    async def test_close_trade_returns_false_when_no_match(self, session):
+        """close_trade_for_position() should return False when no BUY trade exists."""
+        repo = TradeRepository(session)
+        result = await repo.close_trade_for_position(
+            "nonexistent", pnl=1.0, exit_reason="resolution",
+        )
+        assert result is False
+
+    async def test_close_trade_skips_already_closed(self, session):
+        """close_trade_for_position() should not overwrite a trade that already has exit_reason."""
+        repo = TradeRepository(session)
+        trade = make_trade(market_id="mkt1", status="filled", pnl=0.0)
+        trade.exit_reason = "strategy_exit"
+        await repo.create(trade)
+
+        # Try to close again with different exit_reason
+        result = await repo.close_trade_for_position("mkt1", pnl=1.0, exit_reason="resolution")
+        assert result is False
+
+    async def test_close_trade_picks_most_recent_buy(self, session):
+        """close_trade_for_position() should update the newest BUY trade for that market."""
+        repo = TradeRepository(session)
+        from datetime import timedelta
+
+        now = datetime.now(timezone.utc)
+        old = make_trade(market_id="mkt1", status="filled", pnl=0.0)
+        old.created_at = now - timedelta(hours=2)
+        old.exit_reason = "strategy_exit"  # Already resolved
+        await repo.create(old)
+
+        new = make_trade(market_id="mkt1", status="filled", pnl=0.0)
+        new.created_at = now
+        await repo.create(new)
+
+        result = await repo.close_trade_for_position("mkt1", pnl=0.30, exit_reason="resolution")
+        assert result is True
+
+        # The newer trade should have the PnL
+        trades = await repo.get_recent()
+        newest = [t for t in trades if t.market_id == "mkt1" and t.exit_reason == "resolution"]
+        assert len(newest) == 1
+        assert newest[0].pnl == pytest.approx(0.30)
+
+    async def test_close_trade_ignores_sell_trades(self, session):
+        """close_trade_for_position() should only match BUY trades, not SELLs."""
+        repo = TradeRepository(session)
+        sell_trade = make_trade(market_id="mkt1", status="filled", pnl=0.0)
+        sell_trade.side = "SELL"
+        await repo.create(sell_trade)
+
+        result = await repo.close_trade_for_position("mkt1", pnl=0.50, exit_reason="strategy_exit")
+        assert result is False
+
+
 class TestTradeRepositoryAdvancedStats:
     async def test_empty_table_returns_empty(self, session):
         repo = TradeRepository(session)

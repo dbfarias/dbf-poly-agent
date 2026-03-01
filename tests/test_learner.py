@@ -29,6 +29,7 @@ def make_trade(
     estimated_prob: float = 0.92,
     status: str = "completed",
     created_at: datetime | None = None,
+    exit_reason: str = "strategy_exit",
 ) -> Trade:
     return Trade(
         market_id="mkt1",
@@ -42,6 +43,7 @@ def make_trade(
         edge=edge,
         estimated_prob=estimated_prob,
         status=status,
+        exit_reason=exit_reason,
         created_at=created_at or datetime.now(timezone.utc),
     )
 
@@ -507,6 +509,47 @@ class TestComputeDailyProgress:
         learner.set_daily_context(realized_pnl=-0.15, equity=30.0, target_pct=0.01)
         # Target = $0.30, PnL = -$0.15 → -50%
         assert learner._compute_daily_progress() == -0.5
+
+
+    async def test_compute_stats_ignores_unresolved_trades(self):
+        """compute_stats should exclude trades without exit_reason (unresolved BUYs)."""
+        learner = PerformanceLearner()
+
+        # Mix of resolved and unresolved trades
+        resolved = make_trades(10, 8, strategy="time_decay", category="politics")
+        unresolved = [
+            make_trade(strategy="time_decay", category="politics", pnl=0.0, exit_reason="")
+            for _ in range(20)
+        ]
+        all_trades = resolved + unresolved
+
+        with patch("bot.agent.learner.async_session") as mock_session_ctx:
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch(
+                "bot.agent.learner.TradeRepository"
+            ) as mock_trade_repo_cls:
+                mock_trade_repo = AsyncMock()
+                mock_trade_repo.get_recent.return_value = all_trades
+                mock_trade_repo_cls.return_value = mock_trade_repo
+
+                with patch(
+                    "bot.agent.learner.StrategyMetricRepository"
+                ) as mock_metric_repo_cls:
+                    mock_metric_repo = AsyncMock()
+                    mock_metric_repo_cls.return_value = mock_metric_repo
+
+                    await learner.compute_stats()
+
+                    # Only the 10 resolved trades should be counted
+                    key = ("time_decay", "politics")
+                    assert key in learner._stats
+                    assert learner._stats[key].total_trades == 10
+                    assert learner._stats[key].winning_trades == 8
 
 
 class TestLearnerAdjustmentsUrgency:

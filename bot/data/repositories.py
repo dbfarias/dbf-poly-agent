@@ -258,6 +258,44 @@ class TradeRepository:
 
         return stats
 
+    async def close_trade_for_position(
+        self, market_id: str, pnl: float, exit_reason: str,
+    ) -> bool:
+        """Write final PnL and exit_reason to the original BUY trade for a position.
+
+        Finds the most recent filled BUY trade (without an exit_reason) for the
+        given market_id and stamps it with the realized PnL.  This enables the
+        learner to compute accurate win-rates and per-strategy performance.
+
+        Returns True if a trade was updated, False otherwise.
+        """
+        result = await self.session.execute(
+            select(Trade.id)
+            .where(
+                Trade.market_id == market_id,
+                Trade.side == "BUY",
+                Trade.status.in_(["filled", "completed"]),
+                Trade.exit_reason == "",
+            )
+            .order_by(Trade.created_at.desc())
+            .limit(1)
+        )
+        trade_id = result.scalar_one_or_none()
+        if trade_id is None:
+            return False
+
+        await self.session.execute(
+            update(Trade)
+            .where(Trade.id == trade_id)
+            .values(
+                pnl=pnl,
+                exit_reason=exit_reason,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        await self.session.commit()
+        return True
+
     async def mark_scan_traded(self, market_id: str, strategy: str) -> None:
         """Mark the most recent scan for a market as traded."""
         from bot.data.models import MarketScan

@@ -133,11 +133,15 @@ class PerformanceLearner:
             repo = TradeRepository(session)
             trades = await repo.get_recent(limit=500)
 
-        # Filter to completed trades from last 30 days
+        # Filter to resolved trades from last 30 days.
+        # Only count trades with exit_reason set — unresolved BUY entries
+        # (pnl=0, no exit) would dilute win rates and PnL stats.
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         recent = []
         for t in trades:
             if t.status not in ("filled", "completed"):
+                continue
+            if not t.exit_reason:
                 continue
             created = t.created_at
             if created is not None and created.tzinfo is None:
