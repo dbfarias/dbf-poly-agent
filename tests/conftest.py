@@ -103,6 +103,10 @@ def mock_engine():
     engine.analyzer.STOP_LOSS_PCT = 0.40
     engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
     engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
+    engine.analyzer.disabled_strategies = set()
+
+    # Strategy enable/disable
+    engine.disabled_strategies = set()
 
     return engine
 

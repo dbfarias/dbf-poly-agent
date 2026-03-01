@@ -165,6 +165,7 @@ export interface BotConfig {
   tier_config: Record<string, number>;
   strategy_params: Record<string, Record<string, number>>;
   quality_params: Record<string, number>;
+  disabled_strategies: string[];
 }
 
 export interface ConfigUpdateResponse {

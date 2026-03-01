@@ -50,6 +50,8 @@ def fake_engine():
     engine.analyzer.STOP_LOSS_PCT = 0.40
     engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
     engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
+    engine.analyzer.disabled_strategies = set()
+    engine.disabled_strategies = set()
 
     return engine
 
@@ -385,6 +387,58 @@ async def test_multiple_tiers(settings_session_factory, fake_engine):
         TierConfig.update(CapitalTier.TIER2, {"max_positions": orig_t2})
 
     assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_save_disabled_strategies(settings_session_factory):
+    from api.schemas import BotConfigUpdate
+    from bot.data.settings_store import SettingsStore
+
+    update = BotConfigUpdate(disabled_strategies=["market_making", "swing_trading"])
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        all_s = await repo.get_all()
+
+    assert json.loads(all_s["global.disabled_strategies"]) == [
+        "market_making",
+        "swing_trading",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_load_and_apply_disabled_strategies(settings_session_factory, fake_engine):
+    from bot.data.settings_store import SettingsStore
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many(
+            {"global.disabled_strategies": json.dumps(["time_decay"])}
+        )
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+
+    assert count == 1
+    assert fake_engine.disabled_strategies == {"time_decay"}
+    assert fake_engine.analyzer.disabled_strategies == {"time_decay"}
 
 
 @pytest.mark.asyncio

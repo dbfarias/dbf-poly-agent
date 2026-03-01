@@ -120,6 +120,7 @@ class TradingEngine:
         self._last_daily_summary: str = ""
         self._learner_adjustments = None
         self._rebalanced_this_cycle = False
+        self.disabled_strategies: set[str] = set()
 
     @property
     def is_running(self) -> bool:

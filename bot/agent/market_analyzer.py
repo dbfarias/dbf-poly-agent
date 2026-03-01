@@ -67,6 +67,7 @@ class MarketAnalyzer:
         self.cache = cache
         self.strategies = strategies
         self.clob = clob_client
+        self.disabled_strategies: set[str] = set()
 
     async def scan_markets(self, tier: CapitalTier) -> list[TradeSignal]:
         """Scan all markets and return ranked signals from all enabled strategies."""
@@ -87,6 +88,8 @@ class MarketAnalyzer:
         # Run enabled strategies
         all_signals: list[TradeSignal] = []
         for strategy in self.strategies:
+            if strategy.name in self.disabled_strategies:
+                continue
             if not strategy.is_enabled_for_tier(tier):
                 continue
 

@@ -313,3 +313,48 @@ class TestQualityFilterCache:
         # Should have used cached book, NOT called CLOB
         mock_clob.get_order_book.assert_not_called()
         assert len(result) == 1
+
+
+class TestDisabledStrategies:
+    @pytest.mark.asyncio
+    async def test_disabled_strategy_skipped_in_scan(self):
+        """Disabled strategies should not produce signals."""
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = [_signal()]
+
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+        gamma.get_active_markets.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+        analyzer.disabled_strategies = {"time_decay"}
+
+        from bot.config import CapitalTier
+        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+
+        # Strategy was disabled → scan should NOT be called
+        mock_strategy.scan.assert_not_called()
+        assert signals == []
+
+    @pytest.mark.asyncio
+    async def test_enabled_strategy_runs_normally(self):
+        """Non-disabled strategies should produce signals."""
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = [_signal()]
+
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+        gamma.get_active_markets.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+        analyzer.disabled_strategies = set()  # nothing disabled
+
+        from bot.config import CapitalTier
+        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+
+        mock_strategy.scan.assert_called_once()
+        assert len(signals) == 1

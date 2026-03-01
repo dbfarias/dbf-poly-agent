@@ -27,6 +27,7 @@ class TestGetConfig:
             "tier_config",
             "strategy_params",
             "quality_params",
+            "disabled_strategies",
         }
         assert set(data.keys()) == expected_keys
 
@@ -351,6 +352,52 @@ class TestUpdateConfig:
                     json={"scan_interval_seconds": 60},
                 )
         assert resp.status_code == 200
+
+
+class TestDisabledStrategies:
+    async def test_get_config_returns_disabled_strategies(self, client, mock_engine):
+        mock_engine.disabled_strategies = {"market_making"}
+        resp = await client.get("/api/config/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["disabled_strategies"] == ["market_making"]
+
+    async def test_disable_strategy(self, client, mock_engine):
+        resp = await client.put(
+            "/api/config/",
+            json={"disabled_strategies": ["time_decay"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any("disabled_strategies" in c for c in data["changes"])
+        assert "time_decay" in mock_engine.disabled_strategies
+        assert "time_decay" in mock_engine.analyzer.disabled_strategies
+
+    async def test_enable_all_strategies(self, client, mock_engine):
+        mock_engine.disabled_strategies = {"time_decay"}
+        mock_engine.analyzer.disabled_strategies = {"time_decay"}
+        resp = await client.put(
+            "/api/config/",
+            json={"disabled_strategies": []},
+        )
+        assert resp.status_code == 200
+        assert mock_engine.disabled_strategies == set()
+        assert mock_engine.analyzer.disabled_strategies == set()
+
+    async def test_disable_invalid_strategy_filtered(self, client, mock_engine):
+        """Only valid strategy names are accepted."""
+        resp = await client.put(
+            "/api/config/",
+            json={"disabled_strategies": ["nonexistent", "time_decay"]},
+        )
+        assert resp.status_code == 200
+        # Only time_decay is a valid strategy in mock
+        assert mock_engine.disabled_strategies == {"time_decay"}
+
+    async def test_disabled_strategies_empty_by_default(self, client):
+        resp = await client.get("/api/config/")
+        data = resp.json()
+        assert data["disabled_strategies"] == []
 
 
 class TestPauseResume:

@@ -153,6 +153,8 @@ class BotConfig(BaseModel):
     strategy_params: dict
     # Quality filter parameters
     quality_params: dict
+    # Disabled strategies
+    disabled_strategies: list[str] = []
 
 
 class BotConfigUpdate(BaseModel):
@@ -165,6 +167,8 @@ class BotConfigUpdate(BaseModel):
     strategy_params: dict | None = None
     # Quality filter overrides
     quality_params: dict | None = None
+    # Disabled strategies (full replacement list)
+    disabled_strategies: list[str] | None = None
 
 
 # Activity

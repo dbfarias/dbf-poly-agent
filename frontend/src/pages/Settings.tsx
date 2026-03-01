@@ -103,6 +103,9 @@ export default function Settings() {
   const [strategyParams, setStrategyParams] = useState<
     Record<string, Record<string, number>>
   >({});
+  const [disabledStrategies, setDisabledStrategies] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Sync local state when config loads
   useEffect(() => {
@@ -115,6 +118,7 @@ export default function Settings() {
     setTier(config.tier_config);
     setQuality(config.quality_params);
     setStrategyParams(config.strategy_params);
+    setDisabledStrategies(new Set(config.disabled_strategies ?? []));
   }, [config]);
 
   const pauseMut = useMutation({
@@ -230,6 +234,14 @@ export default function Settings() {
     MIN_SPREAD: ["Min Spread ($)", "Minimum spread required for market making."],
     MAX_SPREAD: ["Max Spread ($)", "Maximum spread for market making positions."],
     IMBALANCE_THRESHOLD: ["Imbalance Threshold", "Price imbalance threshold for value betting signals."],
+    MIN_DIVERGENCE_PCT: ["Min Divergence (%)", "Minimum divergence between external data and contract price to trigger a trade."],
+    TAKE_PROFIT_PCT: ["Take Profit (%)", "Exit position when profit reaches this percentage."],
+    STOP_LOSS_PCT: ["Stop Loss (%)", "Exit position when loss reaches this percentage."],
+    MAX_HOLD_HOURS_CRYPTO: ["Max Hold Hours (Crypto)", "Maximum hours to hold a crypto-related divergence trade."],
+    MAX_HOLD_HOURS_OTHER: ["Max Hold Hours (Other)", "Maximum hours to hold a non-crypto divergence trade."],
+    MIN_MOMENTUM: ["Min Momentum", "Minimum price momentum (consecutive rising ticks) to trigger a swing trade."],
+    MAX_HOLD_HOURS: ["Max Hold Hours", "Maximum hours to hold a position before forced exit."],
+    MIN_HOURS_LEFT: ["Min Hours Left", "Minimum hours to market resolution for entry."],
   };
 
   const isTierPct = (key: string) =>
@@ -331,6 +343,63 @@ export default function Settings() {
               Reset PnL
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Strategy Toggles */}
+      <div
+        className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5"
+        data-testid="strategy-toggles"
+      >
+        <h3 className="font-medium text-white mb-1">Strategy Toggles</h3>
+        <p className="text-xs text-zinc-500 mb-4">
+          Enable or disable individual strategies. Disabled strategies will not
+          scan for opportunities.
+        </p>
+        <div className="space-y-3">
+          {[
+            { name: "arbitrage", label: "Arbitrage" },
+            { name: "time_decay", label: "Time Decay" },
+            { name: "price_divergence", label: "Price Divergence" },
+            { name: "swing_trading", label: "Swing Trading" },
+            { name: "value_betting", label: "Value Betting" },
+            { name: "market_making", label: "Market Making" },
+          ].map(({ name, label }) => {
+            const isEnabled = !disabledStrategies.has(name);
+            return (
+              <div
+                key={name}
+                className="flex items-center justify-between"
+                data-testid={`strategy-toggle-${name}`}
+              >
+                <span className="text-sm text-zinc-300">{label}</span>
+                <button
+                  onClick={() => {
+                    const next = new Set(disabledStrategies);
+                    if (isEnabled) {
+                      next.add(name);
+                    } else {
+                      next.delete(name);
+                    }
+                    setDisabledStrategies(next);
+                    configMut.mutate({
+                      disabled_strategies: Array.from(next),
+                    });
+                  }}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    isEnabled ? "bg-green-600" : "bg-zinc-700"
+                  }`}
+                  data-testid={`toggle-${name}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      isEnabled ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 

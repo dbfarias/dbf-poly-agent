@@ -23,6 +23,11 @@ def _get_strategy_params(engine) -> dict:
             "MIN_PRICE", "MIN_EDGE", "CONFIDENCE_BASE",
             "MIN_ARB_EDGE", "MIN_SPREAD", "MAX_SPREAD",
             "IMBALANCE_THRESHOLD",
+            # price_divergence params
+            "MIN_DIVERGENCE_PCT", "TAKE_PROFIT_PCT", "STOP_LOSS_PCT",
+            "MAX_HOLD_HOURS_CRYPTO", "MAX_HOLD_HOURS_OTHER",
+            # swing_trading params
+            "MIN_MOMENTUM", "MAX_HOLD_HOURS", "MIN_HOURS_LEFT",
         ):
             if hasattr(strategy, attr):
                 s[attr] = getattr(strategy, attr)
@@ -62,6 +67,12 @@ async def get_config(_: str = Depends(verify_api_key)):
         strategy_params = {}
         quality_params = {}
 
+    disabled = []
+    try:
+        disabled = sorted(engine.disabled_strategies)
+    except Exception:
+        pass
+
     return BotConfig(
         trading_mode=settings.trading_mode.value,
         scan_interval_seconds=settings.scan_interval_seconds,
@@ -72,6 +83,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         tier_config=TierConfig.get(tier),
         strategy_params=strategy_params,
         quality_params=quality_params,
+        disabled_strategies=disabled,
     )
 
 
@@ -111,6 +123,18 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                         if hasattr(strategy, key):
                             setattr(strategy, key, value)
                             changes.append(f"{strategy.name}.{key}={value}")
+        except RuntimeError:
+            pass
+
+    # Disabled strategies
+    if update.disabled_strategies is not None:
+        try:
+            engine = get_engine()
+            valid_names = {s.name for s in engine.analyzer.strategies}
+            new_disabled = set(update.disabled_strategies) & valid_names
+            engine.disabled_strategies = new_disabled
+            engine.analyzer.disabled_strategies = new_disabled
+            changes.append(f"disabled_strategies={sorted(new_disabled)}")
         except RuntimeError:
             pass
 

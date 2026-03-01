@@ -58,6 +58,12 @@ class SettingsStore:
             for param, value in update.quality_params.items():
                 items[f"quality.{param}"] = json.dumps(value)
 
+        # Disabled strategies
+        if getattr(update, "disabled_strategies", None) is not None:
+            items["global.disabled_strategies"] = json.dumps(
+                update.disabled_strategies
+            )
+
         if not items:
             return 0
 
@@ -97,7 +103,10 @@ class SettingsStore:
             prefix = parts[0]
 
             if prefix == "global" and len(parts) == 2:
-                applied += _apply_global(parts[1], value)
+                if parts[1] == "disabled_strategies":
+                    applied += _apply_disabled_strategies(engine, value)
+                else:
+                    applied += _apply_global(parts[1], value)
 
             elif prefix == "tier" and len(parts) == 3:
                 applied += _apply_tier(parts[1], parts[2], value)
@@ -142,6 +151,15 @@ def _apply_strategy(engine, strategy_name: str, param: str, value) -> int:
             setattr(strategy, param, value)
             return 1
     return 0
+
+
+def _apply_disabled_strategies(engine, value) -> int:
+    if not isinstance(value, list):
+        return 0
+    disabled = set(value)
+    engine.disabled_strategies = disabled
+    engine.analyzer.disabled_strategies = disabled
+    return 1
 
 
 def _apply_quality(engine, param: str, value) -> int:
