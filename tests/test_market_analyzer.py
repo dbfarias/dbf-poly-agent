@@ -364,6 +364,66 @@ class TestQualityFilterCache:
         assert len(result) == 1
 
 
+class TestScanMarketsShortTermMerge:
+    """Test that scan_markets merges short-term markets with active markets."""
+
+    @pytest.mark.asyncio
+    async def test_short_term_markets_merged_and_deduped(self):
+        """Short-term markets should be merged without duplicates."""
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+
+        # Active markets return one market
+        active_market = _make_gamma_market(market_id="0xactive")
+        gamma.get_active_markets.return_value = [active_market]
+
+        # Short-term returns one new + one duplicate
+        short_new = _make_gamma_market(market_id="0xshort")
+        short_dup = _make_gamma_market(market_id="0xactive")  # duplicate
+        gamma.get_short_term_markets.return_value = [short_new, short_dup]
+
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "value_betting"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+
+        from bot.config import CapitalTier
+        await analyzer.scan_markets(CapitalTier.TIER1)
+
+        # Strategy.scan should have been called with merged list (2 unique markets)
+        call_args = mock_strategy.scan.call_args
+        markets_passed = call_args[0][0]
+        market_ids = [m.id for m in markets_passed]
+        assert "0xactive" in market_ids
+        assert "0xshort" in market_ids
+        # No duplicates
+        assert len(market_ids) == len(set(market_ids))
+
+    @pytest.mark.asyncio
+    async def test_short_term_failure_does_not_break_scan(self):
+        """If short-term fetch fails, scan should still work with active markets."""
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+
+        active_market = _make_gamma_market(market_id="0xactive")
+        gamma.get_active_markets.return_value = [active_market]
+        gamma.get_short_term_markets.side_effect = RuntimeError("API down")
+
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+
+        from bot.config import CapitalTier
+        # Should not raise
+        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        assert isinstance(signals, list)
+
+
 class TestDisabledStrategies:
     @pytest.mark.asyncio
     async def test_disabled_strategy_skipped_in_scan(self):

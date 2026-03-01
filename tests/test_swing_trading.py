@@ -90,11 +90,11 @@ class TestSwingTradingMeta:
 
     def test_min_tier(self):
         s = _make_strategy()
-        assert s.min_tier == CapitalTier.TIER2
+        assert s.min_tier == CapitalTier.TIER1
 
-    def test_tier1_disabled(self):
+    def test_tier1_enabled(self):
         s = _make_strategy()
-        assert not s.is_enabled_for_tier(CapitalTier.TIER1)
+        assert s.is_enabled_for_tier(CapitalTier.TIER1)
 
     def test_tier2_enabled(self):
         s = _make_strategy()
@@ -103,6 +103,18 @@ class TestSwingTradingMeta:
     def test_tier3_enabled(self):
         s = _make_strategy()
         assert s.is_enabled_for_tier(CapitalTier.TIER3)
+
+    def test_tighter_take_profit(self):
+        s = _make_strategy()
+        assert s.TAKE_PROFIT_PCT == 0.012
+
+    def test_tighter_stop_loss(self):
+        s = _make_strategy()
+        assert s.STOP_LOSS_PCT == 0.012
+
+    def test_higher_min_volume(self):
+        s = _make_strategy()
+        assert s.MIN_VOLUME_24H == 250.0
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +272,7 @@ class TestScan:
     @pytest.mark.asyncio
     async def test_no_signal_low_volume(self):
         s = _make_strategy()
-        m = _make_market(volume_24h=50.0, best_bid=0.50)
+        m = _make_market(volume_24h=100.0, best_bid=0.50)
         _seed_momentum(s, prices=[0.46, 0.47, 0.48, 0.49])
         signals = await s.scan([m])
         assert len(signals) == 0
@@ -316,7 +328,7 @@ class TestShouldExit:
         result = await s.should_exit(
             "mkt1", 0.52, avg_price=0.50, created_at=datetime.now(timezone.utc)
         )
-        # 4% profit > 1.5% threshold
+        # 4% profit > 1.2% threshold
         assert result is True
 
     @pytest.mark.asyncio
@@ -325,7 +337,7 @@ class TestShouldExit:
         result = await s.should_exit(
             "mkt1", 0.48, avg_price=0.50, created_at=datetime.now(timezone.utc)
         )
-        # -4% loss > 1.5% threshold
+        # -4% loss > 1.2% threshold
         assert result is True
 
     @pytest.mark.asyncio

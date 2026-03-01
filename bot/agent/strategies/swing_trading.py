@@ -5,8 +5,8 @@ momentum and sell for 1-2% profit within hours. Uses in-memory price history
 to detect momentum across scan cycles.
 
 Entry: Liquid mid-range markets ($0.15-$0.85) with confirmed upward momentum.
-Exit: Take profit at 1.5%, stop loss at 1.5%, time expiry at 4h, or momentum reversal.
-Tier: TIER2+ ($25+) — requires capital efficiency understanding.
+Exit: Take profit at 1.2%, stop loss at 1.2%, time expiry at 4h, or momentum reversal.
+Tier: TIER1+ ($5+) — tight exits bound risk at low capital.
 """
 
 from collections import deque
@@ -22,15 +22,15 @@ from .base import BaseStrategy
 logger = structlog.get_logger()
 
 # Tunable defaults
-TAKE_PROFIT_PCT = 0.015     # 1.5% take profit
-STOP_LOSS_PCT = 0.015       # 1.5% stop loss
+TAKE_PROFIT_PCT = 0.012     # 1.2% take profit
+STOP_LOSS_PCT = 0.012       # 1.2% stop loss
 MAX_HOLD_HOURS = 4.0        # Max time before forced exit
 MIN_PRICE = 0.15            # Min market price for entry
 MAX_PRICE = 0.85            # Max market price for entry
 MIN_MOMENTUM = 0.005        # 0.5% minimum momentum
 MIN_MOMENTUM_TICKS = 3      # Consecutive rising ticks required
 MAX_SPREAD = 0.03           # Tighter spread than quality filter
-MIN_VOLUME_24H = 200.0      # Higher volume threshold for swing
+MIN_VOLUME_24H = 250.0      # Higher volume threshold for swing
 MIN_HOURS_LEFT = 6.0        # Need time for price movement
 PRICE_HISTORY_MAXLEN = 20   # Snapshots kept per market
 MAX_TRACKED_MARKETS = 500   # Hard ceiling on price history dict size
@@ -41,7 +41,7 @@ class SwingTradingStrategy(BaseStrategy):
     """Buy liquid mid-range markets and sell for quick profit."""
 
     name = "swing_trading"
-    min_tier = CapitalTier.TIER2
+    min_tier = CapitalTier.TIER1
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

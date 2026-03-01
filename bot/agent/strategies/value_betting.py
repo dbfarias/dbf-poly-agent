@@ -88,12 +88,11 @@ class ValueBettingStrategy(BaseStrategy):
         if yes_price is None:
             return None
 
-        # Skip markets with too-high price (thin margin, max $0.05 profit)
-        if yes_price > MAX_PRICE:
-            return None
-
-        # Skip ultra-cheap markets (speculative noise)
-        if yes_price < MIN_PRICE:
+        # Per-side price check: at least one side must be in tradeable range
+        no_price_est = market.no_price or (1.0 - yes_price)
+        yes_in_range = MIN_PRICE <= yes_price <= MAX_PRICE
+        no_in_range = MIN_PRICE <= no_price_est <= MAX_PRICE and len(token_ids) >= 2
+        if not yes_in_range and not no_in_range:
             return None
 
         # Get order book for analysis
@@ -123,30 +122,42 @@ class ValueBettingStrategy(BaseStrategy):
         if abs(imbalance) < self.IMBALANCE_THRESHOLD:
             return None
 
-        # Estimate real probability based on imbalance
-        if imbalance > 0:
-            # More bids than asks → price should go up → YES is underpriced
-            estimated_prob = yes_price + imbalance * 0.1
-            if estimated_prob - yes_price < self.MIN_EDGE:
-                return None
+        # Evaluate BOTH sides and pick the one with the higher edge.
+        # Both sides share the same edge magnitude (abs_imbalance * 0.1),
+        # so imbalance direction decides which side is underpriced.
+        no_price = market.no_price or (1.0 - yes_price)
+        has_no_token = len(token_ids) >= 2
+
+        edge_val = abs(imbalance) * 0.1
+        if edge_val < self.MIN_EDGE:
+            return None
+
+        # Determine which sides are in tradeable price range
+        yes_ok = MIN_PRICE <= yes_price <= MAX_PRICE
+        no_ok = has_no_token and MIN_PRICE <= no_price <= MAX_PRICE
+
+        if yes_ok and no_ok:
+            # Both in range — imbalance direction picks the underpriced side
+            pick_yes = imbalance > 0
+        elif yes_ok:
+            pick_yes = True
+        elif no_ok:
+            pick_yes = False
+        else:
+            return None
+
+        if pick_yes:
+            estimated_prob = yes_price + edge_val
             side = OrderSide.BUY
             token_id = token_ids[0]
             outcome = "Yes"
             price = yes_price
         else:
-            # More asks than bids → price should go down → NO might be value
-            if len(token_ids) < 2:
-                return None
-            no_price = market.no_price or (1.0 - yes_price)
-            estimated_prob = no_price + abs(imbalance) * 0.1
-            if estimated_prob - no_price < self.MIN_EDGE:
-                return None
+            estimated_prob = no_price + edge_val
             side = OrderSide.BUY
             token_id = token_ids[1]
             outcome = "No"
             price = no_price
-
-        edge_val = estimated_prob - price
 
         # Confidence: base imbalance + time bonus for shorter markets
         confidence = 0.6 + min(0.2, abs(imbalance))

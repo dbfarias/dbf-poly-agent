@@ -220,3 +220,9 @@ class TestCryptoFetcherGetPrices:
 
         # No cached data → empty dict
         assert result == {}
+
+    def test_price_cache_ttl_shorter_than_sentiment(self, fetcher):
+        """Prices use a shorter cache (5 min) than sentiment (30 min)."""
+        assert fetcher.PRICE_CACHE_TTL == 300
+        assert fetcher.CACHE_TTL == 1800
+        assert fetcher.PRICE_CACHE_TTL < fetcher.CACHE_TTL

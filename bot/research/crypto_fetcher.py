@@ -13,7 +13,8 @@ class CryptoFetcher:
 
     BASE_URL = "https://api.coingecko.com/api/v3"
     TIMEOUT = 10.0
-    CACHE_TTL = 1800  # 30 minutes internal cache
+    CACHE_TTL = 1800  # 30 minutes internal cache (sentiment)
+    PRICE_CACHE_TTL = 300  # 5 minutes for prices (faster refresh)
 
     def __init__(self):
         self._client: httpx.AsyncClient | None = None
@@ -121,7 +122,7 @@ class CryptoFetcher:
                 if isinstance(info, dict)
             }
             self._cached_prices = result
-            self._prices_expires_at = time.monotonic() + self.CACHE_TTL
+            self._prices_expires_at = time.monotonic() + self.PRICE_CACHE_TTL
             return result
 
         except httpx.HTTPError as e:

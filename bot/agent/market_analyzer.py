@@ -71,7 +71,7 @@ class MarketAnalyzer:
 
     async def scan_markets(self, tier: CapitalTier) -> list[TradeSignal]:
         """Scan all markets and return ranked signals from all enabled strategies."""
-        # Fetch active markets
+        # Fetch active markets + short-term markets, merge and deduplicate
         try:
             markets = await self.gamma.get_active_markets(limit=500)
             self.cache.set_markets_bulk(markets, ttl=120)
@@ -81,6 +81,24 @@ class MarketAnalyzer:
             markets = self.cache.get_all_markets()
             if not markets:
                 return []
+
+        # Merge short-term markets (resolving within 48h) for more signals
+        try:
+            short_term = await self.gamma.get_short_term_markets(
+                max_hours=48, min_volume_24h=30,
+            )
+            if short_term:
+                existing_ids = {m.id for m in markets}
+                new_short = [m for m in short_term if m.id not in existing_ids]
+                markets = [*markets, *new_short]
+                if new_short:
+                    logger.info(
+                        "short_term_markets_merged",
+                        new=len(new_short),
+                        total=len(markets),
+                    )
+        except Exception as e:
+            logger.warning("short_term_fetch_failed", error=str(e))
 
         # Apply quality filter before strategy evaluation
         markets = await self._filter_quality(markets)

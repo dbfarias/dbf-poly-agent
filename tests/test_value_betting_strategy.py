@@ -499,12 +499,15 @@ class TestEvaluateMarketBuyNo:
         # Should not raise — will use 1.0 - 0.70 = 0.30 as no_price
         assert result is None or isinstance(result, TradeSignal)
 
-    async def test_only_one_token_id_returns_none(self):
-        """NO path requires two token_ids; with only one, returns None."""
+    async def test_only_one_token_id_falls_back_to_yes(self):
+        """NO path requires two token_ids; with only one, falls back to YES if in range."""
         signal = await self._run_no_signal(
             token_ids='["token_yes"]',
         )
-        assert signal is None
+        # YES=0.70 is in range, so it falls back to YES signal
+        assert signal is not None
+        assert signal.outcome == "Yes"
+        assert signal.token_id == "token_yes"
 
     async def test_no_signal_insufficient_edge_returns_none(self):
         """If estimated_prob - no_price < MIN_EDGE, no signal is returned."""
@@ -754,6 +757,106 @@ class TestShouldExit:
 # ---------------------------------------------------------------------------
 # New filters: MAX_PRICE, MIN_PRICE, MIN_BOOK_VOLUME
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _evaluate_market — Dual-side evaluation (cheap YES → NO signal)
+# ---------------------------------------------------------------------------
+
+
+class TestDualSideEvaluation:
+    async def test_cheap_yes_generates_no_signal(self):
+        """YES=$0.04 is out of range, but NO=$0.96 is also out → None."""
+        strategy = _make_strategy()
+        book = _make_order_book(
+            bid_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        # YES=$0.04 (below MIN_PRICE=0.05), NO=$0.96 (above MAX_PRICE=0.95)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.04,
+            no_price=0.96,
+        )
+        signal = await strategy._evaluate_market(market, max_hours=168.0)
+        assert signal is None
+
+    async def test_cheap_yes_no_in_range_generates_no_signal(self):
+        """YES=$0.08 out of mid-range, NO=$0.92 in range → NO signal via imbalance."""
+        strategy = _make_strategy()
+        # Negative imbalance (more asks → YES overpriced → NO underpriced)
+        book = _make_order_book(
+            bid_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+            ask_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.08,
+            no_price=0.92,
+        )
+        signal = await strategy._evaluate_market(market, max_hours=168.0)
+        assert signal is not None
+        assert signal.outcome == "No"
+        assert signal.side == OrderSide.BUY
+        assert signal.token_id == "token_no"
+        assert signal.market_price == pytest.approx(0.92)
+
+    async def test_expensive_yes_generates_no_signal(self):
+        """YES=$0.96 is out of range, but NO=$0.04 is also out of range → None."""
+        strategy = _make_strategy()
+        book = _make_order_book(
+            bid_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.96,
+            no_price=0.04,
+        )
+        signal = await strategy._evaluate_market(market, max_hours=168.0)
+        # Both out of range → None
+        assert signal is None
+
+    async def test_mid_range_picks_higher_edge_side(self):
+        """When both sides are valid, the side with higher edge wins."""
+        strategy = _make_strategy()
+        # With equal imbalance, both sides get the same abs_imbalance * 0.1 edge.
+        # The side with the lower price gets the higher edge relative to its price.
+        # At equal edge magnitude, yes_edge >= no_edge picks YES.
+        book = _make_order_book(
+            bid_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.50,
+            no_price=0.50,
+        )
+        signal = await strategy._evaluate_market(market, max_hours=168.0)
+        assert signal is not None
+        # Both edges equal → pick_yes (yes_edge >= no_edge)
+        assert signal.outcome == "Yes"
+
+    async def test_only_one_token_id_skips_no_side(self):
+        """With only one token_id, NO side is not evaluated."""
+        strategy = _make_strategy()
+        book = _make_order_book(
+            bid_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.45,
+            clob_token_ids='["token_yes"]',
+        )
+        signal = await strategy._evaluate_market(market, max_hours=168.0)
+        assert signal is not None
+        assert signal.outcome == "Yes"
 
 
 class TestNewFilters:
