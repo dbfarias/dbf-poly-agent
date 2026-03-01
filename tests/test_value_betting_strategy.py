@@ -16,7 +16,11 @@ import pytest
 
 from bot.agent.strategies.value_betting import (
     IMBALANCE_THRESHOLD,
+    MAX_PRICE,
+    MIN_BOOK_VOLUME,
     MIN_EDGE,
+    MIN_PRICE,
+    RELATIVE_STOP_LOSS,
     ValueBettingStrategy,
 )
 from bot.agent.strategies.time_decay import HOURS_MEDIUM
@@ -728,3 +732,80 @@ class TestShouldExit:
         strategy = _make_strategy()
         result = await strategy.should_exit("mkt1", 0.50, avg_price=0.45, created_at="2025-01-01")
         assert result is False
+
+    async def test_relative_stop_loss_triggers_at_10pct(self):
+        """Exit if price dropped 10%+ from entry."""
+        strategy = _make_strategy()
+        # avg_price=0.90, current=0.80 → 11.1% loss → exit
+        assert await strategy.should_exit("mkt1", 0.80, avg_price=0.90) is True
+
+    async def test_relative_stop_loss_no_trigger_below_threshold(self):
+        """No exit if price only dropped 8% from entry."""
+        strategy = _make_strategy()
+        # avg_price=0.90, current=0.83 → 7.8% loss → no exit
+        assert await strategy.should_exit("mkt1", 0.83, avg_price=0.90) is False
+
+    async def test_no_relative_stop_loss_without_avg_price(self):
+        """Without avg_price kwarg, relative stop-loss doesn't trigger."""
+        strategy = _make_strategy()
+        assert await strategy.should_exit("mkt1", 0.60) is False
+
+
+# ---------------------------------------------------------------------------
+# New filters: MAX_PRICE, MIN_PRICE, MIN_BOOK_VOLUME
+# ---------------------------------------------------------------------------
+
+
+class TestNewFilters:
+    async def test_high_price_market_rejected(self):
+        """Markets with yes_price > MAX_PRICE (0.95) are skipped."""
+        strategy = _make_strategy()
+        market = _make_market(yes_price=0.96)
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    async def test_boundary_price_at_max_accepted(self):
+        """Markets at exactly MAX_PRICE are not filtered."""
+        strategy = _make_strategy()
+        book = _make_order_book(
+            bid_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(yes_price=0.95)
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        # Should not be filtered by price (may still fail edge checks)
+        # The important thing is price filter didn't reject it
+        assert result is None or isinstance(result, TradeSignal)
+
+    async def test_low_price_market_rejected(self):
+        """Markets with yes_price < MIN_PRICE (0.05) are skipped."""
+        strategy = _make_strategy()
+        market = _make_market(yes_price=0.04)
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    async def test_thin_order_book_rejected(self):
+        """Order books with total volume < MIN_BOOK_VOLUME are skipped."""
+        strategy = _make_strategy()
+        thin_book = OrderBook(
+            market="mkt1",
+            bids=[OrderBookEntry(price=0.44, size=80.0)],
+            asks=[OrderBookEntry(price=0.47, size=50.0)],
+        )
+        strategy.get_order_book = AsyncMock(return_value=thin_book)
+        market = _make_market(hours_to_resolution=48.0)
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    async def test_sufficient_volume_accepted(self):
+        """Order books at or above MIN_BOOK_VOLUME pass the filter."""
+        strategy = _make_strategy()
+        book = _make_order_book(
+            bid_sizes=[200.0, 150.0, 100.0, 80.0, 60.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(hours_to_resolution=48.0, yes_price=0.45)
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is not None

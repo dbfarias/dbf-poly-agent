@@ -23,6 +23,10 @@ logger = structlog.get_logger()
 
 MIN_EDGE = 0.03  # 3% minimum edge for value bets
 IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance
+MAX_PRICE = 0.95  # Skip markets above 95¢ (thin margin, high risk)
+MIN_PRICE = 0.05  # Skip ultra-cheap markets (speculative noise)
+MIN_BOOK_VOLUME = 200.0  # Min total order book volume (bids+asks)
+RELATIVE_STOP_LOSS = 0.10  # Exit if lost 10% from entry
 
 
 class ValueBettingStrategy(BaseStrategy):
@@ -84,6 +88,14 @@ class ValueBettingStrategy(BaseStrategy):
         if yes_price is None:
             return None
 
+        # Skip markets with too-high price (thin margin, max $0.05 profit)
+        if yes_price > MAX_PRICE:
+            return None
+
+        # Skip ultra-cheap markets (speculative noise)
+        if yes_price < MIN_PRICE:
+            return None
+
         # Get order book for analysis
         try:
             book = await self.get_order_book(token_ids[0])
@@ -99,6 +111,10 @@ class ValueBettingStrategy(BaseStrategy):
         total_volume = bid_volume + ask_volume
 
         if total_volume == 0:
+            return None
+
+        # Reject thin order books (unreliable signals)
+        if total_volume < MIN_BOOK_VOLUME:
             return None
 
         imbalance = (bid_volume - ask_volume) / total_volume
@@ -175,7 +191,24 @@ class ValueBettingStrategy(BaseStrategy):
         return time_score * 0.6 + edge_score * 0.4
 
     async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
-        """Exit if edge has been captured or price moves against us."""
+        """Exit if price moves against us or edge is captured."""
+        avg_price = kwargs.get("avg_price", 0.0)
+
+        # Absolute floor: something went very wrong
         if current_price < 0.40:
             return True
+
+        # Relative stop-loss: exit if lost 10%+ from entry
+        if avg_price > 0:
+            loss_pct = (avg_price - current_price) / avg_price
+            if loss_pct >= RELATIVE_STOP_LOSS:
+                self.logger.warning(
+                    "value_betting_exit_stop_loss",
+                    market_id=market_id,
+                    avg_price=avg_price,
+                    current_price=current_price,
+                    loss_pct=f"{loss_pct:.1%}",
+                )
+                return True
+
         return False

@@ -1,5 +1,6 @@
 """Tests for MarketAnalyzer deduplication, stop-loss, and quality filter logic."""
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -129,12 +130,14 @@ def _position(
     strategy: str = "time_decay",
     avg_price: float = 0.95,
     current_price: float = 0.93,
+    created_at: datetime | None = None,
 ):
     return SimpleNamespace(
         market_id=market_id,
         strategy=strategy,
         avg_price=avg_price,
         current_price=current_price,
+        created_at=created_at,
     )
 
 
@@ -181,6 +184,52 @@ class TestCheckStopLoss:
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
         assert reason is not None
         assert "stop_loss" in reason
+
+    # --- Max position age ---
+
+    def test_max_age_triggers_exit_after_7_days(self):
+        old_time = datetime.now(timezone.utc) - timedelta(hours=170)
+        pos = _position(avg_price=0.90, current_price=0.88, created_at=old_time)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is not None
+        assert "max_age" in reason
+
+    def test_no_max_age_exit_within_7_days(self):
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=100)
+        pos = _position(avg_price=0.90, current_price=0.88, created_at=recent_time)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
+
+    def test_no_max_age_exit_without_created_at(self):
+        pos = _position(avg_price=0.90, current_price=0.88, created_at=None)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
+
+    # --- Take profit ---
+
+    def test_take_profit_at_97_after_12h(self):
+        old_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        pos = _position(avg_price=0.90, current_price=0.97, created_at=old_time)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is not None
+        assert "take_profit" in reason
+
+    def test_no_take_profit_below_97(self):
+        old_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        pos = _position(avg_price=0.90, current_price=0.96, created_at=old_time)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
+
+    def test_no_take_profit_within_12h(self):
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=6)
+        pos = _position(avg_price=0.90, current_price=0.98, created_at=recent_time)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
+
+    def test_no_take_profit_without_created_at(self):
+        pos = _position(avg_price=0.90, current_price=0.98, created_at=None)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
 
 
 class TestNormalizeCategory:

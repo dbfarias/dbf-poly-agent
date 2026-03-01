@@ -270,18 +270,18 @@ class TestCheckDrawdown:
 
 class TestCheckMaxPositions:
     def test_under_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=8
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
         assert rm._check_max_positions([], config).passed is True
 
     def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
-        positions = [make_position(market_id=f"mkt{i}") for i in range(3)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
         result = rm._check_max_positions(positions, config)
         assert result.passed is False
 
     def test_under_tier1_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
-        positions = [make_position(market_id=f"mkt{i}") for i in range(2)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_tier3_higher_limit(self, rm):
@@ -290,17 +290,17 @@ class TestCheckMaxPositions:
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_pending_count_added_to_total(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
-        positions = [make_position(market_id=f"mkt{i}") for i in range(2)]
-        # 2 open + 1 pending = 3 → at limit → fails
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
+        # 4 open + 1 pending = 5 → at limit → fails
         result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is False
         assert "pending" in result.reason.lower()
 
     def test_pending_count_under_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=3
-        positions = [make_position(market_id=f"mkt{i}") for i in range(1)]
-        # 1 open + 1 pending = 2 → under 3 → passes
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        positions = [make_position(market_id=f"mkt{i}") for i in range(3)]
+        # 3 open + 1 pending = 4 → under 5 → passes
         result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is True
 
@@ -320,7 +320,7 @@ class TestCheckTotalDeployed:
 
     def test_within_deployed_limit_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # 7.0 deployed out of 10.0 → 70% < 80% max_deployed_pct → passes
+        # 7.0 deployed out of 10.0 → 70% < 85% max_deployed_pct → passes
         positions = [
             make_position(market_id="mkt1", cost_basis=3.5),
             make_position(market_id="mkt2", cost_basis=3.5),
@@ -330,7 +330,7 @@ class TestCheckTotalDeployed:
 
     def test_over_deployed_limit_fails(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # 9.0 deployed out of 10.0 → 90% > 80% max_deployed_pct → fails
+        # 9.0 deployed out of 10.0 → 90% > 85% max_deployed_pct → fails
         positions = [make_position(cost_basis=9.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is False
@@ -541,11 +541,11 @@ class TestEvaluateSignal:
             confidence=0.85,
             metadata={},
         )
-        # Tier 1 max_positions=8: 6 open + 2 pending = 8 → rejected
-        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(6)]
+        # Tier 1 max_positions=5: 4 open + 1 pending = 5 → rejected
+        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(4)]
         approved, size, reason = await rm.evaluate_signal(
             signal, bankroll=100.0, open_positions=positions,
-            tier=CapitalTier.TIER1, pending_count=2,
+            tier=CapitalTier.TIER1, pending_count=1,
         )
         assert approved is False
         assert "position" in reason.lower()
