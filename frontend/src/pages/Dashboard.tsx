@@ -3,17 +3,18 @@ import { DollarSign, Layers, Target, TrendingUp, Wallet, Crosshair } from "lucid
 import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats } from "../api/client";
 import EquityChart from "../components/EquityChart";
 import HelpTooltip from "../components/HelpTooltip";
+import { StatCardSkeleton } from "../components/Skeleton";
 import StatCard from "../components/StatCard";
 import TradeTable from "../components/TradeTable";
 import WinLossChart from "../components/WinLossChart";
 
 export default function Dashboard() {
-  const { data: portfolio } = useQuery({
+  const { data: portfolio, isLoading: portfolioLoading } = useQuery({
     queryKey: ["portfolio"],
     queryFn: fetchPortfolio,
     refetchInterval: 10000,
   });
-  const { data: stats } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["trade-stats"],
     queryFn: fetchTradeStats,
     refetchInterval: 30000,
@@ -28,6 +29,8 @@ export default function Dashboard() {
     queryFn: () => fetchTrades(10),
     refetchInterval: 15000,
   });
+
+  const showStatSkeletons = portfolioLoading || statsLoading;
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
@@ -121,6 +124,13 @@ export default function Dashboard() {
       )}
 
       {/* Stats Cards */}
+      {showStatSkeletons ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
         <StatCard
           title="Total Equity"
@@ -169,6 +179,7 @@ export default function Dashboard() {
           help="Number of active bets currently held. The subtitle shows their total current market value."
         />
       </div>
+      )}
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

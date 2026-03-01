@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getWsUrl } from "../api/client";
 
-interface WSMessage {
+export interface WSMessage {
   type: string;
-  data?: unknown;
+  event?: string;
+  data?: Record<string, unknown>;
   timestamp?: string;
 }
+
+type MessageHandler = (msg: WSMessage) => void;
+
+/** Registered listeners for specific message types (e.g. "trade"). */
+const _listeners: Map<string, Set<MessageHandler>> = new Map();
 
 export function useWebSocket(url?: string) {
   const wsUrl = url || getWsUrl("/ws/live");
@@ -22,8 +28,14 @@ export function useWebSocket(url?: string) {
 
       ws.current.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
+          const data: WSMessage = JSON.parse(event.data);
           setLastMessage(data);
+
+          // Notify type-specific listeners
+          const handlers = _listeners.get(data.type);
+          if (handlers) {
+            handlers.forEach((fn) => fn(data));
+          }
         } catch {
           // ignore non-JSON messages
         }
@@ -51,4 +63,16 @@ export function useWebSocket(url?: string) {
   }, [connect]);
 
   return { lastMessage, isConnected };
+}
+
+/** Subscribe to a specific WS message type. Returns an unsubscribe function. */
+export function onWsMessage(type: string, handler: MessageHandler): () => void {
+  if (!_listeners.has(type)) {
+    _listeners.set(type, new Set());
+  }
+  _listeners.get(type)!.add(handler);
+
+  return () => {
+    _listeners.get(type)?.delete(handler);
+  };
 }

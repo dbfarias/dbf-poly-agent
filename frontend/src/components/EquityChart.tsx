@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fetchEquityCurve } from "../api/client";
+import { ChartSkeleton } from "./Skeleton";
 
 export default function EquityChart({ days = 30 }: { days?: number }) {
   const { data, isLoading } = useQuery({
@@ -10,14 +11,7 @@ export default function EquityChart({ days = 30 }: { days?: number }) {
   });
 
   if (isLoading) {
-    return (
-      <div
-        className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4 h-64 flex items-center justify-center text-zinc-500"
-        data-testid="equity-chart-loading"
-      >
-        Loading...
-      </div>
-    );
+    return <ChartSkeleton title="Equity &amp; Cash" />;
   }
 
   if (!data?.length) {

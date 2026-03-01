@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { fetchTrades } from "../api/client";
+import { ChartSkeleton } from "./Skeleton";
 
 export default function WinLossChart() {
   const { data: trades, isLoading } = useQuery({
@@ -19,11 +20,7 @@ export default function WinLossChart() {
   });
 
   if (isLoading) {
-    return (
-      <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4 h-64 flex items-center justify-center text-zinc-500">
-        Loading...
-      </div>
-    );
+    return <ChartSkeleton title="Trade P&amp;L" />;
   }
 
   // Filter to closed trades with non-zero PnL

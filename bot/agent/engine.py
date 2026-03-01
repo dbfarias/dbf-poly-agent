@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
+from api.routers.websocket import broadcast_trade_event
 from bot.agent.learner import PerformanceLearner
 from bot.agent.market_analyzer import MarketAnalyzer
 from bot.agent.order_manager import OrderManager
@@ -531,6 +532,15 @@ class TradingEngine:
                     price=trade.price,
                 )
                 cycle_committed += trade.cost_usd
+                await broadcast_trade_event(
+                    event="buy_filled",
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    strategy=signal.strategy,
+                    side="BUY",
+                    price=trade.price,
+                    size=trade.size,
+                )
                 # Cooldown: shorter for fast-cycling strategies (crypto)
                 cooldown_hours = (
                     0.25 if signal.strategy == "price_divergence" else 1.0
@@ -777,6 +787,16 @@ class TradingEngine:
                 pnl=pnl,
                 exit_reason="strategy_exit",
             )
+            await broadcast_trade_event(
+                event="sell_filled",
+                market_id=pos.market_id,
+                question=pos.question,
+                strategy=pos.strategy,
+                side="SELL",
+                price=pos.current_price,
+                size=pos.size,
+                pnl=pnl,
+            )
         else:
             # Live pending — will be recorded via _handle_sell_fill callback
             logger.info(
@@ -823,6 +843,16 @@ class TradingEngine:
             pnl=pnl,
             exit_reason="deferred_sell_fill",
         )
+        await broadcast_trade_event(
+            event="sell_filled",
+            market_id=market_id,
+            question="",
+            strategy="",
+            side="SELL",
+            price=sell_price,
+            size=shares,
+            pnl=pnl,
+        )
 
     async def _handle_order_fill(self, signal, shares: float) -> None:
         """Callback when a pending live BUY order is confirmed filled."""
@@ -842,6 +872,15 @@ class TradingEngine:
             side=signal.side.value,
             size=shares,
             price=signal.market_price,
+        )
+        await broadcast_trade_event(
+            event="buy_filled",
+            market_id=signal.market_id,
+            question=signal.question,
+            strategy=signal.strategy,
+            side="BUY",
+            price=signal.market_price,
+            size=shares,
         )
 
     async def _mark_scan_traded(self, signal) -> None:

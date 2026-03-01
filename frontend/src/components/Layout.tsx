@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { onWsMessage, useWebSocket, type WSMessage } from "../hooks/useWebSocket";
+import { createToast, ToastContainer, useToasts } from "./Toast";
 
 const navItems = [
   { to: "/", icon: LineChart, label: "Dashboard" },
@@ -40,20 +41,49 @@ export default function Layout({ onLogout }: LayoutProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const { toasts, addToast, dismissToast } = useToasts();
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  // Listen for trade events from WebSocket
+  useEffect(() => {
+    return onWsMessage("trade", (msg: WSMessage) => {
+      const d = msg.data ?? {};
+      const side = String(d.side ?? "");
+      const strategy = String(d.strategy ?? "");
+      const price = Number(d.price ?? 0);
+      const size = Number(d.size ?? 0);
+      const pnl = d.pnl != null ? Number(d.pnl) : null;
+      const question = String(d.question ?? "Trade executed");
+
+      const variant = side === "SELL" ? "sell" : "buy";
+      const title = side === "SELL"
+        ? `Sold ${size.toFixed(0)} shares`
+        : `Bought ${size.toFixed(0)} shares`;
+      const pnlStr = pnl != null ? ` | P&L: $${pnl.toFixed(2)}` : "";
+      const description = `${strategy} @ $${price.toFixed(3)}${pnlStr} — ${question.slice(0, 60)}`;
+
+      addToast(createToast(title, variant, description));
+
+      // Refetch queries so dashboard updates immediately
+      queryClient.refetchQueries({ type: "active" });
+    });
+  }, [addToast, queryClient]);
+
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     await queryClient.refetchQueries({ type: "active" });
     setIsRefreshing(false);
-  }, [queryClient]);
+    addToast(createToast("Data refreshed", "success", undefined, 2000));
+  }, [queryClient, addToast]);
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div

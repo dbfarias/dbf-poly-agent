@@ -48,6 +48,33 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def broadcast_trade_event(
+    event: str,
+    market_id: str,
+    question: str,
+    strategy: str,
+    side: str,
+    price: float,
+    size: float,
+    pnl: float | None = None,
+) -> None:
+    """Broadcast a trade event to all connected dashboard clients."""
+    await manager.broadcast({
+        "type": "trade",
+        "event": event,
+        "data": {
+            "market_id": market_id,
+            "question": question,
+            "strategy": strategy,
+            "side": side,
+            "price": price,
+            "size": size,
+            "pnl": pnl,
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 @router.websocket("/ws/live")
 async def websocket_endpoint(ws: WebSocket):
     # Validate auth — accept API key (query param), JWT (query param), or httpOnly cookie
