@@ -270,18 +270,18 @@ class TestCheckDrawdown:
 
 class TestCheckMaxPositions:
     def test_under_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
         assert rm._check_max_positions([], config).passed is True
 
     def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
-        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        positions = [make_position(market_id=f"mkt{i}") for i in range(6)]
         result = rm._check_max_positions(positions, config)
         assert result.passed is False
 
     def test_under_tier1_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
-        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_tier3_higher_limit(self, rm):
@@ -290,19 +290,35 @@ class TestCheckMaxPositions:
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_pending_count_added_to_total(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
-        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
-        # 4 open + 1 pending = 5 → at limit → fails
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
+        # 5 open + 1 pending = 6 → at limit → fails
         result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is False
         assert "pending" in result.reason.lower()
 
     def test_pending_count_under_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=5
-        positions = [make_position(market_id=f"mkt{i}") for i in range(3)]
-        # 3 open + 1 pending = 4 → under 5 → passes
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
+        # 4 open + 1 pending = 5 → under 6 → passes
         result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is True
+
+    def test_stuck_positions_excluded_from_count(self, rm, monkeypatch):
+        """Positions with <5 shares (stuck on CLOB) don't count toward limit."""
+        from bot.config import settings as _settings
+
+        monkeypatch.setattr(_settings, "trading_mode", "live")
+        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        # 5 sellable + 3 stuck (size=2.0 < MIN_SELLABLE=5.0) = 8 total but only 5 count
+        sellable = [make_position(market_id=f"sell{i}") for i in range(5)]
+        stuck = []
+        for i in range(3):
+            p = make_position(market_id=f"stuck{i}")
+            p.size = 2.0
+            stuck.append(p)
+        result = rm._check_max_positions(sellable + stuck, config)
+        assert result.passed is True  # 5 < 6
 
 
 # ---------------------------------------------------------------------------
@@ -444,8 +460,8 @@ class TestCheckMinWinProb:
         assert rm._check_min_win_prob(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.65
-        signal = make_signal(estimated_prob=0.60)
+        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.55
+        signal = make_signal(estimated_prob=0.50)
         result = rm._check_min_win_prob(signal, config)
         assert result.passed is False
 
@@ -541,8 +557,8 @@ class TestEvaluateSignal:
             confidence=0.85,
             metadata={},
         )
-        # Tier 1 max_positions=5: 4 open + 1 pending = 5 → rejected
-        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(4)]
+        # Tier 1 max_positions=6: 5 open + 1 pending = 6 → rejected
+        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(5)]
         approved, size, reason = await rm.evaluate_signal(
             signal, bankroll=100.0, open_positions=positions,
             tier=CapitalTier.TIER1, pending_count=1,

@@ -21,11 +21,11 @@ from .time_decay import HOURS_MEDIUM, _max_hours_for_urgency
 
 logger = structlog.get_logger()
 
-MIN_EDGE = 0.03  # 3% minimum edge for value bets
-IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance
+MIN_EDGE = 0.02  # 2% minimum edge for value bets
+IMBALANCE_THRESHOLD = 0.10  # 10% order book imbalance
 MAX_PRICE = 0.95  # Skip markets above 95¢ (thin margin, high risk)
 MIN_PRICE = 0.05  # Skip ultra-cheap markets (speculative noise)
-MIN_BOOK_VOLUME = 200.0  # Min total order book volume (bids+asks)
+MIN_BOOK_VOLUME = 50.0  # Min total order book volume (bids+asks)
 RELATIVE_STOP_LOSS = 0.10  # Exit if lost 10% from entry
 
 

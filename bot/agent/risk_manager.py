@@ -163,15 +163,25 @@ class RiskManager:
             )
         return RiskCheckResult(True)
 
+    # Polymarket CLOB minimum for selling; positions below this are "stuck"
+    MIN_SELLABLE_SHARES = 5.0
+
     def _check_max_positions(
         self, open_positions: list[Position], config: dict, pending_count: int = 0
     ) -> RiskCheckResult:
-        total = len(open_positions) + pending_count
+        # Don't count positions too small to sell — they're stuck and
+        # shouldn't block new trades (they'll resolve on-chain eventually)
+        sellable = [
+            p for p in open_positions
+            if p.size >= self.MIN_SELLABLE_SHARES or settings.is_paper
+        ]
+        total = len(sellable) + pending_count
         if total >= config["max_positions"]:
             return RiskCheckResult(
                 False,
                 f"Max positions reached: {total} >= {config['max_positions']} "
-                f"({len(open_positions)} open + {pending_count} pending)",
+                f"({len(sellable)} sellable + {pending_count} pending"
+                f", {len(open_positions) - len(sellable)} stuck)",
             )
         return RiskCheckResult(True)
 

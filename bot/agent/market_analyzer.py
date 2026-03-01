@@ -52,7 +52,7 @@ class MarketAnalyzer:
 
     # Quality filter thresholds
     MAX_SPREAD = 0.04  # 4 cents max spread
-    MAX_CATEGORY_POSITIONS = 2  # Max pending+open per normalized category
+    MAX_CATEGORY_POSITIONS = 3  # Max pending+open per normalized category
     MIN_BID_RATIO = 0.50  # Best bid must be >= 50% of fair price
     MIN_VOLUME_24H = 50.0  # Minimum 24h volume to avoid dead markets
 

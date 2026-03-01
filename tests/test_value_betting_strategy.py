@@ -790,8 +790,8 @@ class TestNewFilters:
         strategy = _make_strategy()
         thin_book = OrderBook(
             market="mkt1",
-            bids=[OrderBookEntry(price=0.44, size=80.0)],
-            asks=[OrderBookEntry(price=0.47, size=50.0)],
+            bids=[OrderBookEntry(price=0.44, size=20.0)],
+            asks=[OrderBookEntry(price=0.47, size=15.0)],
         )
         strategy.get_order_book = AsyncMock(return_value=thin_book)
         market = _make_market(hours_to_resolution=48.0)

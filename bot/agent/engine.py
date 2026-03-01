@@ -531,9 +531,12 @@ class TradingEngine:
                     price=trade.price,
                 )
                 cycle_committed += trade.cost_usd
-                # Cooldown: prevent same market from being traded for 1 hour
+                # Cooldown: shorter for fast-cycling strategies (crypto)
+                cooldown_hours = (
+                    0.25 if signal.strategy == "price_divergence" else 1.0
+                )
                 self._market_cooldown[signal.market_id] = (
-                    datetime.now(timezone.utc) + timedelta(hours=1)
+                    datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)
                 )
             elif trade:
                 _orders_placed += 1
@@ -541,9 +544,11 @@ class TradingEngine:
                 cycle_committed += trade.cost_usd
                 pending_count += 1
                 pending_markets.add(signal.market_id)
-                # Cooldown also for pending orders
+                cooldown_hours = (
+                    0.25 if signal.strategy == "price_divergence" else 1.0
+                )
                 self._market_cooldown[signal.market_id] = (
-                    datetime.now(timezone.utc) + timedelta(hours=1)
+                    datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)
                 )
                 logger.info(
                     "order_pending",

@@ -44,13 +44,13 @@ class TierConfig:
 
     _DEFAULTS = {
         CapitalTier.TIER1: {
-            "max_positions": 5,             # Diversified short-term positions
+            "max_positions": 6,             # More slots for diverse short-term trades
             "max_per_position_pct": 0.40,   # ~$7 max per position on $17 bankroll
             "max_deployed_pct": 0.85,       # Keep 15% cash reserve
             "daily_loss_limit_pct": 0.10,
             "max_drawdown_pct": 0.25,
             "min_edge_pct": 0.01,
-            "min_win_prob": 0.65,
+            "min_win_prob": 0.55,           # Allow more signals (strategies do own filtering)
             "max_per_category_pct": 0.40,   # Better diversification across categories
             "kelly_fraction": 0.25,         # Higher for small bankroll (need 5-share minimums)
         },

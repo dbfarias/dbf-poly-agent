@@ -23,9 +23,9 @@ class ResearchEngine:
     Populates ResearchCache with per-market sentiment data.
     """
 
-    SCAN_INTERVAL = 1800  # 30 minutes
-    WARMUP_DELAY = 90  # Wait for market cache before first scan
-    MAX_MARKETS = 30  # Limit markets per scan to avoid rate limits
+    SCAN_INTERVAL = 900  # 15 minutes (fresher crypto + sentiment data)
+    WARMUP_DELAY = 60  # Wait for market cache before first scan
+    MAX_MARKETS = 50  # Scan more markets per cycle
 
     def __init__(
         self,

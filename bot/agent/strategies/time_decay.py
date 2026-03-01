@@ -32,10 +32,10 @@ URGENCY_CAP_SHORT = 72.0    # Urgency 1.0 → up to 3 days
 URGENCY_CAP_MAX = 168.0     # Urgency 1.3+ → up to 7 days
 
 # Strategy parameters
-MIN_IMPLIED_PROB = 0.70
+MIN_IMPLIED_PROB = 0.65
 MAX_PRICE = 0.97
-MIN_PRICE = 0.60
-MIN_EDGE = 0.015  # 1.5% minimum edge
+MIN_PRICE = 0.55
+MIN_EDGE = 0.01  # 1.0% minimum edge
 CONFIDENCE_BASE = 0.75
 
 
