@@ -30,6 +30,8 @@ from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.gamma import GammaClient
 from bot.polymarket.heartbeat import HeartbeatManager
 from bot.polymarket.websocket_manager import WebSocketManager
+from bot.research.cache import ResearchCache
+from bot.research.engine import ResearchEngine
 from bot.utils.notifications import notify_daily_summary, notify_error
 
 from .strategies.arbitrage import ArbitrageStrategy
@@ -85,6 +87,10 @@ class TradingEngine:
         self.risk_manager = RiskManager()
         self.order_manager = OrderManager(self.clob_client, self.data_api)
         self.learner = PerformanceLearner()
+
+        # Research engine
+        self.research_cache = ResearchCache(default_ttl=3600)
+        self.research_engine = ResearchEngine(self.research_cache, self.cache)
 
         # WebSocket + Heartbeat
         self.ws_manager = WebSocketManager(self.cache)
@@ -149,6 +155,7 @@ class TradingEngine:
     async def shutdown(self) -> None:
         """Clean shutdown."""
         self._running = False
+        await self.research_engine.stop()
         await self.heartbeat.stop()
         await self.ws_manager.disconnect()
         await self.gamma_client.close()
@@ -178,6 +185,8 @@ class TradingEngine:
         hb_task.add_done_callback(self._task_exception_handler)
         ws_task = asyncio.create_task(self.ws_manager.connect())
         ws_task.add_done_callback(self._task_exception_handler)
+        research_task = asyncio.create_task(self.research_engine.start())
+        research_task.add_done_callback(self._task_exception_handler)
 
         while self._running:
             try:
@@ -323,6 +332,14 @@ class TradingEngine:
                 edge_multiplier = _apply_urgency_to_edge_multiplier(
                     edge_multiplier, urgency
                 )
+
+            # Apply research sentiment multiplier (news-driven edge adjustment)
+            research = self.research_cache.get(signal.market_id)
+            if research is not None:
+                edge_multiplier *= research.research_multiplier
+                edge_multiplier = max(0.5, min(2.0, edge_multiplier))
+                signal.metadata["research_sentiment"] = research.sentiment_score
+                signal.metadata["research_multiplier"] = research.research_multiplier
 
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
@@ -765,4 +782,5 @@ class TradingEngine:
             "risk": self.risk_manager.get_risk_metrics(self.portfolio.total_equity),
             "pending_orders": self.order_manager.pending_count,
             "cache_stats": self.cache.stats,
+            "research_stats": self.research_cache.stats,
         }

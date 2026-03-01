@@ -16,6 +16,7 @@ from api.routers import (
     learner,
     markets,
     portfolio,
+    research,
     risk,
     strategies,
     trades,
@@ -80,6 +81,7 @@ app.include_router(risk.router)
 app.include_router(config.router)
 app.include_router(learner.router)
 app.include_router(activity.router)
+app.include_router(research.router)
 app.include_router(websocket.router)
 
 

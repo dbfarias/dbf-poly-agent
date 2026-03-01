@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Learner from "./pages/Learner";
 import Login from "./pages/Login";
 import Markets from "./pages/Markets";
+import Research from "./pages/Research";
 import Risk from "./pages/Risk";
 import Settings from "./pages/Settings";
 import Strategies from "./pages/Strategies";
@@ -31,6 +32,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           <Route path="strategies" element={<Strategies />} />
           <Route path="markets" element={<Markets />} />
           <Route path="risk" element={<Risk />} />
+          <Route path="research" element={<Research />} />
           <Route path="learner" element={<Learner />} />
           <Route path="activity" element={<Activity />} />
           <Route path="settings" element={<Settings />} />

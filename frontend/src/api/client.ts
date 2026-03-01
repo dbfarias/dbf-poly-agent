@@ -339,3 +339,40 @@ export const fetchActivity = (params: {
 
 export const fetchActivityEventTypes = () =>
   api.get<string[]>("/api/activity/event-types").then((r) => r.data);
+
+// Research types
+export interface ResearchHeadline {
+  title: string;
+  source: string;
+  sentiment: number;
+  published: string;
+  url?: string;
+}
+
+export interface ResearchMarket {
+  market_id: string;
+  keywords: string[];
+  sentiment_score: number;
+  confidence: number;
+  research_multiplier: number;
+  crypto_sentiment: number;
+  updated_at: string;
+  article_count: number;
+  top_headlines: ResearchHeadline[];
+}
+
+export interface ResearchStatus {
+  running: boolean;
+  scan_interval_seconds: number;
+  max_markets: number;
+  cached_markets: number;
+  last_scan: string | null;
+  markets_scanned: number;
+}
+
+// Research API functions
+export const fetchResearchStatus = () =>
+  api.get<ResearchStatus>("/api/research/status").then((r) => r.data);
+
+export const fetchResearchMarkets = () =>
+  api.get<ResearchMarket[]>("/api/research/markets").then((r) => r.data);
