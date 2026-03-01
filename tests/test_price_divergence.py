@@ -2,18 +2,17 @@
 
 import json
 from collections import deque
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
 
 from bot.agent.strategies.price_divergence import (
+    MAX_EDGE,
     MAX_HOLD_HOURS_CRYPTO,
     MAX_HOLD_HOURS_OTHER,
     MIN_EDGE,
     PRICE_HISTORY_MAXLEN,
-    STOP_LOSS_PCT,
-    TAKE_PROFIT_PCT,
     PriceDivergenceStrategy,
     _extract_price_threshold,
 )
@@ -115,7 +114,7 @@ class TestExtractPriceThreshold:
     def test_k_suffix(self):
         assert _extract_price_threshold("above $100k?") == 100_000.0
 
-    def test_K_suffix(self):
+    def test_k_suffix_upper(self):
         assert _extract_price_threshold("above $100K?") == 100_000.0
 
     def test_decimal(self):
@@ -166,21 +165,25 @@ class TestCryptoDivergence:
         assert signal is None
 
     def test_bearish_signal(self):
-        """BTC at $95k, contract asks 'above $100k?' priced at 0.60 → BUY NO."""
+        """BTC at $99k, contract asks 'above $100k?' priced at 0.52 → BUY NO.
+
+        distance_pct = -0.01, estimated_prob = 0.40
+        edge = (1 - 0.40) - 0.48 = 0.12 (within MIN_EDGE..MAX_EDGE)
+        """
         rc = ResearchCache()
         research = _make_research(
-            crypto_prices=(("bitcoin", 95_000.0),),
+            crypto_prices=(("bitcoin", 99_000.0),),
         )
         rc.set("m1", research)
 
         strategy = _make_strategy(research_cache=rc)
-        market = _make_market(yes_price=0.60, no_price=0.40)
+        market = _make_market(yes_price=0.52, no_price=0.48)
 
         signal = strategy._detect_crypto_divergence(market)
 
         assert signal is not None
         assert signal.outcome == "No"
-        assert signal.edge > MIN_EDGE
+        assert MIN_EDGE < signal.edge < MAX_EDGE
 
     def test_no_research_returns_none(self):
         strategy = _make_strategy(research_cache=None)
@@ -243,16 +246,19 @@ class TestSentimentDivergence:
 class TestScan:
     @pytest.mark.asyncio
     async def test_returns_sorted_signals(self):
-        """Signals should be sorted by edge (descending)."""
+        """Signals should be sorted by edge (descending).
+
+        m1: BTC at $101.5k, threshold $100k → est_prob=0.65, edge=0.10
+        m2: BTC at $101k, threshold $100k → est_prob=0.60, edge=0.05
+        """
         rc = ResearchCache()
-        # Two crypto markets with different divergences
         r1 = _make_research(
             market_id="m1",
-            crypto_prices=(("bitcoin", 110_000.0),),
+            crypto_prices=(("bitcoin", 101_500.0),),
         )
         r2 = _make_research(
             market_id="m2",
-            crypto_prices=(("bitcoin", 105_000.0),),
+            crypto_prices=(("bitcoin", 101_000.0),),
         )
         rc.set("m1", r1)
         rc.set("m2", r2)
@@ -295,6 +301,91 @@ class TestScan:
 
         signals = await strategy.scan([m1, m2])
         assert len(signals) == 0
+
+
+class TestWordBoundaryMatching:
+    """Tests for word-boundary matching that prevents 'MegaETH' → 'eth'."""
+
+    def test_megaeth_not_crypto(self):
+        strategy = _make_strategy()
+        assert strategy._is_crypto_market("Will MegaETH launch this month?") is False
+
+    def test_eth_is_crypto(self):
+        strategy = _make_strategy()
+        assert strategy._is_crypto_market("Will ETH be above $3,400?") is True
+
+    def test_bitcoin_is_crypto(self):
+        strategy = _make_strategy()
+        assert strategy._is_crypto_market("Will bitcoin reach $100k?") is True
+
+    def test_embedded_keyword_not_crypto(self):
+        strategy = _make_strategy()
+        assert strategy._is_crypto_market("Will MyBitcoinToken moon?") is False
+
+    def test_parse_rejects_megaeth(self):
+        """_extract_crypto_target must not match 'MegaETH' as ethereum."""
+        strategy = _make_strategy()
+        coin_id, threshold = strategy._extract_crypto_target(
+            "Will MegaETH reach $5?"
+        )
+        assert coin_id is None
+
+    def test_parse_matches_eth(self):
+        strategy = _make_strategy()
+        coin_id, threshold = strategy._extract_crypto_target(
+            "Will ETH be above $3,400?"
+        )
+        assert coin_id == "ethereum"
+        assert threshold == 3400.0
+
+
+class TestMaxEdgeRejection:
+    """Signals with edge > MAX_EDGE (15%) are rejected as likely parse errors."""
+
+    def test_absurd_edge_rejected(self):
+        """BTC at $50k, threshold $100k → huge divergence → rejected."""
+        rc = ResearchCache()
+        research = _make_research(
+            crypto_prices=(("bitcoin", 50_000.0),),
+        )
+        rc.set("m1", research)
+
+        strategy = _make_strategy(research_cache=rc)
+        market = _make_market(yes_price=0.60, no_price=0.40)
+
+        signal = strategy._detect_crypto_divergence(market)
+        assert signal is None
+
+    def test_edge_within_range_accepted(self):
+        """BTC at $101k, threshold $100k → small edge → accepted."""
+        rc = ResearchCache()
+        research = _make_research(
+            crypto_prices=(("bitcoin", 101_000.0),),
+        )
+        rc.set("m1", research)
+
+        strategy = _make_strategy(research_cache=rc)
+        market = _make_market(yes_price=0.55, no_price=0.45)
+
+        signal = strategy._detect_crypto_divergence(market)
+        assert signal is not None
+        assert signal.edge < MAX_EDGE
+
+
+class TestExtractPriceThresholdExtended:
+    """Tests for B/T suffix support in _extract_price_threshold."""
+
+    def test_b_suffix_lower(self):
+        assert _extract_price_threshold("market cap $2b") == 2_000_000_000.0
+
+    def test_b_suffix_upper(self):
+        assert _extract_price_threshold("market cap $2B") == 2_000_000_000.0
+
+    def test_t_suffix(self):
+        assert _extract_price_threshold("market cap $1T") == 1_000_000_000_000.0
+
+    def test_decimal_with_b(self):
+        assert _extract_price_threshold("above $1.5B") == 1_500_000_000.0
 
 
 class TestShouldExit:

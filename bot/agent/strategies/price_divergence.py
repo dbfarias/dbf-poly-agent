@@ -29,6 +29,7 @@ logger = structlog.get_logger()
 # ── Constants ──────────────────────────────────────────────────────────────────
 MIN_DIVERGENCE_PCT = 0.003       # 0.3% minimum divergence
 MIN_EDGE = 0.005                 # 0.5% minimum edge
+MAX_EDGE = 0.15                  # 15% max edge — reject absurd signals
 TAKE_PROFIT_PCT = 0.005          # 0.5% take profit
 STOP_LOSS_PCT = 0.010            # 1.0% stop loss
 MAX_HOLD_HOURS_CRYPTO = 4        # Fast crypto exit
@@ -47,16 +48,18 @@ CRYPTO_KEYWORDS = frozenset({
 })
 
 # Maps question keywords to CoinGecko coin IDs
-COIN_KEYWORD_MAP = {
-    "bitcoin": "bitcoin",
-    "btc": "bitcoin",
-    "ethereum": "ethereum",
-    "eth": "ethereum",
-}
+# Order matters: longer keywords checked first to avoid substring matches
+# (e.g. "ethereum" before "eth" so "MegaETH" doesn't match "eth")
+COIN_KEYWORD_MAP = (
+    ("bitcoin", "bitcoin"),
+    ("ethereum", "ethereum"),
+    ("btc", "bitcoin"),
+    ("eth", "ethereum"),
+)
 
-# Regex to extract dollar thresholds: "$100,000", "$100k", "$50K", "$3,400"
+# Regex to extract dollar thresholds: "$100,000", "$100k", "$50K", "$3,400", "$2B"
 _THRESHOLD_RE = re.compile(
-    r"\$\s*([\d,]+(?:\.\d+)?)\s*([kKmM])?",
+    r"\$\s*([\d,]+(?:\.\d+)?)\s*([kKmMbBtT])?",
 )
 
 
@@ -181,9 +184,24 @@ class PriceDivergenceStrategy(BaseStrategy):
 
     @staticmethod
     def _is_crypto_market(question: str) -> bool:
-        """Check if a market question is crypto-related."""
+        """Check if a market question is crypto-related.
+
+        Uses word-boundary matching to avoid 'MegaETH' matching 'eth'.
+        """
         q_lower = question.lower()
-        return any(kw in q_lower for kw in CRYPTO_KEYWORDS)
+        for kw in CRYPTO_KEYWORDS:
+            idx = q_lower.find(kw)
+            if idx == -1:
+                continue
+            # Word boundary: char before must be non-alpha (or start of string)
+            if idx > 0 and q_lower[idx - 1].isalnum():
+                continue
+            # Char after must be non-alpha (or end of string)
+            end_idx = idx + len(kw)
+            if end_idx < len(q_lower) and q_lower[end_idx].isalnum():
+                continue
+            return True
+        return False
 
     def _detect_crypto_divergence(
         self, market: GammaMarket
@@ -247,6 +265,18 @@ class PriceDivergenceStrategy(BaseStrategy):
         if edge < MIN_EDGE:
             return None
 
+        # Reject absurd edges — likely a parsing/matching error
+        if edge > MAX_EDGE:
+            self.logger.warning(
+                "crypto_divergence_edge_too_high",
+                market_id=market.id,
+                coin_id=coin_id,
+                edge=round(edge, 4),
+                actual_price=actual_price,
+                threshold=threshold,
+            )
+            return None
+
         confidence = min(0.90, 0.65 + abs(distance_pct) * 2)
 
         return TradeSignal(
@@ -287,15 +317,27 @@ class PriceDivergenceStrategy(BaseStrategy):
         - "Will BTC be above $100,000?" → ("bitcoin", 100000.0)
         - "Will Bitcoin exceed $100k?"  → ("bitcoin", 100000.0)
         - "ETH above $3,400?"          → ("ethereum", 3400.0)
+
+        Uses word-boundary matching to avoid false positives like
+        "MegaETH" matching "eth".
         """
         q_lower = question.lower()
 
-        # Find which coin
+        # Find which coin — word boundary check prevents "MegaETH" → "eth"
         coin_id = None
-        for keyword, cid in COIN_KEYWORD_MAP.items():
-            if keyword in q_lower:
-                coin_id = cid
-                break
+        for keyword, cid in COIN_KEYWORD_MAP:
+            idx = q_lower.find(keyword)
+            if idx == -1:
+                continue
+            # Word boundary: char before must be non-alphanumeric (or start of string)
+            if idx > 0 and q_lower[idx - 1].isalnum():
+                continue
+            # Char after must be non-alphanumeric (or end of string)
+            end_idx = idx + len(keyword)
+            if end_idx < len(q_lower) and q_lower[end_idx].isalnum():
+                continue
+            coin_id = cid
+            break
 
         if coin_id is None:
             return None, None
@@ -480,5 +522,9 @@ def _extract_price_threshold(question: str) -> float | None:
             value *= 1_000
         elif suffix_lower == "m":
             value *= 1_000_000
+        elif suffix_lower == "b":
+            value *= 1_000_000_000
+        elif suffix_lower == "t":
+            value *= 1_000_000_000_000
 
     return value
