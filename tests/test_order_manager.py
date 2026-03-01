@@ -328,8 +328,8 @@ class TestExecuteSignalErrors:
 
 class TestExecuteSignalMinShares:
     @pytest.mark.asyncio
-    async def test_live_mode_bumps_to_min_1_share(self):
-        """In live mode, orders below 1 share are bumped to 1."""
+    async def test_live_mode_bumps_to_min_notional(self):
+        """In live mode, orders are bumped to meet $1.00 notional minimum."""
         manager, clob, _ = _build_manager(is_paper=False)
         # Very small size that produces less than 1 share at ask price
         signal = make_signal(market_price=0.90, size_usd=0.50)
@@ -358,9 +358,10 @@ class TestExecuteSignalMinShares:
             mock_settings.is_paper = False
             await manager.execute_signal(signal)
 
-        # Verify place_order was called with size=1.0 (rounded to 2 decimals)
+        # At $0.91/share, notional minimum requires ceil(1.0/0.91) ≈ 1.1 shares
         call_kwargs = clob.place_order.call_args
-        assert call_kwargs.kwargs["size"] == 1.0
+        assert call_kwargs.kwargs["size"] == 1.1
+        assert call_kwargs.kwargs["size"] * call_kwargs.kwargs["price"] >= 1.0
 
     @pytest.mark.asyncio
     async def test_live_mode_allows_small_trades(self):

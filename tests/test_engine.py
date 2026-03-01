@@ -615,15 +615,24 @@ class TestSellConfirmation:
 
             trade = MagicMock()
             trade.status = "filled"
+            trade.id = 1
             engine.order_manager.close_position = AsyncMock(return_value=trade)
+
+            mock_repo = AsyncMock()
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=False)
 
             pos = make_position()
 
             with patch("bot.agent.engine.log_exit_triggered", new_callable=AsyncMock), \
-                 patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock):
+                 patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
+                 patch("bot.agent.engine.async_session", return_value=mock_session), \
+                 patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
                 await engine._close_position(pos)
 
             engine.portfolio.record_trade_close.assert_called_once()
+            mock_repo.update_status.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_live_pending_defers_close(self):
@@ -703,7 +712,7 @@ class TestSellConfirmation:
 
     @pytest.mark.asyncio
     async def test_close_position_records_correct_pnl(self):
-        """_close_position passes current_price to record_trade_close."""
+        """_close_position passes current_price to record_trade_close and writes PnL to Trade."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
         engine.portfolio.record_trade_close = AsyncMock(return_value=1.5)
@@ -712,16 +721,25 @@ class TestSellConfirmation:
 
         trade = MagicMock()
         trade.status = "filled"
+        trade.id = 42
         engine.order_manager.close_position = AsyncMock(return_value=trade)
+
+        mock_repo = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
 
         pos = make_position(market_id="mkt_pnl", current_price=0.88)
 
         with patch("bot.agent.engine.log_exit_triggered", new_callable=AsyncMock), \
-             patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock):
+             patch("bot.agent.engine.log_position_closed", new_callable=AsyncMock), \
+             patch("bot.agent.engine.async_session", return_value=mock_session), \
+             patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
             await engine._close_position(pos)
 
         engine.portfolio.record_trade_close.assert_called_once_with("mkt_pnl", 0.88)
         engine.risk_manager.update_daily_pnl.assert_called_once_with(1.5)
+        mock_repo.update_status.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_sell_fill_updates_daily_pnl_with_positive_pnl(self):

@@ -1,7 +1,7 @@
 """Main trading engine loop."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import structlog
 
@@ -132,6 +132,7 @@ class TradingEngine:
         self.disabled_strategies: set[str] = set()
         self._target_notified_day: str = ""
         self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
+        self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
 
     @property
     def is_running(self) -> bool:
@@ -162,12 +163,32 @@ class TradingEngine:
         self.order_manager.set_on_fill_callback(self._handle_order_fill)
         self.order_manager.set_on_sell_fill_callback(self._handle_sell_fill)
 
+        # Expire stale pending orders orphaned by previous container restarts
+        await self._expire_stale_pending_orders()
+
         logger.info(
             "engine_initialized",
             equity=self.portfolio.total_equity,
             tier=self.portfolio.tier.value,
             positions=self.portfolio.open_position_count,
         )
+
+    async def _expire_stale_pending_orders(self) -> None:
+        """Expire pending orders orphaned by previous container restarts.
+
+        The in-memory _pending_orders dict is lost on restart, leaving DB
+        records stuck as 'pending' forever. This sweeps them on startup.
+        """
+        try:
+            async with async_session() as session:
+                from bot.data.repositories import TradeRepository
+
+                repo = TradeRepository(session)
+                count = await repo.expire_stale_pending(max_age_seconds=600)
+                if count > 0:
+                    logger.info("stale_pending_orders_expired", count=count)
+        except Exception as e:
+            logger.error("expire_stale_pending_failed", error=str(e))
 
     async def shutdown(self) -> None:
         """Clean shutdown."""
@@ -339,6 +360,24 @@ class TradingEngine:
                 )
                 continue
 
+            # Skip markets in cooldown (prevents rapid same-market churning)
+            cooldown_until = self._market_cooldown.get(signal.market_id)
+            if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
+                logger.info(
+                    "signal_skipped_market_cooldown",
+                    market_id=signal.market_id[:20],
+                    strategy=signal.strategy,
+                )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason="Market in cooldown (1h after last trade)",
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
+                continue
+
             # Skip markets with existing pending orders
             if signal.market_id in pending_markets:
                 logger.info(
@@ -469,9 +508,7 @@ class TradingEngine:
             trade = await self.order_manager.execute_signal(signal)
             if trade and trade.status == "filled":
                 _orders_placed += 1
-                # Mark scan as traded for signal quality feedback
                 await self._mark_scan_traded(signal)
-                # Immediately filled (paper mode or CLOB matched)
                 await self.portfolio.record_trade_open(
                     market_id=signal.market_id,
                     token_id=signal.token_id,
@@ -484,14 +521,20 @@ class TradingEngine:
                     price=trade.price,
                 )
                 cycle_committed += trade.cost_usd
+                # Cooldown: prevent same market from being traded for 1 hour
+                self._market_cooldown[signal.market_id] = (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                )
             elif trade:
                 _orders_placed += 1
-                # Mark scan as traded for signal quality feedback
                 await self._mark_scan_traded(signal)
-                # Pending order — track committed capital for this cycle
                 cycle_committed += trade.cost_usd
                 pending_count += 1
                 pending_markets.add(signal.market_id)
+                # Cooldown also for pending orders
+                self._market_cooldown[signal.market_id] = (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                )
                 logger.info(
                     "order_pending",
                     trade_id=trade.id,
@@ -692,9 +735,19 @@ class TradingEngine:
             return
 
         if trade.status == "filled":
-            # Paper mode or immediate CLOB match — record now
+            # Paper mode or immediate CLOB match — record PnL now
             pnl = await self.portfolio.record_trade_close(pos.market_id, pos.current_price)
             self.risk_manager.update_daily_pnl(pnl)
+
+            # Write PnL back to Trade record (was missing — all trades had pnl=$0)
+            from bot.data.repositories import TradeRepository
+
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.update_status(
+                    trade.id, "filled", pnl=pnl, filled_size=pos.size,
+                )
+
             await log_position_closed(
                 market_id=pos.market_id,
                 question=pos.question,

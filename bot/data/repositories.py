@@ -41,6 +41,21 @@ class TradeRepository:
         )
         await self.session.commit()
 
+    async def expire_stale_pending(self, max_age_seconds: int = 600) -> int:
+        """Mark pending orders older than max_age_seconds as expired.
+
+        Returns count of expired orders. This handles orders orphaned by
+        container restarts (in-memory pending dict is lost on restart).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        result = await self.session.execute(
+            update(Trade)
+            .where(Trade.status == "pending", Trade.created_at < cutoff)
+            .values(status="expired")
+        )
+        await self.session.commit()
+        return result.rowcount
+
     async def get_recent(self, limit: int = 50) -> list[Trade]:
         result = await self.session.execute(
             select(Trade).order_by(Trade.created_at.desc()).limit(limit)

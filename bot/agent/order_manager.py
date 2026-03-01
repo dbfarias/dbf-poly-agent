@@ -91,16 +91,22 @@ class OrderManager:
 
         shares = signal.size_usd / actual_price
 
-        # Ensure minimum share count (immutable copy to avoid mutation)
-        if shares < self.MIN_BUY_SHARES:
-            shares = self.MIN_BUY_SHARES
+        # Ensure minimum share count AND minimum notional ($1.00)
+        from bot.polymarket.client import MIN_ORDER_SIZE_USD
+
+        min_shares_for_notional = MIN_ORDER_SIZE_USD / actual_price
+        effective_min = max(self.MIN_BUY_SHARES, min_shares_for_notional)
+
+        if shares < effective_min:
+            shares = effective_min
             adjusted_size = shares * actual_price
             signal = signal.model_copy(update={"size_usd": adjusted_size})
             logger.info(
-                "size_bumped_to_min_shares",
-                shares=shares,
+                "size_bumped_to_min_notional",
+                shares=round(shares, 2),
                 actual_price=actual_price,
-                adjusted_size_usd=adjusted_size,
+                adjusted_size_usd=round(adjusted_size, 4),
+                min_notional=MIN_ORDER_SIZE_USD,
             )
 
         # Place the order
