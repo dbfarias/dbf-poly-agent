@@ -152,9 +152,8 @@ def _apply_tier(tier_str: str, param: str, value) -> int:
 
 def _apply_strategy(engine, strategy_name: str, param: str, value) -> int:
     for strategy in engine.analyzer.strategies:
-        if strategy.name == strategy_name and hasattr(strategy, param):
-            setattr(strategy, param, value)
-            return 1
+        if strategy.name == strategy_name:
+            return 1 if strategy.update_param(param, value) else 0
     return 0
 
 

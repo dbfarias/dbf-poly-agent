@@ -24,6 +24,10 @@ class ArbitrageStrategy(BaseStrategy):
     name = "arbitrage"
     min_tier = CapitalTier.TIER1
 
+    _MUTABLE_PARAMS = {
+        "MIN_ARB_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+    }
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.MIN_ARB_EDGE = MIN_ARB_EDGE

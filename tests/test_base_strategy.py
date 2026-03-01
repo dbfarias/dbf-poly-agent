@@ -9,10 +9,16 @@ from bot.config import CapitalTier
 from bot.polymarket.types import OrderBook, OrderBookEntry
 
 
-def _make_concrete_strategy(min_tier: CapitalTier, name: str = "test_strat"):
+def _make_concrete_strategy(
+    min_tier: CapitalTier,
+    name: str = "test_strat",
+    mutable_params: dict | None = None,
+):
     """Create a concrete subclass of BaseStrategy for testing."""
 
     class ConcreteStrategy(BaseStrategy):
+        _MUTABLE_PARAMS = mutable_params or {}
+
         async def scan(self, markets):
             return []
 
@@ -57,6 +63,67 @@ class TestBaseStrategy:
     def test_repr_includes_name(self):
         strat = _make_concrete_strategy(CapitalTier.TIER1, name="my_strategy")
         assert "my_strategy" in repr(strat)
+
+
+# ---------------------------------------------------------------------------
+# update_param validation
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateParam:
+    def test_accepts_known_param_in_range(self):
+        params = {"MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5}}
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat.MIN_EDGE = 0.01
+
+        assert strat.update_param("MIN_EDGE", 0.05) is True
+        assert strat.MIN_EDGE == 0.05
+
+    def test_rejects_unknown_param(self):
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params={})
+        assert strat.update_param("HACKED_ATTR", 999) is False
+        assert not hasattr(strat, "HACKED_ATTR")
+
+    def test_rejects_value_below_min(self):
+        params = {"X": {"type": float, "min": 0.0, "max": 1.0}}
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat.X = 0.5
+
+        assert strat.update_param("X", -0.1) is False
+        assert strat.X == 0.5  # Unchanged
+
+    def test_rejects_value_above_max(self):
+        params = {"X": {"type": float, "min": 0.0, "max": 1.0}}
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat.X = 0.5
+
+        assert strat.update_param("X", 1.5) is False
+        assert strat.X == 0.5
+
+    def test_rejects_wrong_type(self):
+        params = {"COUNT": {"type": int, "min": 1, "max": 100}}
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat.COUNT = 5
+
+        assert strat.update_param("COUNT", "not_a_number") is False
+        assert strat.COUNT == 5
+
+    def test_coerces_int_from_float(self):
+        params = {"COUNT": {"type": int, "min": 1, "max": 100}}
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat.COUNT = 5
+
+        assert strat.update_param("COUNT", 10.0) is True
+        assert strat.COUNT == 10
+
+    def test_boundary_values_accepted(self):
+        params = {"X": {"type": float, "min": 0.0, "max": 1.0}}
+        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+
+        assert strat.update_param("X", 0.0) is True
+        assert strat.X == 0.0
+        assert strat.update_param("X", 1.0) is True
+        assert strat.X == 1.0
 
 
 # ---------------------------------------------------------------------------

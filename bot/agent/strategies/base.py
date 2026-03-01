@@ -19,6 +19,10 @@ class BaseStrategy(ABC):
     name: str = "base"
     min_tier: CapitalTier = CapitalTier.TIER1
 
+    # Subclasses define mutable params with type + range constraints.
+    # Format: {"PARAM_NAME": {"type": float, "min": 0.0, "max": 1.0}}
+    _MUTABLE_PARAMS: dict[str, dict] = {}
+
     def __init__(
         self,
         clob_client: PolymarketClient,
@@ -29,6 +33,38 @@ class BaseStrategy(ABC):
         self.gamma = gamma_client
         self.cache = cache
         self.logger = logger.bind(strategy=self.name)
+
+    def update_param(self, name: str, value) -> bool:
+        """Update a mutable parameter with validation.
+
+        Returns True if the param was accepted, False if rejected.
+        """
+        spec = self._MUTABLE_PARAMS.get(name)
+        if spec is None:
+            self.logger.warning("param_rejected_unknown", param=name)
+            return False
+
+        expected_type = spec.get("type", float)
+        try:
+            value = expected_type(value)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                "param_rejected_type", param=name, expected=expected_type.__name__
+            )
+            return False
+
+        min_val = spec.get("min")
+        max_val = spec.get("max")
+        if min_val is not None and value < min_val:
+            self.logger.warning("param_rejected_range", param=name, value=value, min=min_val)
+            return False
+        if max_val is not None and value > max_val:
+            self.logger.warning("param_rejected_range", param=name, value=value, max=max_val)
+            return False
+
+        setattr(self, name, value)
+        self.logger.info("param_updated", param=name, value=value)
+        return True
 
     async def get_order_book(self, token_id: str) -> OrderBook:
         """Fetch order book with cache (10s TTL).

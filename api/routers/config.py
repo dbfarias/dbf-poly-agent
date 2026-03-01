@@ -116,7 +116,7 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
         except RuntimeError:
             pass
 
-    # Strategy parameter updates
+    # Strategy parameter updates (whitelist-validated)
     if update.strategy_params:
         try:
             engine = get_engine()
@@ -124,8 +124,7 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 if strategy.name in update.strategy_params:
                     params = update.strategy_params[strategy.name]
                     for key, value in params.items():
-                        if hasattr(strategy, key):
-                            setattr(strategy, key, value)
+                        if strategy.update_param(key, value):
                             changes.append(f"{strategy.name}.{key}={value}")
         except RuntimeError:
             pass
@@ -142,23 +141,30 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
         except RuntimeError:
             pass
 
-    # Quality filter updates
+    # Quality filter updates (explicit mapping + range validation)
     if update.quality_params:
         try:
             engine = get_engine()
             analyzer = engine.analyzer
-            mapping = {
-                "max_spread": "MAX_SPREAD",
-                "max_category_positions": "MAX_CATEGORY_POSITIONS",
-                "min_bid_ratio": "MIN_BID_RATIO",
-                "min_volume_24h": "MIN_VOLUME_24H",
-                "stop_loss_pct": "STOP_LOSS_PCT",
-                "near_worthless_price": "NEAR_WORTHLESS_PRICE",
-                "default_exit_price": "DEFAULT_EXIT_PRICE",
+            _quality_spec = {
+                "max_spread": ("MAX_SPREAD", float, 0.0, 1.0),
+                "max_category_positions": ("MAX_CATEGORY_POSITIONS", int, 1, 20),
+                "min_bid_ratio": ("MIN_BID_RATIO", float, 0.0, 1.0),
+                "min_volume_24h": ("MIN_VOLUME_24H", float, 0.0, 100000.0),
+                "stop_loss_pct": ("STOP_LOSS_PCT", float, 0.0, 1.0),
+                "near_worthless_price": ("NEAR_WORTHLESS_PRICE", float, 0.0, 0.5),
+                "default_exit_price": ("DEFAULT_EXIT_PRICE", float, 0.0, 1.0),
             }
             for key, value in update.quality_params.items():
-                attr = mapping.get(key)
-                if attr and hasattr(analyzer, attr):
+                spec = _quality_spec.get(key)
+                if not spec:
+                    continue
+                attr, typ, lo, hi = spec
+                try:
+                    value = typ(value)
+                except (TypeError, ValueError):
+                    continue
+                if lo <= value <= hi and hasattr(analyzer, attr):
                     setattr(analyzer, attr, value)
                     changes.append(f"quality.{key}={value}")
         except RuntimeError:

@@ -35,6 +35,11 @@ class ValueBettingStrategy(BaseStrategy):
     name = "value_betting"
     min_tier = CapitalTier.TIER1
 
+    _MUTABLE_PARAMS = {
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
+    }
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.MIN_EDGE = MIN_EDGE

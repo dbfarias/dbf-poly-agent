@@ -43,6 +43,16 @@ class SwingTradingStrategy(BaseStrategy):
     name = "swing_trading"
     min_tier = CapitalTier.TIER1
 
+    _MUTABLE_PARAMS = {
+        "TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 0.5},
+        "STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 0.5},
+        "MAX_HOLD_HOURS": {"type": float, "min": 0.5, "max": 168.0},
+        "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_MOMENTUM": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_HOURS_LEFT": {"type": float, "min": 0.5, "max": 168.0},
+    }
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.TAKE_PROFIT_PCT = TAKE_PROFIT_PCT

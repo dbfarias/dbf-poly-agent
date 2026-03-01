@@ -67,6 +67,14 @@ class TimeDecayStrategy(BaseStrategy):
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
+    _MUTABLE_PARAMS = {
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_IMPLIED_PROB": {"type": float, "min": 0.0, "max": 1.0},
+        "CONFIDENCE_BASE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+    }
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Tunable parameters (exposed to admin API via Settings page)

@@ -96,6 +96,20 @@ def mock_engine():
     mock_strategy.MIN_PRICE = 0.82
     mock_strategy.MIN_EDGE = 0.015
     mock_strategy.CONFIDENCE_BASE = 0.75
+    mock_strategy._MUTABLE_PARAMS = {
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_IMPLIED_PROB": {"type": float, "min": 0.0, "max": 1.0},
+        "CONFIDENCE_BASE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+    }
+
+    # Wire in the real update_param logic from BaseStrategy
+    from bot.agent.strategies.base import BaseStrategy
+
+    mock_strategy.update_param = lambda name, value: BaseStrategy.update_param(
+        mock_strategy, name, value
+    )
     engine.analyzer = MagicMock()
     engine.analyzer.strategies = [mock_strategy]
     engine.analyzer.MAX_SPREAD = 0.04

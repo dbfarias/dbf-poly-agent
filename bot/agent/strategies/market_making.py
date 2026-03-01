@@ -24,6 +24,11 @@ class MarketMakingStrategy(BaseStrategy):
     name = "market_making"
     min_tier = CapitalTier.TIER3
 
+    _MUTABLE_PARAMS = {
+        "MIN_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
+        "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
+    }
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.MIN_SPREAD = MIN_SPREAD

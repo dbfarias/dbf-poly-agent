@@ -27,6 +27,16 @@ async def settings_session_factory(settings_engine):
     )
 
 
+def _wire_update_param(mock_strategy, mutable_params: dict):
+    """Wire BaseStrategy.update_param onto a MagicMock strategy."""
+    from bot.agent.strategies.base import BaseStrategy
+
+    mock_strategy._MUTABLE_PARAMS = mutable_params
+    mock_strategy.update_param = lambda name, value: BaseStrategy.update_param(
+        mock_strategy, name, value
+    )
+
+
 @pytest.fixture
 def fake_engine():
     """Fake TradingEngine with real-enough attributes for load_and_apply."""
@@ -36,10 +46,17 @@ def fake_engine():
     strategy.name = "time_decay"
     strategy.MAX_HOURS_TO_RESOLUTION = 720.0
     strategy.MIN_EDGE = 0.015
+    _wire_update_param(strategy, {
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+    })
 
     strategy2 = MagicMock()
     strategy2.name = "value_betting"
     strategy2.MAX_HOURS_TO_RESOLUTION = 168.0
+    _wire_update_param(strategy2, {
+        "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+    })
 
     engine.analyzer = MagicMock()
     engine.analyzer.strategies = [strategy, strategy2]

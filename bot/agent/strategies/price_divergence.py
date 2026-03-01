@@ -69,6 +69,14 @@ class PriceDivergenceStrategy(BaseStrategy):
     name = "price_divergence"
     min_tier = CapitalTier.TIER1
 
+    _MUTABLE_PARAMS = {
+        "MIN_DIVERGENCE_PCT": {"type": float, "min": 0.0, "max": 0.5},
+        "TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 0.5},
+        "STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 0.5},
+        "MAX_HOLD_HOURS_CRYPTO": {"type": int, "min": 1, "max": 168},
+        "MAX_HOLD_HOURS_OTHER": {"type": int, "min": 1, "max": 720},
+    }
+
     def __init__(self, *args, research_cache: ResearchCache | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._research_cache = research_cache
