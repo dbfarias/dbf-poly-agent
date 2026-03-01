@@ -2,7 +2,7 @@
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
@@ -79,7 +79,11 @@ async def get_allocation(_: str = Depends(verify_api_key), db: AsyncSession = De
 
 class ForceCloseRequest(BaseModel):
     position_id: int
-    reason: str = "manual_close"
+    reason: str = Field(
+        default="manual_close",
+        max_length=200,
+        pattern=r"^[a-zA-Z0-9_\- ]+$",
+    )
 
 
 class ForceCloseResponse(BaseModel):

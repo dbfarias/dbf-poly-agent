@@ -196,5 +196,3 @@ class ActivityResponse(BaseModel):
 class HealthCheck(BaseModel):
     status: str = "ok"
     uptime_seconds: float
-    engine_running: bool
-    cycle_count: int

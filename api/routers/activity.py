@@ -17,9 +17,9 @@ router = APIRouter(prefix="/api/activity", tags=["activity"])
 async def get_activity(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    event_type: str | None = Query(default=None),
-    level: str | None = Query(default=None),
-    strategy: str | None = Query(default=None),
+    event_type: str | None = Query(default=None, max_length=100),
+    level: str | None = Query(default=None, max_length=50),
+    strategy: str | None = Query(default=None, max_length=100),
     _: str = Depends(verify_api_key),
 ):
     """Get paginated activity log with optional filters."""

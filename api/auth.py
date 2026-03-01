@@ -24,7 +24,6 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    token: str
     expires_at: str
 
 
@@ -51,8 +50,13 @@ def create_jwt(username: str) -> tuple[str, datetime]:
 def decode_jwt(token: str) -> dict | None:
     """Decode and validate a JWT token. Returns payload or None."""
     try:
-        return jwt.decode(token, settings.api_secret_key, algorithms=[JWT_ALGORITHM])
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return jwt.decode(
+            token,
+            settings.api_secret_key,
+            algorithms=[JWT_ALGORITHM],
+            options={"require": ["exp", "iat", "sub"]},
+        )
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, jwt.MissingRequiredClaimError):
         return None
 
 
@@ -77,7 +81,7 @@ async def login(req: LoginRequest, request: Request):
     is_https = request.headers.get("x-forwarded-proto") == "https"
 
     response = JSONResponse(
-        content={"token": token, "expires_at": expires.isoformat()},
+        content={"expires_at": expires.isoformat()},
     )
     response.set_cookie(
         key=COOKIE_NAME,
@@ -114,5 +118,5 @@ async def me(request: Request):
 async def logout():
     """Clear the session cookie."""
     response = JSONResponse(content={"ok": True})
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+    response.delete_cookie(key=COOKIE_NAME, path="/", httponly=True, samesite="lax")
     return response

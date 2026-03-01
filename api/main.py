@@ -87,13 +87,9 @@ app.include_router(websocket.router)
 
 @app.get("/api/health", response_model=HealthCheck)
 async def health_check():
-    from bot.main import engine
-
     return HealthCheck(
         status="ok",
         uptime_seconds=time.time() - _start_time,
-        engine_running=engine.is_running if engine else False,
-        cycle_count=engine._cycle_count if engine else 0,
     )
 
 

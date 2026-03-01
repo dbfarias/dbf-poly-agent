@@ -97,9 +97,8 @@ class PolymarketClient:
                 logger.info(
                     "clob_client_initialized",
                     mode=settings.trading_mode.value,
-                    signer=signer_address,
-                    proxy_wallet=self._proxy_wallet,
-                    api_key=creds.api_key,
+                    signer=signer_address[:10] + "...",
+                    proxy_wallet=self._proxy_wallet[:10] + "...",
                 )
             except Exception as e:
                 logger.error("clob_client_init_failed", error=str(e))

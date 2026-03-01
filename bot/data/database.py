@@ -12,6 +12,11 @@ from bot.data.models import Base
 
 logger = structlog.get_logger()
 
+# Allowlist for migration targets — prevents SQL injection if migrations
+# are ever generated dynamically.
+ALLOWED_TABLES = frozenset({"trades", "positions", "portfolio_snapshots", "bot_activity"})
+_COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
 
 def _sanitize_url(url: str) -> str:
     """Strip credentials from a database URL for safe logging."""
@@ -59,6 +64,11 @@ async def _migrate(eng) -> None:
 
     async with eng.begin() as conn:
         for table, column, col_type in migrations:
+            if table not in ALLOWED_TABLES:
+                raise ValueError(f"Migration blocked: table '{table}' not in allowlist")
+            if not _COLUMN_NAME_RE.match(column):
+                raise ValueError(f"Migration blocked: invalid column name '{column}'")
+
             # Check if column already exists
             result = await conn.execute(text(f"PRAGMA table_info({table})"))
             existing = {row[1] for row in result.fetchall()}
