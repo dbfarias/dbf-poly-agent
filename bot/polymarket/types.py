@@ -1,7 +1,7 @@
 """Pydantic models for Polymarket API responses."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
@@ -100,7 +100,7 @@ class OrderBook(BaseModel):
     asset_id: str = ""
     bids: list[OrderBookEntry] = Field(default_factory=list)
     asks: list[OrderBookEntry] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def best_bid(self) -> float | None:

@@ -50,17 +50,19 @@ class TestConnectionManager:
         assert result is False
         assert extra not in mgr.active
 
-    def test_disconnect_removes_client(self):
+    @pytest.mark.asyncio
+    async def test_disconnect_removes_client(self):
         mgr = ConnectionManager()
         ws = AsyncMock()
         mgr.active.append(ws)
-        mgr.disconnect(ws)
+        await mgr.disconnect(ws)
         assert ws not in mgr.active
 
-    def test_disconnect_unknown_client_is_noop(self):
+    @pytest.mark.asyncio
+    async def test_disconnect_unknown_client_is_noop(self):
         mgr = ConnectionManager()
         ws = AsyncMock()
-        mgr.disconnect(ws)  # Should not raise
+        await mgr.disconnect(ws)  # Should not raise
 
     @pytest.mark.asyncio
     async def test_broadcast_sends_to_all(self):

@@ -376,6 +376,7 @@ async def log_price_adjustment(
 async def prune_old_activity() -> None:
     """Delete oldest rows if tables exceed their max row limits.
 
+    Uses subquery DELETE to avoid fetch-then-delete round trips.
     Prunes both BotActivity and MarketScan tables.
     """
     try:
@@ -385,31 +386,29 @@ async def prune_old_activity() -> None:
             count = await session.scalar(select(func.count(BotActivity.id)))
             if count and count > MAX_ACTIVITY_ROWS:
                 excess = count - MAX_ACTIVITY_ROWS
-                oldest = await session.execute(
+                subq = (
                     select(BotActivity.id)
                     .order_by(BotActivity.timestamp.asc())
                     .limit(excess)
+                    .scalar_subquery()
                 )
-                ids_to_delete = [row[0] for row in oldest.all()]
-                if ids_to_delete:
-                    await session.execute(
-                        delete(BotActivity).where(BotActivity.id.in_(ids_to_delete))
-                    )
+                await session.execute(
+                    delete(BotActivity).where(BotActivity.id.in_(subq))
+                )
 
             # Prune MarketScan
             scan_count = await session.scalar(select(func.count(MarketScan.id)))
             if scan_count and scan_count > MAX_SCAN_ROWS:
                 excess = scan_count - MAX_SCAN_ROWS
-                oldest_scans = await session.execute(
+                scan_subq = (
                     select(MarketScan.id)
                     .order_by(MarketScan.scanned_at.asc())
                     .limit(excess)
+                    .scalar_subquery()
                 )
-                scan_ids = [row[0] for row in oldest_scans.all()]
-                if scan_ids:
-                    await session.execute(
-                        delete(MarketScan).where(MarketScan.id.in_(scan_ids))
-                    )
+                await session.execute(
+                    delete(MarketScan).where(MarketScan.id.in_(scan_subq))
+                )
 
             await session.commit()
     except Exception as e:

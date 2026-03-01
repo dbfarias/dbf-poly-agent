@@ -466,11 +466,7 @@ class PriceDivergenceStrategy(BaseStrategy):
 
     def _update_price_history(self, markets: list[GammaMarket]) -> None:
         """Update price snapshots; evict stale entries to prevent unbounded growth."""
-        active_ids = {
-            m.id
-            for m in markets
-            if m.id and m.best_bid_price is not None and m.best_bid_price > 0
-        }
+        active_ids = {m.id for m in markets if m.id}
 
         # Evict markets no longer in current scan
         stale = [mid for mid in self._price_history if mid not in active_ids]

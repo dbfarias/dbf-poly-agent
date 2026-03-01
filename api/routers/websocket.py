@@ -20,18 +20,21 @@ class ConnectionManager:
 
     def __init__(self):
         self.active: list[WebSocket] = []
+        self._lock = asyncio.Lock()
 
     async def connect(self, ws: WebSocket) -> bool:
         """Accept connection if under the cap. Returns False if rejected."""
-        if len(self.active) >= MAX_CONNECTIONS:
-            return False
-        await ws.accept()
-        self.active.append(ws)
-        return True
+        async with self._lock:
+            if len(self.active) >= MAX_CONNECTIONS:
+                return False
+            await ws.accept()
+            self.active.append(ws)
+            return True
 
-    def disconnect(self, ws: WebSocket):
-        if ws in self.active:
-            self.active.remove(ws)
+    async def disconnect(self, ws: WebSocket):
+        async with self._lock:
+            if ws in self.active:
+                self.active.remove(ws)
 
     async def broadcast(self, data: dict):
         dead = []
@@ -119,7 +122,7 @@ async def websocket_endpoint(ws: WebSocket):
             except asyncio.TimeoutError:
                 pass  # No message from client, send next update
     except WebSocketDisconnect:
-        manager.disconnect(ws)
+        await manager.disconnect(ws)
 
 
 def _serialize(obj):

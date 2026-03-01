@@ -128,11 +128,28 @@ class SettingsStore:
         return applied
 
 
+_GLOBAL_TYPES: dict[str, type] = {
+    "scan_interval_seconds": int,
+    "max_daily_loss_pct": float,
+    "max_drawdown_pct": float,
+    "daily_target_pct": float,
+}
+
+
 def _apply_global(attr: str, value) -> int:
-    if attr in _GLOBAL_ATTRS and hasattr(settings, attr):
-        setattr(settings, attr, value)
-        return 1
-    return 0
+    if attr not in _GLOBAL_ATTRS or not hasattr(settings, attr):
+        return 0
+
+    expected = _GLOBAL_TYPES.get(attr)
+    if expected is not None:
+        try:
+            value = expected(value)
+        except (TypeError, ValueError):
+            logger.warning("settings_type_coerce_failed", attr=attr, value=value)
+            return 0
+
+    setattr(settings, attr, value)
+    return 1
 
 
 def _apply_tier(tier_str: str, param: str, value) -> int:
@@ -166,12 +183,36 @@ def _apply_disabled_strategies(engine, value) -> int:
     return 1
 
 
+_QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
+    "max_spread": (float, 0.0, 1.0),
+    "max_category_positions": (int, 1, 20),
+    "min_bid_ratio": (float, 0.0, 1.0),
+    "min_volume_24h": (float, 0.0, 100000.0),
+    "stop_loss_pct": (float, 0.0, 1.0),
+    "near_worthless_price": (float, 0.0, 0.5),
+    "default_exit_price": (float, 0.0, 1.0),
+}
+
+
 def _apply_quality(engine, param: str, value) -> int:
     attr = _QUALITY_ATTR_MAP.get(param)
-    if attr and hasattr(engine.analyzer, attr):
-        setattr(engine.analyzer, attr, value)
-        return 1
-    return 0
+    if not attr or not hasattr(engine.analyzer, attr):
+        return 0
+
+    spec = _QUALITY_RANGES.get(param)
+    if spec is not None:
+        typ, lo, hi = spec
+        try:
+            value = typ(value)
+        except (TypeError, ValueError):
+            logger.warning("quality_type_coerce_failed", param=param, value=value)
+            return 0
+        if not (lo <= value <= hi):
+            logger.warning("quality_out_of_range", param=param, value=value)
+            return 0
+
+    setattr(engine.analyzer, attr, value)
+    return 1
 
 
 class StateStore:

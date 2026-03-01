@@ -197,6 +197,16 @@ class MarketAnalyzer:
         """Universal stop-loss check. Returns exit reason or None."""
         now = datetime.now(timezone.utc)
 
+        # Normalize created_at once for reuse in age/take-profit checks
+        created = getattr(position, "created_at", None)
+        if created is not None and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        age_hours = (
+            (now - created).total_seconds() / 3600
+            if created is not None
+            else None
+        )
+
         # Near-worthless: always exit
         if position.current_price < self.NEAR_WORTHLESS_PRICE:
             return f"near_worthless (price={position.current_price:.4f})"
@@ -210,30 +220,20 @@ class MarketAnalyzer:
                 return f"stop_loss ({loss_pct:.0%} loss)"
 
         # Max position age: free up capital tied in stale positions
-        created = getattr(position, "created_at", None)
-        if created is not None:
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            age_hours = (now - created).total_seconds() / 3600
-            if age_hours > self.MAX_POSITION_AGE_HOURS:
-                return f"max_age ({age_hours:.0f}h > {self.MAX_POSITION_AGE_HOURS:.0f}h)"
+        if age_hours is not None and age_hours > self.MAX_POSITION_AGE_HOURS:
+            return f"max_age ({age_hours:.0f}h > {self.MAX_POSITION_AGE_HOURS:.0f}h)"
 
         # Take profit: lock in gains when price near certainty
         if position.current_price >= self.TAKE_PROFIT_PRICE:
-            created = getattr(position, "created_at", None)
-            if created is not None:
-                if created.tzinfo is None:
-                    created = created.replace(tzinfo=timezone.utc)
-                held_hours = (now - created).total_seconds() / 3600
-                if held_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
-                    profit_pct = (
-                        (position.current_price - position.avg_price) / position.avg_price
-                        if position.avg_price > 0 else 0.0
-                    )
-                    return (
-                        f"take_profit (price={position.current_price:.4f},"
-                        f" +{profit_pct:.1%} after {held_hours:.0f}h)"
-                    )
+            if age_hours is not None and age_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
+                profit_pct = (
+                    (position.current_price - position.avg_price) / position.avg_price
+                    if position.avg_price > 0 else 0.0
+                )
+                return (
+                    f"take_profit (price={position.current_price:.4f},"
+                    f" +{profit_pct:.1%} after {age_hours:.0f}h)"
+                )
 
         # Unmatched strategy: apply default exit threshold
         if not strategy_matched and position.current_price < self.DEFAULT_EXIT_PRICE:
