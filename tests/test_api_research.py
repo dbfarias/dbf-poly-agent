@@ -19,9 +19,11 @@ def _make_mock_engine():
     engine = MagicMock()
     engine.research_cache = ResearchCache(default_ttl=3600)
     engine.research_engine = MagicMock(spec=ResearchEngine)
-    engine.research_engine._running = True
-    engine.research_engine.SCAN_INTERVAL = 1800
-    engine.research_engine.MAX_MARKETS = 30
+    engine.research_engine.status = {
+        "running": True,
+        "scan_interval_seconds": 1800,
+        "max_markets": 30,
+    }
     return engine
 
 
@@ -94,6 +96,4 @@ class TestResearchApi:
     def test_market_detail_not_found(self, client):
         test_client, _ = client
         resp = test_client.get("/api/research/markets/nonexistent")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "error" in data
+        assert resp.status_code == 404

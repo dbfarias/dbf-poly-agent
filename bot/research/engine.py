@@ -37,6 +37,15 @@ class ResearchEngine:
         self.crypto_fetcher = CryptoFetcher()
         self._running = False
 
+    @property
+    def status(self) -> dict:
+        """Engine status for API/dashboard."""
+        return {
+            "running": self._running,
+            "scan_interval_seconds": self.SCAN_INTERVAL,
+            "max_markets": self.MAX_MARKETS,
+        }
+
     async def start(self) -> None:
         """Background loop: scan markets for news every SCAN_INTERVAL seconds."""
         self._running = True

@@ -22,7 +22,10 @@ class CryptoFetcher:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=self.TIMEOUT)
+            self._client = httpx.AsyncClient(
+                timeout=self.TIMEOUT,
+                follow_redirects=False,
+            )
         return self._client
 
     async def get_market_sentiment(self) -> dict[str, float]:

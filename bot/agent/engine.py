@@ -336,10 +336,11 @@ class TradingEngine:
             # Apply research sentiment multiplier (news-driven edge adjustment)
             research = self.research_cache.get(signal.market_id)
             if research is not None:
-                edge_multiplier *= research.research_multiplier
+                r_mult = max(0.7, min(1.3, research.research_multiplier))
+                edge_multiplier *= r_mult
                 edge_multiplier = max(0.5, min(2.0, edge_multiplier))
                 signal.metadata["research_sentiment"] = research.sentiment_score
-                signal.metadata["research_multiplier"] = research.research_multiplier
+                signal.metadata["research_multiplier"] = r_mult
 
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,

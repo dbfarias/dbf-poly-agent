@@ -1,6 +1,6 @@
 """Research engine endpoints — news sentiment and market research data."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
@@ -12,14 +12,9 @@ router = APIRouter(prefix="/api/research", tags=["research"])
 async def get_research_status(_: str = Depends(verify_api_key)):
     """Return research engine status: cache stats, last scan time."""
     engine = get_engine()
-    research_cache = engine.research_cache
-    research_engine = engine.research_engine
-
     return {
-        "running": research_engine._running,
-        "scan_interval_seconds": research_engine.SCAN_INTERVAL,
-        "max_markets": research_engine.MAX_MARKETS,
-        **research_cache.stats,
+        **engine.research_engine.status,
+        **engine.research_cache.stats,
     }
 
 
@@ -49,18 +44,25 @@ async def get_research_markets(_: str = Depends(verify_api_key)):
                 for item in r.news_items[:5]
             ],
         }
-        for r in sorted(results, key=lambda x: abs(x.sentiment_score), reverse=True)
+        for r in sorted(
+            results, key=lambda x: abs(x.sentiment_score), reverse=True
+        )
     ]
 
 
 @router.get("/markets/{market_id}")
-async def get_market_research(market_id: str, _: str = Depends(verify_api_key)):
+async def get_market_research(
+    market_id: str = Path(..., max_length=100, pattern=r"^[A-Za-z0-9_\-]+$"),
+    _: str = Depends(verify_api_key),
+):
     """Return detailed research for a specific market."""
     engine = get_engine()
     result = engine.research_cache.get(market_id)
 
     if result is None:
-        return {"error": "No research data for this market", "market_id": market_id}
+        raise HTTPException(
+            status_code=404, detail="No research data for this market"
+        )
 
     return {
         "market_id": result.market_id,
@@ -76,7 +78,7 @@ async def get_market_research(market_id: str, _: str = Depends(verify_api_key)):
                 "title": item.title,
                 "source": item.source,
                 "sentiment": round(item.sentiment, 3),
-                "url": item.url,
+                "url": item.url if item.url.startswith("https://") else "",
                 "published": item.published.isoformat(),
             }
             for item in result.news_items

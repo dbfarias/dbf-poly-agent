@@ -25,7 +25,10 @@ class NewsFetcher:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=self.TIMEOUT)
+            self._client = httpx.AsyncClient(
+                timeout=self.TIMEOUT,
+                follow_redirects=False,
+            )
         return self._client
 
     async def fetch_news(
@@ -61,7 +64,8 @@ class NewsFetcher:
         for entry in feed.entries[:max_results]:
             title = entry.get("title", "")
             source = entry.get("source", {}).get("title", "Unknown")
-            url = entry.get("link", "")
+            raw_url = entry.get("link", "")
+            url = raw_url if raw_url.startswith("https://") else ""
 
             # Parse published date
             published = self._parse_date(entry.get("published", ""))
