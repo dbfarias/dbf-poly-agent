@@ -107,10 +107,15 @@ async def get_calibration(_: str = Depends(verify_api_key)):
         trades = await repo.get_recent(limit=500)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-    recent = [
-        t for t in trades
-        if t.status in ("filled", "completed") and t.created_at >= cutoff
-    ]
+    recent = []
+    for t in trades:
+        if t.status not in ("filled", "completed"):
+            continue
+        created = t.created_at
+        if created is not None and created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created is not None and created >= cutoff:
+            recent.append(t)
 
     for label, (low, high) in bucket_ranges.items():
         bucket_trades = [
