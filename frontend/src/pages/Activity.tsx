@@ -262,8 +262,9 @@ export default function Activity() {
             <option value="">All Strategies</option>
             <option value="time_decay">Time Decay</option>
             <option value="arbitrage">Arbitrage</option>
-            <option value="value_betting">Value Betting</option>
+            <option value="price_divergence">Price Divergence</option>
             <option value="swing_trading">Swing Trading</option>
+            <option value="value_betting">Value Betting</option>
             <option value="market_making">Market Making</option>
           </select>
 

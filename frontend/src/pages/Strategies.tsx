@@ -16,7 +16,9 @@ export default function Strategies() {
   const defaultStrategies = [
     { name: "time_decay", label: "Time Decay", tier: "Tier 1+", help: "Buys YES on markets very likely to resolve YES that are close to expiring. Profits from the price converging to $1.00 as resolution approaches." },
     { name: "arbitrage", label: "Arbitrage", tier: "Tier 1+", help: "Finds price discrepancies where YES + NO prices don't sum to $1.00 and captures the gap as risk-free profit." },
-    { name: "value_betting", label: "Value Betting", tier: "Tier 2+", help: "Identifies markets where the bot's estimated probability differs significantly from the market price, betting on the mispricing." },
+    { name: "price_divergence", label: "Price Divergence", tier: "Tier 1+", help: "Detects divergences between external data (crypto prices, news sentiment) and contract prices. Targets 0.3-0.8% micro-trades with tight TP/SL." },
+    { name: "swing_trading", label: "Swing Trading", tier: "Tier 2+", help: "Buys liquid mid-range markets with confirmed upward momentum and sells for 1.5% profit within hours." },
+    { name: "value_betting", label: "Value Betting", tier: "Tier 1+", help: "Identifies markets where the bot's estimated probability differs significantly from the market price, betting on the mispricing." },
     { name: "market_making", label: "Market Making", tier: "Tier 3+", help: "Places both buy and sell orders to earn the bid-ask spread. Requires larger capital for sufficient order sizes." },
   ];
 
