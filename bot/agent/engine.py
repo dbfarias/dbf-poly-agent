@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
-from api.routers.websocket import broadcast_trade_event
+from bot.agent.events import event_bus
 from bot.agent.learner import PerformanceLearner
 from bot.agent.market_analyzer import MarketAnalyzer
 from bot.agent.order_manager import OrderManager
@@ -532,8 +532,9 @@ class TradingEngine:
                     price=trade.price,
                 )
                 cycle_committed += trade.cost_usd
-                await broadcast_trade_event(
-                    event="buy_filled",
+                await event_bus.emit(
+                    "trade_filled",
+                    trade_event="buy_filled",
                     market_id=signal.market_id,
                     question=signal.question,
                     strategy=signal.strategy,
@@ -787,8 +788,9 @@ class TradingEngine:
                 pnl=pnl,
                 exit_reason="strategy_exit",
             )
-            await broadcast_trade_event(
-                event="sell_filled",
+            await event_bus.emit(
+                "trade_filled",
+                trade_event="sell_filled",
                 market_id=pos.market_id,
                 question=pos.question,
                 strategy=pos.strategy,
@@ -843,8 +845,9 @@ class TradingEngine:
             pnl=pnl,
             exit_reason="deferred_sell_fill",
         )
-        await broadcast_trade_event(
-            event="sell_filled",
+        await event_bus.emit(
+            "trade_filled",
+            trade_event="sell_filled",
             market_id=market_id,
             question="",
             strategy="",
@@ -873,8 +876,9 @@ class TradingEngine:
             size=shares,
             price=signal.market_price,
         )
-        await broadcast_trade_event(
-            event="buy_filled",
+        await event_bus.emit(
+            "trade_filled",
+            trade_event="buy_filled",
             market_id=signal.market_id,
             question=signal.question,
             strategy=signal.strategy,

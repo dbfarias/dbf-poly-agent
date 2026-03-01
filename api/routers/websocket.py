@@ -52,19 +52,20 @@ manager = ConnectionManager()
 
 
 async def broadcast_trade_event(
-    event: str,
-    market_id: str,
-    question: str,
-    strategy: str,
-    side: str,
-    price: float,
-    size: float,
+    trade_event: str = "",
+    market_id: str = "",
+    question: str = "",
+    strategy: str = "",
+    side: str = "",
+    price: float = 0.0,
+    size: float = 0.0,
     pnl: float | None = None,
+    **_kwargs,
 ) -> None:
     """Broadcast a trade event to all connected dashboard clients."""
     await manager.broadcast({
         "type": "trade",
-        "event": event,
+        "event": trade_event,
         "data": {
             "market_id": market_id,
             "question": question,

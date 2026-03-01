@@ -38,6 +38,11 @@ async def lifespan(app: FastAPI):
     setup_logging()
     await init_db()
 
+    # Wire EventBus → WebSocket broadcast (bot emits, API delivers)
+    from bot.agent.events import event_bus
+
+    event_bus.on("trade_filled", websocket.broadcast_trade_event)
+
     engine = await create_engine()
     bot_task = asyncio.create_task(engine.run())
     logger.info("bot_started_as_background_task")
