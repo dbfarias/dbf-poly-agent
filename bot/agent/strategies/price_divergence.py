@@ -29,7 +29,7 @@ logger = structlog.get_logger()
 # ── Constants ──────────────────────────────────────────────────────────────────
 MIN_DIVERGENCE_PCT = 0.003       # 0.3% minimum divergence
 MIN_EDGE = 0.005                 # 0.5% minimum edge
-MAX_EDGE = 0.15                  # 15% max edge — reject absurd signals
+MAX_EDGE = 0.25                  # 25% max edge — reject absurd signals
 TAKE_PROFIT_PCT = 0.005          # 0.5% take profit
 STOP_LOSS_PCT = 0.010            # 1.0% stop loss
 MAX_HOLD_HOURS_CRYPTO = 4        # Fast crypto exit
@@ -212,7 +212,7 @@ class PriceDivergenceStrategy(BaseStrategy):
         1. Extract threshold: "Will BTC be above $100k?" → ("bitcoin", 100000)
         2. Get actual price from research cache → 102000
         3. distance_pct = (102000 - 100000) / 100000 = 2%
-        4. estimated_prob = 0.5 + min(0.45, distance_pct * 10) = 0.70
+        4. estimated_prob via sigmoid-like mapping calibrated to crypto volatility
         5. edge = estimated_prob - contract_price
         6. If edge > MIN_EDGE → TradeSignal(BUY YES)
         """
@@ -232,10 +232,11 @@ class PriceDivergenceStrategy(BaseStrategy):
         # Calculate distance from threshold
         distance_pct = (actual_price - threshold) / threshold
 
-        # Estimate probability based on distance
-        # Positive distance → price above threshold → YES more likely
-        # Negative distance → price below threshold → NO more likely
-        estimated_prob = 0.5 + min(0.45, max(-0.45, distance_pct * 10))
+        # Estimate probability: moderate curve calibrated to crypto volatility.
+        # 5x amplification with ±0.20 cap produces actionable edges (5-20%).
+        # The old 10x with ±0.45 made ALL crypto signals either edge=0
+        # (tiny divergence) or edge>15% (rejected as absurd).
+        estimated_prob = 0.5 + min(0.20, max(-0.20, distance_pct * 5))
 
         yes_price = market.yes_price
         if yes_price is None:

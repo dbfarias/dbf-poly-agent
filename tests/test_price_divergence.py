@@ -129,15 +129,19 @@ class TestExtractPriceThreshold:
 
 class TestCryptoDivergence:
     def test_bullish_signal(self):
-        """BTC at $102k, contract asks 'above $100k?' priced at 0.60 → BUY YES."""
+        """BTC at $105k, contract asks 'above $100k?' priced at 0.55 → BUY YES.
+
+        distance_pct = +5%, estimated_prob = 0.5 + min(0.20, 0.25) = 0.70
+        edge = 0.70 - 0.55 = 0.15
+        """
         rc = ResearchCache()
         research = _make_research(
-            crypto_prices=(("bitcoin", 102_000.0), ("ethereum", 3400.0)),
+            crypto_prices=(("bitcoin", 105_000.0), ("ethereum", 3400.0)),
         )
         rc.set("m1", research)
 
         strategy = _make_strategy(research_cache=rc)
-        market = _make_market(yes_price=0.60, no_price=0.40)
+        market = _make_market(yes_price=0.55, no_price=0.45)
 
         signal = strategy._detect_crypto_divergence(market)
 
@@ -357,10 +361,10 @@ class TestMaxEdgeRejection:
         assert signal is None
 
     def test_edge_within_range_accepted(self):
-        """BTC at $101k, threshold $100k → small edge → accepted."""
+        """BTC at $104k, threshold $100k → moderate edge → accepted."""
         rc = ResearchCache()
         research = _make_research(
-            crypto_prices=(("bitcoin", 101_000.0),),
+            crypto_prices=(("bitcoin", 104_000.0),),
         )
         rc.set("m1", research)
 
