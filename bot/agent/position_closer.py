@@ -143,13 +143,18 @@ class PositionCloser:
             pnl=pnl,
         )
 
-    async def handle_order_fill(self, signal, shares: float) -> None:
-        """Callback when a pending live BUY order is confirmed filled."""
+    async def handle_order_fill(self, signal, shares: float, actual_price: float) -> None:
+        """Callback when a pending live BUY order is confirmed filled.
+
+        Uses actual_price (the CLOB fill price) instead of signal.market_price
+        to ensure accurate avg_price, cost_basis, and downstream PnL calculations.
+        """
         logger.info(
             "deferred_fill_creating_position",
             market_id=signal.market_id,
             strategy=signal.strategy,
             shares=shares,
+            actual_price=actual_price,
         )
         await self.portfolio.record_trade_open(
             market_id=signal.market_id,
@@ -160,7 +165,7 @@ class PositionCloser:
             strategy=signal.strategy,
             side=signal.side.value,
             size=shares,
-            price=signal.market_price,
+            price=actual_price,
         )
         await event_bus.emit(
             "trade_filled",
@@ -169,7 +174,7 @@ class PositionCloser:
             question=signal.question,
             strategy=signal.strategy,
             side="BUY",
-            price=signal.market_price,
+            price=actual_price,
             size=shares,
         )
 

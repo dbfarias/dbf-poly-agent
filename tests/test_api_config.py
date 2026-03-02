@@ -444,30 +444,17 @@ class TestResetRiskState:
         assert data["daily_pnl"] == pytest.approx(0.0)
         assert data["peak_equity"] == pytest.approx(12.5)
 
-    async def test_reset_zeroes_risk_manager_daily_pnl(self, client, mock_engine):
-        """POST /risk/reset sets risk_manager._daily_pnl to 0."""
+    async def test_reset_calls_risk_manager_reset(self, client, mock_engine):
+        """POST /risk/reset calls risk_manager.reset_daily_state(equity)."""
         mock_engine.portfolio.total_equity = 9.0
         await client.post("/api/config/risk/reset")
-        assert mock_engine.risk_manager._daily_pnl == 0.0
+        mock_engine.risk_manager.reset_daily_state.assert_called_once_with(9.0)
 
-    async def test_reset_updates_peak_equity_on_risk_manager(self, client, mock_engine):
-        """POST /risk/reset sets risk_manager._peak_equity to current equity."""
+    async def test_reset_calls_portfolio_reset(self, client, mock_engine):
+        """POST /risk/reset calls portfolio.reset_daily_state(equity)."""
         mock_engine.portfolio.total_equity = 15.0
         await client.post("/api/config/risk/reset")
-        assert mock_engine.risk_manager._peak_equity == pytest.approx(15.0)
-
-    async def test_reset_zeroes_portfolio_realized_pnl(self, client, mock_engine):
-        """POST /risk/reset sets portfolio._realized_pnl_today to 0."""
-        mock_engine.portfolio.total_equity = 10.0
-        await client.post("/api/config/risk/reset")
-        assert mock_engine.portfolio._realized_pnl_today == 0.0
-
-    async def test_reset_sets_portfolio_day_start_and_peak_equity(self, client, mock_engine):
-        """POST /risk/reset syncs portfolio _day_start_equity and _peak_equity."""
-        mock_engine.portfolio.total_equity = 11.0
-        await client.post("/api/config/risk/reset")
-        assert mock_engine.portfolio._day_start_equity == pytest.approx(11.0)
-        assert mock_engine.portfolio._peak_equity == pytest.approx(11.0)
+        mock_engine.portfolio.reset_daily_state.assert_called_once_with(15.0)
 
     async def test_reset_requires_auth(self):
         """POST /risk/reset without auth header returns 401."""

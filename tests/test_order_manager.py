@@ -567,6 +567,7 @@ class TestMonitorOrdersCallback:
             "created_at": datetime.now(timezone.utc),
             "signal": signal,
             "shares": 7.5,
+            "actual_price": 0.86,
         }
 
         mock_position = MagicMock()
@@ -584,7 +585,7 @@ class TestMonitorOrdersCallback:
         ):
             await manager.monitor_orders()
 
-        callback.assert_awaited_once_with(signal, 7.5)
+        callback.assert_awaited_once_with(signal, 7.5, 0.86)
 
     @pytest.mark.asyncio
     async def test_callback_error_does_not_prevent_removal(self):

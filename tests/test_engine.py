@@ -244,6 +244,7 @@ class TestShutdown:
             engine.ws_manager = AsyncMock()
             engine.gamma_client = AsyncMock()
             engine.data_api = AsyncMock()
+            engine.clob_client = AsyncMock()
 
             await engine.shutdown()
 
@@ -252,6 +253,7 @@ class TestShutdown:
             engine.ws_manager.disconnect.assert_called_once()
             engine.gamma_client.close.assert_called_once()
             engine.data_api.close.assert_called_once()
+            engine.clob_client.close.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +421,7 @@ class TestHandleOrderFill:
             _rewire_closer(engine)
 
             signal = make_signal(market_id="mkt_fill")
-            await engine.closer.handle_order_fill(signal, shares=10.0)
+            await engine.closer.handle_order_fill(signal, shares=10.0, actual_price=signal.market_price)
 
             engine.portfolio.record_trade_open.assert_called_once()
             call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
@@ -427,18 +429,18 @@ class TestHandleOrderFill:
             assert call_kwargs["size"] == 10.0
 
     @pytest.mark.asyncio
-    async def test_fill_callback_uses_signal_market_price(self):
-        """_handle_order_fill should record at signal.market_price."""
+    async def test_fill_callback_uses_actual_price(self):
+        """handle_order_fill should record at actual_price (CLOB fill price)."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
         engine.portfolio.record_trade_open = AsyncMock()
         _rewire_closer(engine)
 
         signal = make_signal(market_id="mkt_price", market_price=0.77)
-        await engine.closer.handle_order_fill(signal, shares=5.0)
+        await engine.closer.handle_order_fill(signal, shares=5.0, actual_price=0.75)
 
         call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
-        assert call_kwargs["price"] == pytest.approx(0.77)
+        assert call_kwargs["price"] == pytest.approx(0.75)
 
     @pytest.mark.asyncio
     async def test_fill_callback_passes_category_from_metadata(self):
@@ -449,7 +451,7 @@ class TestHandleOrderFill:
         _rewire_closer(engine)
 
         signal = make_signal(metadata={"category": "sports"})
-        await engine.closer.handle_order_fill(signal, shares=6.0)
+        await engine.closer.handle_order_fill(signal, shares=6.0, actual_price=signal.market_price)
 
         call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
         assert call_kwargs["category"] == "sports"
@@ -477,7 +479,7 @@ class TestHandleOrderFill:
             confidence=0.80,
             metadata={},  # explicitly empty — no "category" key
         )
-        await engine.closer.handle_order_fill(signal, shares=5.0)
+        await engine.closer.handle_order_fill(signal, shares=5.0, actual_price=signal.market_price)
 
         call_kwargs = engine.portfolio.record_trade_open.call_args.kwargs
         assert call_kwargs["category"] == ""

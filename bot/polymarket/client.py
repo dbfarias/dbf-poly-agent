@@ -112,6 +112,17 @@ class PolymarketClient:
             self._initialized = True
             logger.info("clob_client_initialized", mode="paper_no_key")
 
+    async def close(self) -> None:
+        """Close the underlying CLOB client HTTP session."""
+        if self._clob_client is not None:
+            try:
+                session = getattr(self._clob_client, "session", None)
+                if session and hasattr(session, "close"):
+                    session.close()
+            except Exception:
+                pass
+            self._clob_client = None
+
     @property
     def is_paper(self) -> bool:
         return settings.is_paper

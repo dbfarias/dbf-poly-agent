@@ -45,6 +45,12 @@ class RiskManager:
     def is_paused(self) -> bool:
         return self._is_paused
 
+    def reset_daily_state(self, equity: float) -> None:
+        """Reset daily PnL counters and peak equity to current equity."""
+        self._daily_pnl = 0.0
+        self._peak_equity = equity
+        logger.info("risk_manager_state_reset", equity=equity)
+
     def pause(self) -> None:
         self._is_paused = True
         logger.warning("trading_paused")

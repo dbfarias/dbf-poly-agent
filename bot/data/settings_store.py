@@ -181,9 +181,8 @@ def _apply_strategy(engine, strategy_name: str, param: str, value) -> int:
 def _apply_disabled_strategies(engine, value) -> int:
     if not isinstance(value, list):
         return 0
-    disabled = set(value)
-    engine.disabled_strategies = disabled
-    engine.analyzer.disabled_strategies = disabled
+    engine.disabled_strategies = set(value)
+    engine.analyzer.disabled_strategies = set(value)
     return 1
 
 

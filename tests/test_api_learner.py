@@ -59,11 +59,24 @@ def _make_stats(*, actual_win_rate=0.6, total_trades=20, total_pnl=1.5, avg_edge
     return s
 
 
+_STRATEGY_NAMES = [
+    "time_decay", "arbitrage", "value_betting",
+    "market_making", "price_divergence", "swing_trading",
+]
+
+
 @pytest.fixture
 def mock_engine_learner():
     """Engine with a mock learner attached."""
     engine = MagicMock()
     engine.learner = _make_mock_learner()
+    # Provide strategy stubs so the pauses endpoint can iterate them
+    stubs = []
+    for name in _STRATEGY_NAMES:
+        s = MagicMock()
+        s.name = name
+        stubs.append(s)
+    engine.analyzer.strategies = stubs
     return engine
 
 

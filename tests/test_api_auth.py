@@ -147,23 +147,23 @@ class TestVerifyPassword:
     def test_returns_true_for_matching_passwords(self):
         self._reset_hash()
         with patch.object(settings, "dashboard_password", "hunter2"):
-            assert _verify_password("hunter2", "") is True
+            assert _verify_password("hunter2") is True
 
     def test_returns_false_for_different_passwords(self):
         self._reset_hash()
         with patch.object(settings, "dashboard_password", "hunter3"):
-            assert _verify_password("hunter2", "") is False
+            assert _verify_password("hunter2") is False
 
     def test_returns_false_for_wrong_password(self):
         self._reset_hash()
         with patch.object(settings, "dashboard_password", "correct"):
-            assert _verify_password("wrong", "") is False
+            assert _verify_password("wrong") is False
 
     def test_unicode_passwords(self):
         self._reset_hash()
         with patch.object(settings, "dashboard_password", "senha\u00e7a"):
-            assert _verify_password("senha\u00e7a", "") is True
-            assert _verify_password("senhaca", "") is False
+            assert _verify_password("senha\u00e7a") is True
+            assert _verify_password("senhaca") is False
 
 
 # ---------------------------------------------------------------------------

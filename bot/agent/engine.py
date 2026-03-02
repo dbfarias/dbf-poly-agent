@@ -249,6 +249,7 @@ class TradingEngine:
         await self.research_engine.stop()
         await self.heartbeat.stop()
         await self.ws_manager.disconnect()
+        await self.clob_client.close()
         await self.gamma_client.close()
         await self.data_api.close()
         await close_telegram_client()

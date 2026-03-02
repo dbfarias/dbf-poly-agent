@@ -361,7 +361,7 @@ async def test_handle_order_fill_creates_position():
         signal = _make_signal()
         mocks["event_bus"].emit = AsyncMock()
 
-        await closer.handle_order_fill(signal, shares=15.0)
+        await closer.handle_order_fill(signal, shares=15.0, actual_price=signal.market_price)
 
         pf.record_trade_open.assert_awaited_once_with(
             market_id=signal.market_id,

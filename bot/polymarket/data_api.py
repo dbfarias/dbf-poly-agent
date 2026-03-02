@@ -103,5 +103,6 @@ class DataApiClient:
 
             account = Account.from_key(settings.poly_private_key)
             return account.address
-        except Exception:
+        except Exception as e:
+            logger.warning("wallet_address_derivation_failed", error=str(e))
             return None

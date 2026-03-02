@@ -39,8 +39,11 @@ class ConnectionManager:
                 self.active.remove(ws)
 
     async def broadcast(self, data: dict):
+        async with self._lock:
+            snapshot = list(self.active)
+
         dead = []
-        for ws in self.active:
+        for ws in snapshot:
             try:
                 await ws.send_json(data)
             except WebSocketDisconnect:
@@ -48,9 +51,12 @@ class ConnectionManager:
             except Exception:
                 logger.warning("ws_broadcast_error", exc_info=True)
                 dead.append(ws)
-        for ws in dead:
-            if ws in self.active:
-                self.active.remove(ws)
+
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    if ws in self.active:
+                        self.active.remove(ws)
 
 
 manager = ConnectionManager()

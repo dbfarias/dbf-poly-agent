@@ -140,28 +140,32 @@ async def force_close_position(
             status_code=500, detail="Sell order rejected by exchange"
         )
 
-    # Record the close and update portfolio
-    pnl = await engine.portfolio.record_trade_close(
-        position.market_id, position.current_price
-    )
-    engine.risk_manager.update_daily_pnl(pnl)
-
-    # Write exit_reason to the original BUY trade (so learner can learn)
-    try:
-        from bot.data.database import async_session
-        from bot.data.repositories import TradeRepository
-
-        async with async_session() as session:
-            repo = TradeRepository(session)
-            await repo.close_trade_for_position(
-                position.market_id, pnl, req.reason,
-            )
-    except Exception as e:
-        logger.warning(
-            "force_close_trade_update_failed",
-            market_id=position.market_id,
-            error=str(e),
+    # Record PnL only if immediately filled (paper mode or CLOB matched).
+    # In live mode with pending sell, PnL is deferred to handle_sell_fill callback.
+    if trade.status == "filled":
+        pnl = await engine.portfolio.record_trade_close(
+            position.market_id, position.current_price
         )
+        engine.risk_manager.update_daily_pnl(pnl)
+
+        # Write exit_reason to the original BUY trade (so learner can learn)
+        try:
+            from bot.data.database import async_session
+            from bot.data.repositories import TradeRepository
+
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.close_trade_for_position(
+                    position.market_id, pnl, req.reason,
+                )
+        except Exception as e:
+            logger.warning(
+                "force_close_trade_update_failed",
+                market_id=position.market_id,
+                error=str(e),
+            )
+    else:
+        pnl = 0.0  # Deferred to handle_sell_fill callback
 
     logger.info(
         "force_close_completed",

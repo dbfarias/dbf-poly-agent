@@ -72,8 +72,8 @@ async def get_config(_: str = Depends(verify_api_key)):
     try:
         if engine is not None:
             disabled = sorted(engine.disabled_strategies)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_disabled_strategies_failed", error=str(e))
 
     return BotConfig(
         trading_mode=settings.trading_mode.value,
@@ -212,14 +212,9 @@ async def reset_risk_state(_: str = Depends(verify_api_key)):
     engine = get_engine()
     equity = engine.portfolio.total_equity
 
-    # Reset risk manager
-    engine.risk_manager._daily_pnl = 0.0
-    engine.risk_manager._peak_equity = equity
-
-    # Reset portfolio PnL counters
-    engine.portfolio._realized_pnl_today = 0.0
-    engine.portfolio._day_start_equity = equity
-    engine.portfolio._peak_equity = equity
+    # Reset via encapsulated methods (no direct private attribute access)
+    engine.risk_manager.reset_daily_state(equity)
+    engine.portfolio.reset_daily_state(equity)
 
     logger.info(
         "risk_state_reset",

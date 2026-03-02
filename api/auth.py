@@ -40,8 +40,8 @@ def _get_hash() -> bytes:
     return _cached_hash
 
 
-def _verify_password(plain: str, _expected: str) -> bool:
-    """Verify password against bcrypt hash (constant-time)."""
+def _verify_password(plain: str) -> bool:
+    """Verify password against the cached bcrypt hash of the configured password."""
     return bcrypt.checkpw(plain.encode(), _get_hash())
 
 
@@ -81,7 +81,7 @@ async def login(req: LoginRequest, request: Request):
     # Constant-time comparison for both username and password to prevent timing attacks.
     # Always check both to avoid leaking which field is wrong.
     username_ok = hmac.compare_digest(req.username, settings.dashboard_user)
-    password_ok = _verify_password(req.password, settings.dashboard_password)
+    password_ok = _verify_password(req.password)
     if not (username_ok and password_ok):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

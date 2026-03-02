@@ -86,6 +86,12 @@ class Portfolio:
     def peak_equity(self) -> float:
         return self._peak_equity
 
+    def reset_daily_state(self, equity: float) -> None:
+        """Reset daily PnL counters and peak equity to current equity."""
+        self._realized_pnl_today = 0.0
+        self._day_start_equity = equity
+        self._peak_equity = equity
+
     async def sync(self) -> None:
         """Sync portfolio state from blockchain / paper state.
 

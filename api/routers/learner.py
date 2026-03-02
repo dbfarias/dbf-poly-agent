@@ -179,11 +179,8 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
             "expires_at": expires_at.isoformat(),
         })
 
-    # All strategies status
-    all_strategies = [
-        "time_decay", "arbitrage", "price_divergence",
-        "swing_trading", "value_betting", "market_making",
-    ]
+    # All strategies status (from live engine, not hardcoded)
+    all_strategies = [s.name for s in engine.analyzer.strategies]
     strategy_status = []
     for s in all_strategies:
         is_paused = (

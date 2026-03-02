@@ -27,8 +27,8 @@ logger = structlog.get_logger()
 ORDER_TIMEOUT_SECONDS = 300  # Cancel unfilled BUY orders after 5 minutes
 SELL_ORDER_TIMEOUT_SECONDS = 600  # Give SELL orders 10 minutes (less liquid)
 
-# Callback type: (signal, shares) -> None
-OnFillCallback = Callable[[TradeSignal, float], Awaitable[None]]
+# Callback type: (signal, shares, actual_price) -> None
+OnFillCallback = Callable[[TradeSignal, float, float], Awaitable[None]]
 
 # Callback type for sell fills:
 # (market_id, sell_price, trade_id, shares, *, strategy, question) -> None
@@ -176,6 +176,7 @@ class OrderManager:
                 "created_at": datetime.now(timezone.utc),
                 "signal": signal,
                 "shares": shares,
+                "actual_price": actual_price,
             }
 
         # Send notification
@@ -282,8 +283,9 @@ class OrderManager:
 
                 # Create position via callback (BUY orders only)
                 if not is_sell and self._on_fill_callback and signal:
+                    fill_price = info.get("actual_price", signal.market_price)
                     try:
-                        await self._on_fill_callback(signal, shares)
+                        await self._on_fill_callback(signal, shares, fill_price)
                     except Exception as e:
                         logger.error(
                             "on_fill_callback_failed",
