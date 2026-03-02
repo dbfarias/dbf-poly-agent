@@ -143,6 +143,10 @@ class TradingEngine:
     def is_running(self) -> bool:
         return self._running
 
+    @property
+    def cycle_count(self) -> int:
+        return self._cycle_count
+
     async def initialize(self) -> None:
         """Initialize all clients and sync state."""
         logger.info(
