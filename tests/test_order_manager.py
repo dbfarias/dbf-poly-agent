@@ -806,23 +806,54 @@ class TestClosePosition:
 
 class TestClosePositionMinSize:
     @pytest.mark.asyncio
-    async def test_live_below_min_size_rejected(self):
-        """Live mode rejects close_position if size < MIN_SELL_SHARES (5)."""
+    async def test_live_below_notional_minimum_rejected(self):
+        """Live mode rejects close_position if notional < $1.00."""
         manager, clob, _ = _build_manager(is_paper=False)
 
+        # 1.2 shares × $0.80 = $0.96 < $1.00
         result = await manager.close_position(
             market_id="mkt1",
             token_id="token1",
-            size=3.0,  # below 5
-            current_price=0.90,
+            size=1.2,
+            current_price=0.80,
         )
 
         assert result is None
         clob.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_paper_below_min_size_allowed(self):
-        """Paper mode allows close_position even with size < 5."""
+    async def test_live_above_notional_minimum_proceeds(self):
+        """Live mode allows close_position when notional >= $1.00 even with < 5 shares."""
+        manager, clob, _ = _build_manager(is_paper=False)
+
+        # 4.5 shares × $0.50 = $2.25 > $1.00  (but < 5 shares — old rule would block)
+        clob.get_order_book.return_value = make_order_book(best_bid=0.49)
+        clob.place_order.return_value = {"orderID": "sell-small", "status": "LIVE"}
+
+        created_trade = make_trade(trade_id=61, status="pending", side="SELL")
+        mock_session = _mock_session()
+        mock_repo = AsyncMock()
+        mock_repo.create = AsyncMock(return_value=created_trade)
+
+        with (
+            patch("bot.agent.order_manager.async_session", return_value=mock_session),
+            patch("bot.agent.order_manager.TradeRepository", return_value=mock_repo),
+            patch("bot.agent.order_manager.settings") as mock_settings,
+        ):
+            mock_settings.is_paper = False
+            result = await manager.close_position(
+                market_id="mkt1",
+                token_id="token1",
+                size=4.5,
+                current_price=0.50,
+            )
+
+        assert result is not None
+        clob.place_order.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_paper_below_notional_allowed(self):
+        """Paper mode allows close_position even below notional minimum."""
         manager, clob, _ = _build_manager(is_paper=True)
 
         clob.place_order.return_value = {
@@ -845,10 +876,120 @@ class TestClosePositionMinSize:
                 market_id="mkt1",
                 token_id="token1",
                 size=2.0,
+                current_price=0.30,  # notional $0.60 < $1.00 — allowed in paper
+            )
+
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_notional_reject_cooldown_suppresses_repeat_warnings(self):
+        """After a notional rejection, repeated calls are silently skipped."""
+        manager, clob, _ = _build_manager(is_paper=False)
+
+        # First call — logs warning and sets cooldown
+        result1 = await manager.close_position(
+            market_id="mkt1", token_id="tok1", size=1.0, current_price=0.50,
+        )
+        assert result1 is None
+        assert "mkt1" in manager._sell_reject_cooldowns
+
+        # Second call — silently skipped (within cooldown)
+        result2 = await manager.close_position(
+            market_id="mkt1", token_id="tok1", size=1.0, current_price=0.50,
+        )
+        assert result2 is None
+        clob.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_notional_reject_cooldown_expires(self):
+        """After cooldown expires, the warning is logged again."""
+        manager, clob, _ = _build_manager(is_paper=False)
+
+        # First call
+        await manager.close_position(
+            market_id="mkt1", token_id="tok1", size=1.0, current_price=0.50,
+        )
+        assert "mkt1" in manager._sell_reject_cooldowns
+
+        # Manually expire cooldown
+        from datetime import timedelta
+        manager._sell_reject_cooldowns["mkt1"] -= timedelta(seconds=manager.SELL_REJECT_COOLDOWN + 1)
+
+        # Should log again (cooldown expired) — but still rejected (notional still < $1)
+        result = await manager.close_position(
+            market_id="mkt1", token_id="tok1", size=1.0, current_price=0.50,
+        )
+        assert result is None
+
+
+class TestClosePositionSellDedup:
+    """Tests for pending sell deduplication."""
+
+    @pytest.mark.asyncio
+    async def test_sell_dedup_skips_if_already_pending(self):
+        """If a sell is already pending for a market, skip placing another."""
+        manager, clob, _ = _build_manager(is_paper=False)
+
+        # Simulate a pending sell for mkt1
+        manager._pending_orders["order-sell-1"] = {
+            "trade_id": 100,
+            "created_at": datetime.now(timezone.utc),
+            "signal": None,
+            "shares": 5.0,
+            "is_sell": True,
+            "token_id": "tok1",
+            "market_id": "mkt1",
+        }
+
+        result = await manager.close_position(
+            market_id="mkt1",
+            token_id="tok1",
+            size=5.0,
+            current_price=0.90,
+        )
+
+        assert result is None
+        clob.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sell_dedup_allows_different_market(self):
+        """A pending sell for mkt1 does NOT block a sell for mkt2."""
+        manager, clob, _ = _build_manager(is_paper=False)
+
+        # Pending sell for mkt1
+        manager._pending_orders["order-sell-1"] = {
+            "trade_id": 100,
+            "created_at": datetime.now(timezone.utc),
+            "signal": None,
+            "shares": 5.0,
+            "is_sell": True,
+            "token_id": "tok1",
+            "market_id": "mkt1",
+        }
+
+        clob.get_order_book.return_value = make_order_book(best_bid=0.85)
+        clob.place_order.return_value = {"orderID": "sell-2", "status": "LIVE"}
+
+        created_trade = make_trade(trade_id=62, status="pending", side="SELL")
+        mock_session = _mock_session()
+        mock_repo = AsyncMock()
+        mock_repo.create = AsyncMock(return_value=created_trade)
+
+        with (
+            patch("bot.agent.order_manager.async_session", return_value=mock_session),
+            patch("bot.agent.order_manager.TradeRepository", return_value=mock_repo),
+            patch("bot.agent.order_manager.settings") as mock_settings,
+        ):
+            mock_settings.is_paper = False
+            result = await manager.close_position(
+                market_id="mkt2",
+                token_id="tok2",
+                size=5.0,
                 current_price=0.90,
             )
 
         assert result is not None
+        clob.place_order.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

@@ -38,12 +38,20 @@ OnSellFillCallback = Callable[..., Awaitable[None]]
 class OrderManager:
     """Manages the full lifecycle of orders."""
 
+    # Minimum notional value for SELL orders (CLOB constraint).
+    # Polymarket requires ~$1.00 notional minimum; we use the same floor.
+    MIN_SELL_NOTIONAL = 1.0
+
+    # Cooldown (seconds) before retrying a sell that was rejected as too small.
+    SELL_REJECT_COOLDOWN = 1800  # 30 minutes
+
     def __init__(self, clob_client: PolymarketClient, data_api: DataApiClient):
         self.clob = clob_client
         self.data_api = data_api
         self._pending_orders: dict[str, dict] = {}
         self._on_fill_callback: OnFillCallback | None = None
         self._on_sell_fill_callback: OnSellFillCallback | None = None
+        self._sell_reject_cooldowns: dict[str, datetime] = {}  # market_id → last reject
 
     def set_on_fill_callback(self, callback: OnFillCallback) -> None:
         """Set callback invoked when a pending BUY order is confirmed filled."""
@@ -338,8 +346,7 @@ class OrderManager:
         for oid in to_remove:
             self._pending_orders.pop(oid, None)
 
-    MIN_BUY_SHARES = 5.0   # Minimum shares (CLOB constraint); ensures positions can be sold later
-    MIN_SELL_SHARES = 5.0  # Minimum shares for SELL orders (CLOB constraint)
+    MIN_BUY_SHARES = 5.0   # Minimum shares for BUY (ensures positions can be sold later)
 
     async def close_position(
         self,
@@ -353,14 +360,32 @@ class OrderManager:
         strategy: str = "exit",
     ) -> Trade | None:
         """Close a position by selling."""
-        # Polymarket requires minimum shares to sell — reject if below
-        if not self.clob.is_paper and size < self.MIN_SELL_SHARES:
-            logger.warning(
-                "position_too_small_to_sell",
-                market_id=market_id,
-                size=size,
-                min_size=self.MIN_SELL_SHARES,
+        now = datetime.now(timezone.utc)
+
+        # Skip if a sell for this market is already pending on the CLOB
+        for info in self._pending_orders.values():
+            if info.get("is_sell") and info.get("market_id") == market_id:
+                logger.debug("sell_already_pending", market_id=market_id)
+                return None
+
+        # Notional-based minimum: size * price must be >= $1.00 (CLOB floor)
+        estimated_notional = size * current_price
+        if not self.clob.is_paper and estimated_notional < self.MIN_SELL_NOTIONAL:
+            # Check cooldown — only warn once per SELL_REJECT_COOLDOWN period
+            last_reject = self._sell_reject_cooldowns.get(market_id)
+            cooldown_elapsed = (
+                last_reject is None
+                or (now - last_reject).total_seconds() >= self.SELL_REJECT_COOLDOWN
             )
+            if cooldown_elapsed:
+                logger.warning(
+                    "position_too_small_to_sell",
+                    market_id=market_id,
+                    size=size,
+                    notional=round(estimated_notional, 2),
+                    min_notional=self.MIN_SELL_NOTIONAL,
+                )
+                self._sell_reject_cooldowns[market_id] = now
             return None
 
         # Get best bid for immediate fill

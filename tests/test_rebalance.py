@@ -185,10 +185,11 @@ class TestTryRebalance:
 
     @pytest.mark.asyncio
     async def test_no_rebalance_small_positions(self):
-        """Skip positions < 5 shares in live mode."""
+        """Skip positions below $1.00 notional in live mode."""
         with _patch_engine():
             engine = _build_engine()
-            small_loser = make_position(current_price=0.40, size=3.0)
+            # 1.5 × $0.40 = $0.60 notional — below $1.00 minimum
+            small_loser = make_position(current_price=0.40, size=1.5)
             engine.portfolio.positions = [small_loser]
 
             signal = make_signal(edge=0.05)

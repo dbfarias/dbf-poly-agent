@@ -187,7 +187,7 @@ class PositionCloser:
         """
         min_rebalance_edge = 0.03
         min_hold_seconds = 300
-        min_sell_shares = 5.0
+        min_sell_notional = 1.0  # Match CLOB minimum notional
 
         if signal.edge < min_rebalance_edge:
             return None
@@ -195,7 +195,7 @@ class PositionCloser:
         candidates = []
         now = datetime.now(timezone.utc)
         for pos in positions:
-            if not settings.is_paper and pos.size < min_sell_shares:
+            if not settings.is_paper and pos.size * pos.current_price < min_sell_notional:
                 continue
             created = pos.created_at
             if created is not None and created.tzinfo is None:

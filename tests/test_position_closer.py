@@ -596,7 +596,7 @@ async def test_try_rebalance_picks_worst_loser():
 
 @pytest.mark.asyncio
 async def test_try_rebalance_live_skips_small_positions():
-    """In live mode, positions with < 5 shares are excluded from rebalance."""
+    """In live mode, positions below $1.00 notional are excluded from rebalance."""
     patches = _common_patches()
     mocks = _enter_patches(patches)
     try:
@@ -604,7 +604,8 @@ async def test_try_rebalance_live_skips_small_positions():
         closer, om, pf, rm = _make_closer()
         signal = _make_signal(edge=0.05)
         small = _make_position(
-            size=3.0,  # below min_sell_shares=5
+            size=1.2,  # 1.2 × $0.50 = $0.60 < $1.00 notional
+            current_price=0.50,
             unrealized_pnl=-0.50,
             created_at=datetime(2025, 12, 1, tzinfo=timezone.utc),
         )
@@ -612,5 +613,33 @@ async def test_try_rebalance_live_skips_small_positions():
         result = await closer.try_rebalance(signal, [small])
         assert result is None
         om.close_position.assert_not_awaited()
+    finally:
+        _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_try_rebalance_live_allows_above_notional():
+    """In live mode, positions above $1.00 notional with < 5 shares are allowed."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = False  # live mode
+        closer, om, pf, rm = _make_closer()
+        signal = _make_signal(edge=0.05)
+        small = _make_position(
+            size=4.5,  # 4.5 × $0.50 = $2.25 > $1.00 notional
+            current_price=0.50,
+            avg_price=0.55,  # losing position
+            unrealized_pnl=-0.225,
+            created_at=datetime(2025, 12, 1, tzinfo=timezone.utc),
+        )
+
+        close_trade = MagicMock()
+        close_trade.status = "pending"
+        om.close_position = AsyncMock(return_value=close_trade)
+
+        result = await closer.try_rebalance(signal, [small])
+        assert result is not None
+        om.close_position.assert_awaited_once()
     finally:
         _stop_patches(patches)
