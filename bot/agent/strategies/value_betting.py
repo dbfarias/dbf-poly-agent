@@ -43,12 +43,20 @@ class ValueBettingStrategy(BaseStrategy):
         "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
+        "RELATIVE_STOP_LOSS": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_BOOK_VOLUME": {"type": float, "min": 0.0, "max": 10000.0},
     }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.MIN_EDGE = MIN_EDGE
         self.IMBALANCE_THRESHOLD = IMBALANCE_THRESHOLD
+        self.RELATIVE_STOP_LOSS = RELATIVE_STOP_LOSS
+        self.MIN_PRICE = MIN_PRICE
+        self.MAX_PRICE = MAX_PRICE
+        self.MIN_BOOK_VOLUME = MIN_BOOK_VOLUME
         self._urgency: float = 1.0
 
     def adjust_params(self, adjustments: dict) -> None:
@@ -100,8 +108,8 @@ class ValueBettingStrategy(BaseStrategy):
 
         # Per-side price check: at least one side must be in tradeable range
         no_price_est = market.no_price or (1.0 - yes_price)
-        yes_in_range = MIN_PRICE <= yes_price <= MAX_PRICE
-        no_in_range = MIN_PRICE <= no_price_est <= MAX_PRICE and len(token_ids) >= 2
+        yes_in_range = self.MIN_PRICE <= yes_price <= self.MAX_PRICE
+        no_in_range = self.MIN_PRICE <= no_price_est <= self.MAX_PRICE and len(token_ids) >= 2
         if not yes_in_range and not no_in_range:
             return None
 
@@ -123,7 +131,7 @@ class ValueBettingStrategy(BaseStrategy):
             return None
 
         # Reject thin order books (unreliable signals)
-        if total_volume < MIN_BOOK_VOLUME:
+        if total_volume < self.MIN_BOOK_VOLUME:
             return None
 
         imbalance = (bid_volume - ask_volume) / total_volume
@@ -143,8 +151,8 @@ class ValueBettingStrategy(BaseStrategy):
             return None
 
         # Determine which sides are in tradeable price range
-        yes_ok = MIN_PRICE <= yes_price <= MAX_PRICE
-        no_ok = has_no_token and MIN_PRICE <= no_price <= MAX_PRICE
+        yes_ok = self.MIN_PRICE <= yes_price <= self.MAX_PRICE
+        no_ok = has_no_token and self.MIN_PRICE <= no_price <= self.MAX_PRICE
 
         if yes_ok and no_ok:
             # Both in range — imbalance direction picks the underpriced side
@@ -223,7 +231,7 @@ class ValueBettingStrategy(BaseStrategy):
         # Relative stop-loss: exit if lost 10%+ from entry
         if avg_price > 0:
             loss_pct = (avg_price - current_price) / avg_price
-            if loss_pct >= RELATIVE_STOP_LOSS:
+            if loss_pct >= self.RELATIVE_STOP_LOSS:
                 self.logger.warning(
                     "value_betting_exit_stop_loss",
                     market_id=market_id,

@@ -52,6 +52,9 @@ class SwingTradingStrategy(BaseStrategy):
         "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MIN_MOMENTUM": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_HOURS_LEFT": {"type": float, "min": 0.5, "max": 168.0},
+        "MIN_MOMENTUM_TICKS": {"type": int, "min": 2, "max": 10},
+        "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_VOLUME_24H": {"type": float, "min": 0.0, "max": 10000.0},
     }
 
     def __init__(self, *args, **kwargs):

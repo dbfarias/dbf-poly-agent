@@ -14,37 +14,26 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 
 def _get_strategy_params(engine) -> dict:
-    """Read current strategy parameters from the live engine."""
+    """Read current strategy parameters from the live engine.
+
+    Dynamically reads from each strategy's _MUTABLE_PARAMS registry
+    so new params are automatically exposed without hardcoded lists.
+    """
     params = {}
     for strategy in engine.analyzer.strategies:
         s = {}
-        for attr in (
-            "MAX_HOURS_TO_RESOLUTION", "MIN_IMPLIED_PROB", "MAX_PRICE",
-            "MIN_PRICE", "MIN_EDGE", "CONFIDENCE_BASE",
-            "MIN_ARB_EDGE", "MIN_SPREAD", "MAX_SPREAD",
-            "IMBALANCE_THRESHOLD",
-            # price_divergence params
-            "MIN_DIVERGENCE_PCT", "TAKE_PROFIT_PCT", "STOP_LOSS_PCT",
-            "MAX_HOLD_HOURS_CRYPTO", "MAX_HOLD_HOURS_OTHER",
-            # swing_trading params
-            "MIN_MOMENTUM", "MAX_HOLD_HOURS", "MIN_HOURS_LEFT",
-        ):
+        for attr in strategy._MUTABLE_PARAMS:
             if hasattr(strategy, attr):
                 s[attr] = getattr(strategy, attr)
-        # Exit threshold
-        if hasattr(strategy, "should_exit"):
-            for exit_attr in ("EXIT_THRESHOLD",):
-                if hasattr(strategy, exit_attr):
-                    s[exit_attr] = getattr(strategy, exit_attr)
         if s:
             params[strategy.name] = s
     return params
 
 
 def _get_quality_params(engine) -> dict:
-    """Read current quality filter parameters."""
+    """Read current quality filter and engine-level parameters."""
     analyzer = engine.analyzer
-    return {
+    result = {
         "max_spread": analyzer.MAX_SPREAD,
         "max_category_positions": analyzer.MAX_CATEGORY_POSITIONS,
         "min_bid_ratio": analyzer.MIN_BID_RATIO,
@@ -52,7 +41,23 @@ def _get_quality_params(engine) -> dict:
         "stop_loss_pct": analyzer.STOP_LOSS_PCT,
         "near_worthless_price": analyzer.NEAR_WORTHLESS_PRICE,
         "default_exit_price": analyzer.DEFAULT_EXIT_PRICE,
+        "max_position_age_hours": analyzer.MAX_POSITION_AGE_HOURS,
+        "take_profit_price": analyzer.TAKE_PROFIT_PRICE,
+        "take_profit_min_hold_hours": analyzer.TAKE_PROFIT_MIN_HOLD_HOURS,
     }
+    # Learner params
+    if hasattr(engine, "learner"):
+        learner = engine.learner
+        result["pause_lookback"] = learner.PAUSE_LOOKBACK
+        result["pause_win_rate"] = learner.PAUSE_WIN_RATE
+        result["pause_min_loss"] = learner.PAUSE_MIN_LOSS
+        result["pause_cooldown_hours"] = learner.PAUSE_COOLDOWN_HOURS
+    # PositionCloser params
+    if hasattr(engine, "closer"):
+        closer = engine.closer
+        result["min_rebalance_edge"] = closer.min_rebalance_edge
+        result["min_hold_seconds"] = closer.min_hold_seconds
+    return result
 
 
 @router.get("/", response_model=BotConfig)
@@ -147,27 +152,43 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
     if update.quality_params:
         try:
             engine = get_engine()
-            analyzer = engine.analyzer
             _quality_spec = {
-                "max_spread": ("MAX_SPREAD", float, 0.0, 1.0),
-                "max_category_positions": ("MAX_CATEGORY_POSITIONS", int, 1, 20),
-                "min_bid_ratio": ("MIN_BID_RATIO", float, 0.0, 1.0),
-                "min_volume_24h": ("MIN_VOLUME_24H", float, 0.0, 100000.0),
-                "stop_loss_pct": ("STOP_LOSS_PCT", float, 0.0, 1.0),
-                "near_worthless_price": ("NEAR_WORTHLESS_PRICE", float, 0.0, 0.5),
-                "default_exit_price": ("DEFAULT_EXIT_PRICE", float, 0.0, 1.0),
+                # MarketAnalyzer params
+                "max_spread": ("analyzer", "MAX_SPREAD", float, 0.0, 1.0),
+                "max_category_positions": ("analyzer", "MAX_CATEGORY_POSITIONS", int, 1, 20),
+                "min_bid_ratio": ("analyzer", "MIN_BID_RATIO", float, 0.0, 1.0),
+                "min_volume_24h": ("analyzer", "MIN_VOLUME_24H", float, 0.0, 100000.0),
+                "stop_loss_pct": ("analyzer", "STOP_LOSS_PCT", float, 0.0, 1.0),
+                "near_worthless_price": ("analyzer", "NEAR_WORTHLESS_PRICE", float, 0.0, 0.5),
+                "default_exit_price": ("analyzer", "DEFAULT_EXIT_PRICE", float, 0.0, 1.0),
+                "max_position_age_hours": ("analyzer", "MAX_POSITION_AGE_HOURS", float, 1.0, 720.0),
+                "take_profit_price": ("analyzer", "TAKE_PROFIT_PRICE", float, 0.5, 1.0),
+                "take_profit_min_hold_hours": (
+                    "analyzer", "TAKE_PROFIT_MIN_HOLD_HOURS", float, 0.0, 168.0,
+                ),
+                # Learner params
+                "pause_lookback": ("learner", "PAUSE_LOOKBACK", int, 2, 50),
+                "pause_win_rate": ("learner", "PAUSE_WIN_RATE", float, 0.0, 1.0),
+                "pause_min_loss": ("learner", "PAUSE_MIN_LOSS", float, -100.0, 0.0),
+                "pause_cooldown_hours": ("learner", "PAUSE_COOLDOWN_HOURS", float, 1.0, 168.0),
+                # PositionCloser params
+                "min_rebalance_edge": ("closer", "min_rebalance_edge", float, 0.0, 0.5),
+                "min_hold_seconds": ("closer", "min_hold_seconds", int, 0, 3600),
             }
             for key, value in update.quality_params.items():
                 spec = _quality_spec.get(key)
                 if not spec:
                     continue
-                attr, typ, lo, hi = spec
+                target_name, attr, typ, lo, hi = spec
                 try:
                     value = typ(value)
                 except (TypeError, ValueError):
                     continue
-                if lo <= value <= hi and hasattr(analyzer, attr):
-                    setattr(analyzer, attr, value)
+                target = getattr(engine, target_name, None)
+                if target is None or not (lo <= value <= hi):
+                    continue
+                if hasattr(target, attr):
+                    setattr(target, attr, value)
                     changes.append(f"quality.{key}={value}")
         except RuntimeError:
             pass

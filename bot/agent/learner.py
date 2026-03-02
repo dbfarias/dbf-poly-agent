@@ -92,6 +92,12 @@ class PerformanceLearner:
         self._last_adjustments: LearnerAdjustments | None = None
         self._newly_paused: list[tuple[str, float, float]] = []
 
+        # Auto-pause thresholds (configurable via admin)
+        self.PAUSE_LOOKBACK = PAUSE_LOOKBACK
+        self.PAUSE_WIN_RATE = PAUSE_WIN_RATE
+        self.PAUSE_MIN_LOSS = PAUSE_MIN_LOSS
+        self.PAUSE_COOLDOWN_HOURS = PAUSE_COOLDOWN_HOURS
+
         # Daily target context (set by engine each cycle)
         self._daily_pnl: float = 0.0
         self._daily_equity: float = 0.0
@@ -325,7 +331,7 @@ class PerformanceLearner:
                 if paused_at.tzinfo is None:
                     paused_at = paused_at.replace(tzinfo=timezone.utc)
                 elapsed_h = (now - paused_at).total_seconds() / 3600
-                if elapsed_h < PAUSE_COOLDOWN_HOURS:
+                if elapsed_h < self.PAUSE_COOLDOWN_HOURS:
                     self._paused_strategies[name] = paused_at
                     restored += 1
             if restored > 0:
@@ -348,7 +354,7 @@ class PerformanceLearner:
         if strategy in self._paused_strategies:
             paused_at = self._paused_strategies[strategy]
             elapsed = (datetime.now(timezone.utc) - paused_at).total_seconds() / 3600
-            if elapsed >= PAUSE_COOLDOWN_HOURS:
+            if elapsed >= self.PAUSE_COOLDOWN_HOURS:
                 del self._paused_strategies[strategy]
                 logger.info(
                     "strategy_pause_cooldown_expired",
@@ -366,15 +372,15 @@ class PerformanceLearner:
         ]
 
         # Need at least PAUSE_LOOKBACK trades to evaluate
-        last_n = strategy_trades[:PAUSE_LOOKBACK]
-        if len(last_n) < PAUSE_LOOKBACK:
+        last_n = strategy_trades[:self.PAUSE_LOOKBACK]
+        if len(last_n) < self.PAUSE_LOOKBACK:
             return False
 
         wins = sum(1 for t in last_n if t.pnl > 0)
         win_rate = wins / len(last_n)
         total_pnl = sum(t.pnl for t in last_n)
 
-        if win_rate < PAUSE_WIN_RATE and total_pnl < PAUSE_MIN_LOSS:
+        if win_rate < self.PAUSE_WIN_RATE and total_pnl < self.PAUSE_MIN_LOSS:
             self._paused_strategies[strategy] = datetime.now(timezone.utc)
             self._newly_paused.append(
                 (strategy, win_rate, total_pnl)
@@ -384,7 +390,7 @@ class PerformanceLearner:
                 strategy=strategy,
                 win_rate=win_rate,
                 total_pnl=total_pnl,
-                lookback=PAUSE_LOOKBACK,
+                lookback=self.PAUSE_LOOKBACK,
             )
             return True
 

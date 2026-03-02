@@ -10,15 +10,28 @@ from bot.data.repositories import SettingsRepository
 
 logger = structlog.get_logger()
 
-# Maps quality_params API keys → MarketAnalyzer attribute names
-_QUALITY_ATTR_MAP = {
-    "max_spread": "MAX_SPREAD",
-    "max_category_positions": "MAX_CATEGORY_POSITIONS",
-    "min_bid_ratio": "MIN_BID_RATIO",
-    "min_volume_24h": "MIN_VOLUME_24H",
-    "stop_loss_pct": "STOP_LOSS_PCT",
-    "near_worthless_price": "NEAR_WORTHLESS_PRICE",
-    "default_exit_price": "DEFAULT_EXIT_PRICE",
+# Maps quality_params API keys → (target_obj_name, attribute_name)
+# target_obj_name is resolved on the engine: "analyzer", "learner", "closer"
+_QUALITY_ATTR_MAP: dict[str, tuple[str, str]] = {
+    # MarketAnalyzer params
+    "max_spread": ("analyzer", "MAX_SPREAD"),
+    "max_category_positions": ("analyzer", "MAX_CATEGORY_POSITIONS"),
+    "min_bid_ratio": ("analyzer", "MIN_BID_RATIO"),
+    "min_volume_24h": ("analyzer", "MIN_VOLUME_24H"),
+    "stop_loss_pct": ("analyzer", "STOP_LOSS_PCT"),
+    "near_worthless_price": ("analyzer", "NEAR_WORTHLESS_PRICE"),
+    "default_exit_price": ("analyzer", "DEFAULT_EXIT_PRICE"),
+    "max_position_age_hours": ("analyzer", "MAX_POSITION_AGE_HOURS"),
+    "take_profit_price": ("analyzer", "TAKE_PROFIT_PRICE"),
+    "take_profit_min_hold_hours": ("analyzer", "TAKE_PROFIT_MIN_HOLD_HOURS"),
+    # Learner params
+    "pause_lookback": ("learner", "PAUSE_LOOKBACK"),
+    "pause_win_rate": ("learner", "PAUSE_WIN_RATE"),
+    "pause_min_loss": ("learner", "PAUSE_MIN_LOSS"),
+    "pause_cooldown_hours": ("learner", "PAUSE_COOLDOWN_HOURS"),
+    # PositionCloser params
+    "min_rebalance_edge": ("closer", "min_rebalance_edge"),
+    "min_hold_seconds": ("closer", "min_hold_seconds"),
 }
 
 # Global settings that are persisted
@@ -187,6 +200,7 @@ def _apply_disabled_strategies(engine, value) -> int:
 
 
 _QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
+    # MarketAnalyzer params
     "max_spread": (float, 0.0, 1.0),
     "max_category_positions": (int, 1, 20),
     "min_bid_ratio": (float, 0.0, 1.0),
@@ -194,12 +208,28 @@ _QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
     "stop_loss_pct": (float, 0.0, 1.0),
     "near_worthless_price": (float, 0.0, 0.5),
     "default_exit_price": (float, 0.0, 1.0),
+    "max_position_age_hours": (float, 1.0, 720.0),
+    "take_profit_price": (float, 0.5, 1.0),
+    "take_profit_min_hold_hours": (float, 0.0, 168.0),
+    # Learner params
+    "pause_lookback": (int, 2, 50),
+    "pause_win_rate": (float, 0.0, 1.0),
+    "pause_min_loss": (float, -100.0, 0.0),
+    "pause_cooldown_hours": (float, 1.0, 168.0),
+    # PositionCloser params
+    "min_rebalance_edge": (float, 0.0, 0.5),
+    "min_hold_seconds": (int, 0, 3600),
 }
 
 
 def _apply_quality(engine, param: str, value) -> int:
-    attr = _QUALITY_ATTR_MAP.get(param)
-    if not attr or not hasattr(engine.analyzer, attr):
+    mapping = _QUALITY_ATTR_MAP.get(param)
+    if not mapping:
+        return 0
+
+    target_name, attr = mapping
+    target = getattr(engine, target_name, None)
+    if target is None or not hasattr(target, attr):
         return 0
 
     spec = _QUALITY_RANGES.get(param)
@@ -214,7 +244,7 @@ def _apply_quality(engine, param: str, value) -> int:
             logger.warning("quality_out_of_range", param=param, value=value)
             return 0
 
-    setattr(engine.analyzer, attr, value)
+    setattr(target, attr, value)
     return 1
 
 

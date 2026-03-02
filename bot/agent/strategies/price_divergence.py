@@ -71,16 +71,32 @@ class PriceDivergenceStrategy(BaseStrategy):
 
     _MUTABLE_PARAMS = {
         "MIN_DIVERGENCE_PCT": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "MAX_EDGE": {"type": float, "min": 0.01, "max": 1.0},
         "TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 0.5},
         "STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 0.5},
         "MAX_HOLD_HOURS_CRYPTO": {"type": int, "min": 1, "max": 168},
         "MAX_HOLD_HOURS_OTHER": {"type": int, "min": 1, "max": 720},
+        "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
+        "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
     }
 
     def __init__(self, *args, research_cache: ResearchCache | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._research_cache = research_cache
         self._price_history: dict[str, deque[float]] = {}
+        # Instance copies of module constants (configurable via admin)
+        self.MIN_EDGE = MIN_EDGE
+        self.MAX_EDGE = MAX_EDGE
+        self.MIN_PRICE = MIN_PRICE
+        self.MAX_PRICE = MAX_PRICE
+        self.MAX_SPREAD = MAX_SPREAD
+        self.MIN_DIVERGENCE_PCT = MIN_DIVERGENCE_PCT
+        self.TAKE_PROFIT_PCT = TAKE_PROFIT_PCT
+        self.STOP_LOSS_PCT = STOP_LOSS_PCT
+        self.MAX_HOLD_HOURS_CRYPTO = MAX_HOLD_HOURS_CRYPTO
+        self.MAX_HOLD_HOURS_OTHER = MAX_HOLD_HOURS_OTHER
 
     # ── Public interface ───────────────────────────────────────────────────
 
@@ -116,14 +132,14 @@ class PriceDivergenceStrategy(BaseStrategy):
         # Take profit / stop loss
         if isinstance(avg_price, (int, float)) and avg_price > 0:
             profit_pct = (current_price - avg_price) / avg_price
-            if profit_pct >= TAKE_PROFIT_PCT:
+            if profit_pct >= self.TAKE_PROFIT_PCT:
                 self.logger.info(
                     "divergence_take_profit",
                     market_id=market_id,
                     profit_pct=round(profit_pct, 4),
                 )
                 return True
-            if profit_pct <= -STOP_LOSS_PCT:
+            if profit_pct <= -self.STOP_LOSS_PCT:
                 self.logger.info(
                     "divergence_stop_loss",
                     market_id=market_id,
@@ -139,7 +155,7 @@ class PriceDivergenceStrategy(BaseStrategy):
             held_hours = (now - created_at).total_seconds() / 3600
             # Use crypto hold time if market question references crypto
             is_crypto = self._is_crypto_market(kwargs.get("question", ""))
-            max_hours = MAX_HOLD_HOURS_CRYPTO if is_crypto else MAX_HOLD_HOURS_OTHER
+            max_hours = self.MAX_HOLD_HOURS_CRYPTO if is_crypto else self.MAX_HOLD_HOURS_OTHER
             if held_hours >= max_hours:
                 self.logger.info(
                     "divergence_time_expiry",
@@ -165,7 +181,7 @@ class PriceDivergenceStrategy(BaseStrategy):
             return None
 
         yes_price = market.yes_price
-        if yes_price is None or yes_price < MIN_PRICE or yes_price > MAX_PRICE:
+        if yes_price is None or yes_price < self.MIN_PRICE or yes_price > self.MAX_PRICE:
             return None
 
         # Spread check
@@ -174,7 +190,7 @@ class PriceDivergenceStrategy(BaseStrategy):
             and market.best_ask_price is not None
         ):
             spread = market.best_ask_price - market.best_bid_price
-            if spread > MAX_SPREAD:
+            if spread > self.MAX_SPREAD:
                 return None
         else:
             return None
@@ -271,11 +287,11 @@ class PriceDivergenceStrategy(BaseStrategy):
         else:
             return None
 
-        if edge < MIN_EDGE:
+        if edge < self.MIN_EDGE:
             return None
 
         # Reject absurd edges — likely a parsing/matching error
-        if edge > MAX_EDGE:
+        if edge > self.MAX_EDGE:
             self.logger.warning(
                 "crypto_divergence_edge_too_high",
                 market_id=market.id,
@@ -403,11 +419,11 @@ class PriceDivergenceStrategy(BaseStrategy):
             return None
 
         divergence_pct = abs(sentiment) * abs(price_trend) * 0.1
-        if divergence_pct < MIN_DIVERGENCE_PCT:
+        if divergence_pct < self.MIN_DIVERGENCE_PCT:
             return None
 
         edge = divergence_pct * confidence
-        if edge < MIN_EDGE:
+        if edge < self.MIN_EDGE:
             return None
 
         yes_price = market.yes_price

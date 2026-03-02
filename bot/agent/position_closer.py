@@ -22,6 +22,9 @@ class PositionCloser:
         self.order_manager = order_manager
         self.portfolio = portfolio
         self.risk_manager = risk_manager
+        # Rebalance params (configurable via admin)
+        self.min_rebalance_edge = 0.015  # 1.5% edge minimum
+        self.min_hold_seconds = 120  # 2 min minimum hold
 
     async def close_position(self, pos) -> None:
         """Close a position and record PnL if immediately filled.
@@ -186,11 +189,9 @@ class PositionCloser:
         The caller should check close_trade.status to decide whether to record
         PnL immediately (filled) or defer to handle_sell_fill (pending).
         """
-        min_rebalance_edge = 0.015  # 1.5% edge (was 3%)
-        min_hold_seconds = 120  # 2 min (was 5 min)
         min_sell_notional = 1.0  # Match CLOB minimum notional
 
-        if signal.edge < min_rebalance_edge:
+        if signal.edge < self.min_rebalance_edge:
             return None
 
         candidates = []
@@ -201,7 +202,7 @@ class PositionCloser:
             created = pos.created_at
             if created is not None and created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
-            if created and (now - created).total_seconds() < min_hold_seconds:
+            if created and (now - created).total_seconds() < self.min_hold_seconds:
                 continue
             if pos.unrealized_pnl > 0:
                 continue
