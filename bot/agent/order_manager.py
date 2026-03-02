@@ -403,12 +403,24 @@ class OrderManager:
                     error=str(e),
                 )
 
-        result = await self.clob.place_order(
-            token_id=token_id,
-            side=OrderSide.SELL,
-            price=sell_price,
-            size=size,
-        )
+        try:
+            result = await self.clob.place_order(
+                token_id=token_id,
+                side=OrderSide.SELL,
+                price=sell_price,
+                size=size,
+            )
+        except Exception as e:
+            err_msg = str(e)
+            if "not enough balance" in err_msg or "allowance" in err_msg:
+                logger.warning(
+                    "sell_insufficient_balance",
+                    market_id=market_id,
+                    size=size,
+                    error=err_msg,
+                )
+                return None
+            raise
 
         if "error" in result:
             logger.warning("close_order_rejected", error=result["error"])
