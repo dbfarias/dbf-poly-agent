@@ -6,6 +6,7 @@ import {
   type ResearchMarket,
 } from "../api/client";
 import HelpTooltip from "../components/HelpTooltip";
+import { formatDateTime, formatTime } from "../utils/date";
 
 function sentimentColor(score: number): string {
   if (score > 0.3) return "text-green-400";
@@ -65,7 +66,7 @@ export default function Research() {
           <p className="text-xs text-zinc-500 mt-1">
             Last scan:{" "}
             {status?.last_scan
-              ? new Date(status.last_scan).toLocaleString()
+              ? formatDateTime(status.last_scan)
               : "Not yet scanned"}
           </p>
         </div>
@@ -331,7 +332,7 @@ function MarketRow({ market }: { market: ResearchMarket }) {
           </span>
         </td>
         <td className="py-2 text-right text-zinc-500 text-xs">
-          {new Date(market.updated_at).toLocaleTimeString()}
+          {formatTime(market.updated_at)}
         </td>
       </tr>
       {/* Top Headlines */}

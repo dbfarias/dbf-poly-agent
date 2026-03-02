@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { formatRelative } from "../utils/date";
 import {
   AlertCircle,
   ArrowDown,
@@ -64,22 +65,7 @@ const LEVEL_CONFIG: Record<
 const PAGE_SIZE = 50;
 
 function formatTimestamp(ts: string): string {
-  const d = new Date(ts + "Z");
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `${diffH}h ago`;
-
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatRelative(ts);
 }
 
 function EventRow({ event }: { event: ActivityEvent }) {

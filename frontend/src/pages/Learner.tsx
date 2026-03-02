@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
+import { formatDateTime } from "../utils/date";
 import {
   Bar,
   BarChart,
@@ -61,7 +62,7 @@ export default function Learner() {
   }
 
   const lastComputed = multipliers?.last_computed
-    ? new Date(multipliers.last_computed).toLocaleString()
+    ? formatDateTime(multipliers.last_computed)
     : "Not yet computed";
 
   return (

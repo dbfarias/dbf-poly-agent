@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fetchEquityCurve } from "../api/client";
 import { ChartSkeleton } from "./Skeleton";
+import { formatDate } from "../utils/date";
 
 export default function EquityChart({ days = 30 }: { days?: number }) {
   const { data, isLoading } = useQuery({
@@ -26,7 +27,7 @@ export default function EquityChart({ days = 30 }: { days?: number }) {
   }
 
   const chartData = data.map((p) => ({
-    time: new Date(p.timestamp).toLocaleDateString(),
+    time: formatDate(p.timestamp),
     equity: Number(p.total_equity.toFixed(2)),
     cash: Number(p.cash_balance.toFixed(2)),
   }));

@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { Trade } from "../api/client";
+import { formatDateTime } from "../utils/date";
 
 interface TradeTableProps {
   trades: Trade[];
@@ -47,7 +48,7 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
                   {expandedId === t.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </td>
                 <td className="py-2 px-3 text-zinc-400 hidden sm:table-cell">
-                  {new Date(t.created_at).toLocaleString()}
+                  {formatDateTime(t.created_at)}
                 </td>
                 <td className="py-2 px-3 max-w-32 sm:max-w-48 truncate" title={t.question}>
                   {t.question}
