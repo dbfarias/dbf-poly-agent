@@ -8,13 +8,13 @@
 
 ```
 +---------------------------------------------------------------+
-|                    CICLO DE TRADING (30s)                       |
-|                    TRADING CYCLE (30s)                          |
+|                    CICLO DE TRADING (60s)                       |
+|                    TRADING CYCLE (60s)                          |
 |                                                                 |
 |  +----------+   +----------+   +----------+   +----------+     |
 |  |  GAMMA   |-->| QUALITY  |-->|STRATEGIES|-->|  DEDUP   |     |
 |  |  API     |   | FILTER   |   |  SCAN    |   |          |     |
-|  | 500 mkts |   | ~484 pass|   | 5 active |   | per-strat|     |
+|  | 500 mkts |   | ~484 pass|   | 6 active |   | per-strat|     |
 |  +----------+   +----------+   +----------+   +----------+     |
 |                                                      |          |
 |  +----------+   +----------+   +----------+          v          |
@@ -123,7 +123,7 @@
 
 ---
 
-## As 5 Estrategias / The 5 Strategies
+## As 6 Estrategias / The 6 Strategies
 
 ### 1. ARBITRAGE (Tier 1+)
 
@@ -213,6 +213,8 @@
 | CONFIDENCE_BASE | 0.75 | Base de confianca / Base confidence |
 | MAX_HOURS | 72h | Horizonte maximo (dinamico com urgency) |
 | EXIT_THRESHOLD | $0.70 | Sai se cair abaixo / Exit if drops below |
+| EXIT_TAKE_PROFIT_PCT | 3% | Take profit apos 12h hold / Take profit after 12h hold |
+| EXIT_MIN_HOLD_HOURS | 12h | Min hold antes do TP / Min hold before TP |
 
 **Horizonte Dinamico / Dynamic Horizon:**
 ```
@@ -257,14 +259,33 @@
 
 | Parametro / Parameter | Valor / Value |
 |---|---|
-| MIN_EDGE | 3% (mais alto que time_decay) |
-| IMBALANCE_THRESHOLD | 15% |
-| MAX_HOURS | 168h (7 dias / days) |
+| MIN_EDGE | 2% (mais alto que time_decay) |
+| IMBALANCE_THRESHOLD | 10% |
+| MAX_HOURS | 168h (7 dias / days, dinamico com urgency) |
 | EXIT_THRESHOLD | $0.40 |
+| EXIT_STOP_LOSS | -10% do entry / from entry |
+| EXIT_TAKE_PROFIT_PCT | 3% apos 6h hold / after 6h hold |
+| EXIT_MIN_HOLD_HOURS | 6h |
 
 ---
 
-### 4. SWING TRADING (Tier 2+)
+### 4. PRICE DIVERGENCE (Tier 1+)
+
+**PT:** Detecta divergencia entre preco do mercado e valor esperado usando sinais de sentimento e precos de cripto.
+**EN:** Detects divergence between market price and expected value using sentiment signals and crypto prices.
+
+| Parametro / Parameter | Valor / Value |
+|---|---|
+| MIN_EDGE | 2% |
+| TAKE_PROFIT | 3% |
+| STOP_LOSS | 5% |
+| MAX_HOLD (crypto) | 24h |
+| MAX_HOLD (other) | 4h |
+| PRICE_HISTORY | 50 ticks |
+
+---
+
+### 5. SWING TRADING (Tier 2+)
 
 **PT:** Compra mercados com momentum confirmado (3 ticks subindo). Vende rapido.
 **EN:** Buys markets with confirmed upward momentum (3 rising ticks). Quick exit.
@@ -306,7 +327,7 @@
 
 ---
 
-### 5. MARKET MAKING (Tier 3+, $100+)
+### 6. MARKET MAKING (Tier 3+, $100+)
 
 **PT:** Coloca ordens de compra abaixo do mid-price e captura o spread.
 **EN:** Places buy orders below mid-price and captures spread when filled.
@@ -335,13 +356,13 @@
 
 ## Comparacao de Estrategias / Strategy Comparison
 
-| | Arbitrage | Time Decay | Value Betting | Swing | Market Making |
-|---|---|---|---|---|---|
-| **Tier** | 1+ | 1+ | 1+ | 2+ | 3+ |
-| **Edge** | 1%+ | 1.5%+ | 3%+ | 0.5%+ | spread |
-| **Horizonte** | resolucao | <72h | <168h | <4h | 1-2h |
-| **Win Rate** | ~95% | ~90% | ~65% | ~60% | ~55% |
-| **Risco** | Zero | Baixo | Medio | Medio | Alto |
+| | Arbitrage | Time Decay | Value Betting | Price Diverg. | Swing | Market Making |
+|---|---|---|---|---|---|---|
+| **Tier** | 1+ | 1+ | 1+ | 1+ | 2+ | 3+ |
+| **Edge** | 1%+ | 1.5%+ | 2%+ | 2%+ | 0.5%+ | spread |
+| **Horizonte** | resolucao | <72h | <168h | 4-24h | <4h | 1-2h |
+| **Win Rate** | ~95% | ~90% | ~65% | ~60% | ~60% | ~55% |
+| **Risco** | Zero | Baixo | Medio | Medio | Medio | Alto |
 
 ---
 
@@ -744,11 +765,22 @@ Every bot decision is logged to the `bot_activity` table and visible on the Acti
 
 | Estrategia | Take Profit | Stop Loss | Time Exit | Reversal |
 |---|---|---|---|---|
-| Time Decay | Resolucao ($1.00) | < EXIT_THRESHOLD ($0.70) | -- | -- |
-| Value Betting | Resolucao ($1.00) | < EXIT_THRESHOLD ($0.40) | -- | -- |
+| Time Decay | +3% after 12h hold | < $0.70 | -- | -- |
+| Value Betting | +3% after 6h hold | -10% from entry, < $0.40 | -- | -- |
+| Price Divergence | +3% | -5% | 24h (crypto) / 4h (other) | -- |
 | Swing Trading | +1.5% | -1.5% | 4h | 3 ticks down |
 | Arbitrage | Resolucao ($1.00) | -- | -- | -- |
 | Market Making | Spread capture | Spread collapse | -- | -- |
+
+### Saidas Universais / Universal Exits
+
+| Regra / Rule | Valor / Value | Descricao / Description |
+|---|---|---|
+| TAKE_PROFIT_PRICE | $0.95 | Lock in near-certainty (after 12h hold) |
+| STOP_LOSS_PCT | -40% | Exit on severe loss |
+| NEAR_WORTHLESS | < $0.10 | Always exit |
+| MAX_POSITION_AGE | 72h (3 days) | Free capital tied in stale positions |
+| UNMATCHED_STRATEGY | < $0.70 | Exit for unmatched strategies |
 
 ### Saida por Rebalance / Rebalance Exit
 

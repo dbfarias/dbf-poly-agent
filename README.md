@@ -13,7 +13,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 
 ---
 
-**$5 to $500** | **5 Strategies** | **Tier-Based Risk** | **Active Rebalancing** | **Adaptive Learning** | **Real-Time Dashboard**
+**$5 to $500** | **6 Strategies** | **Tier-Based Risk** | **Active Rebalancing** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
@@ -48,14 +48,14 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 
 | Feature | Description |
 |:---|:---|
-| **5 Trading Strategies** | Time Decay, Arbitrage, Value Betting, Swing Trading, Market Making |
+| **6 Trading Strategies** | Time Decay, Arbitrage, Value Betting, Price Divergence, Swing Trading, Market Making |
 | **Adaptive Learning** | Self-tuning engine (PerformanceLearner) adjusts edge/confidence/urgency from trade history every 5 min |
 | **Active Rebalancing** | Automatically closes weak losers to make room for higher-edge signals |
 | **Market Quality Filter** | Order book depth, spread, liquidity checks + Gamma API discovery (500 markets/scan) |
 | **Tier-Based Risk System** | 3 capital tiers with automatic position sizing and limit adaptation |
 | **Quarter-Kelly Sizing** | Conservative position sizing to minimize risk of ruin |
 | **Paper Trading Mode** | ON by default — test safely before going live |
-| **Secure Dashboard** | JWT-authenticated React app with 9 pages: trades, equity curves, risk, learner, activity log |
+| **Secure Dashboard** | JWT-authenticated React app with 9 pages: dashboard, trades, strategies, markets, risk, activity, learner, settings |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Activity Log** | Every bot decision logged with reasoning — visible in dashboard |
 | **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries |
@@ -141,7 +141,7 @@ The bot automatically adjusts its behavior as the bankroll grows:
 |  - Risk             |     |  |  Trading Engine   |   |
 |  - Activity         |     |  |  (asyncio task)   |   |
 |  - Learner          |     |  |                   |   |
-|  - Settings         |     |  |  - 5 Strategies   |   |
+|  - Settings         |     |  |  - 6 Strategies   |   |
 +---------------------+     |  |  - Risk Manager   |   |
                              |  |  - Portfolio      |   |
                              |  |  - Learner        |   |
@@ -191,6 +191,8 @@ Example:
 | Price range | $0.60 - $0.99 (dynamic by time) |
 | Min edge | 1.5% |
 | Max horizon | 72h (dynamic, expands with urgency) |
+| Exit: take-profit | +3% after 12h hold |
+| Exit: price drop | Below $0.70 |
 | Win rate | ~90-95% |
 | Hold time | < 72 hours |
 
@@ -211,9 +213,22 @@ Example:
 
 > Detect mispriced markets using order book analysis
 
-Analyzes order book imbalance and volume momentum to identify markets where the true probability differs from the market price. Max horizon: 168h (7 days).
+Analyzes order book imbalance and volume momentum to identify markets where the true probability differs from the market price. Dynamic horizon (urgency-based, up to 168h).
 
-### 4. Swing Trading (Tier 2+)
+| Parameter | Value |
+|:---|:---|
+| Min edge | 2%+ |
+| Exit: take-profit | +3% after 6h hold |
+| Exit: stop-loss | -10% from entry |
+| Exit: floor | Below $0.40 |
+
+### 4. Price Divergence (Tier 1+)
+
+> Detect crypto/sentiment price divergence using external signals
+
+Tracks price movements and detects divergence between market price and expected value. Separate hold times for crypto (24h) and non-crypto (4h) markets.
+
+### 5. Swing Trading (Tier 2+)
 
 > Buy markets with confirmed upward momentum
 
@@ -227,7 +242,7 @@ Exit rules:
   3 down -> Reversal exit
 ```
 
-### 5. Market Making (Tier 3+)
+### 6. Market Making (Tier 3+)
 
 > Provide liquidity on both sides of the spread
 
@@ -235,13 +250,13 @@ Places limit orders below mid-price to capture the spread. Only enabled with $10
 
 ### Strategy Comparison
 
-| | Arbitrage | Time Decay | Value Betting | Swing | Market Making |
-|---|---|---|---|---|---|
-| **Tier** | 1+ | 1+ | 1+ | 2+ | 3+ |
-| **Min Edge** | 1%+ | 1.5%+ | 3%+ | 0.5%+ | spread |
-| **Horizon** | resolution | < 72h | < 168h | < 4h | 1-2h |
-| **Win Rate** | ~95% | ~90% | ~65% | ~60% | ~55% |
-| **Risk** | Zero | Low | Medium | Medium | High |
+| | Arbitrage | Time Decay | Value Betting | Price Divergence | Swing | Market Making |
+|---|---|---|---|---|---|---|
+| **Tier** | 1+ | 1+ | 1+ | 1+ | 2+ | 3+ |
+| **Min Edge** | 1%+ | 1.5%+ | 2%+ | 2%+ | 0.5%+ | spread |
+| **Horizon** | resolution | < 72h | < 168h | 4-24h | < 4h | 1-2h |
+| **Win Rate** | ~95% | ~90% | ~65% | ~60% | ~60% | ~55% |
+| **Risk** | Zero | Low | Medium | Medium | Medium | High |
 
 ---
 
@@ -528,7 +543,7 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (521 tests) + ruff lint + frontend build
+1. **Test** — pytest (1255+ tests) + ruff lint + frontend build
 2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
 3. **Deploy** — SSH to server, pull image, restart containers
 
@@ -592,7 +607,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**521 tests** across **24 test files** covering bot logic, API endpoints, strategies, and adaptive learning.
+**1255 tests** across **30+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -636,7 +651,7 @@ dbf-poly-agent/
 |-- bot/                              # Trading bot (Python asyncio)
 |   |-- config.py                     # Pydantic Settings + 3-tier config
 |   |-- agent/
-|   |   |-- engine.py                 # Main trading loop (30s cycle) + rebalancing
+|   |   |-- engine.py                 # Main trading loop (60s cycle) + rebalancing
 |   |   |-- portfolio.py              # Portfolio state tracker + Polymarket sync
 |   |   |-- market_analyzer.py        # Gamma API scanner + quality filter
 |   |   |-- order_manager.py          # Order lifecycle (place, monitor, cancel)
@@ -647,6 +662,7 @@ dbf-poly-agent/
 |   |       |-- time_decay.py         # Near-resolution strategy (primary)
 |   |       |-- arbitrage.py          # YES+NO arbitrage
 |   |       |-- value_betting.py      # Order book analysis
+|   |       |-- price_divergence.py   # Crypto/sentiment divergence
 |   |       |-- swing_trading.py      # Momentum-based short-term
 |   |       +-- market_making.py      # Spread capture
 |   |-- polymarket/
@@ -698,7 +714,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 521 pytest tests (24 files)
+|-- tests/                            # 1255+ pytest tests (30+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -757,7 +773,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 521 tests
+- **pytest** — 1255 tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`
