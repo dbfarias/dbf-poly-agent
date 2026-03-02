@@ -148,6 +148,7 @@ class TestTryRebalance:
                 outcome=loser.outcome,
                 category=loser.category,
                 strategy=loser.strategy,
+                entry_price=loser.avg_price,
             )
             # PnL recording deferred to caller
             engine.portfolio.record_trade_close.assert_not_called()
@@ -322,6 +323,7 @@ class TestTryRebalance:
                 outcome="Yes",
                 category="crypto",
                 strategy="time_decay",
+                entry_price=0.5,
             )
 
     @pytest.mark.asyncio

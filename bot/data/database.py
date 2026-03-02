@@ -60,6 +60,7 @@ async def _migrate(eng) -> None:
     """Add missing columns to existing tables (lightweight SQLite migrations)."""
     migrations = [
         ("trades", "exit_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("trades", "entry_price", "REAL NOT NULL DEFAULT 0.0"),
     ]
 
     async with eng.begin() as conn:

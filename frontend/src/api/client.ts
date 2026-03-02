@@ -93,6 +93,7 @@ export interface Trade {
   reasoning: string;
   status: string;
   pnl: number;
+  entry_price: number;
   is_paper: boolean;
 }
 

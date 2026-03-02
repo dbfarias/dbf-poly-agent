@@ -74,6 +74,7 @@ class TradeResponse(BaseModel):
     reasoning: str
     status: str
     pnl: float
+    entry_price: float = 0.0
     is_paper: bool
 
 

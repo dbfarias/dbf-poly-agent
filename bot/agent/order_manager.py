@@ -358,6 +358,7 @@ class OrderManager:
         outcome: str = "",
         category: str = "",
         strategy: str = "exit",
+        entry_price: float = 0.0,
     ) -> Trade | None:
         """Close a position by selling."""
         now = datetime.now(timezone.utc)
@@ -421,6 +422,13 @@ class OrderManager:
             return None
 
         order_id = result.get("orderID", result.get("order_id", ""))
+
+        # Determine fill status — CLOB returns "matched" for immediate fills
+        is_filled = (
+            self.clob.is_paper
+            or str(result.get("status", "")).upper() == "MATCHED"
+        )
+
         trade = Trade(
             market_id=market_id,
             token_id=token_id,
@@ -431,10 +439,11 @@ class OrderManager:
             side=OrderSide.SELL.value,
             price=sell_price,
             size=size,
-            filled_size=size if self.clob.is_paper else 0,
+            filled_size=size if is_filled else 0,
             cost_usd=size * sell_price,
             strategy=strategy,
-            status="filled" if self.clob.is_paper else "pending",
+            status="filled" if is_filled else "pending",
+            entry_price=entry_price,
             is_paper=settings.is_paper,
         )
 
@@ -443,7 +452,6 @@ class OrderManager:
             trade = await repo.create(trade)
 
         # Track pending SELL orders for monitoring (live unfilled only)
-        is_filled = self.clob.is_paper or str(result.get("status", "")).upper() == "MATCHED"
         if not is_filled and order_id:
             self._pending_orders[order_id] = {
                 "trade_id": trade.id,

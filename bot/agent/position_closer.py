@@ -45,6 +45,7 @@ class PositionCloser:
             outcome=pos.outcome,
             category=pos.category,
             strategy=pos.strategy,
+            entry_price=pos.avg_price,
         )
         if trade is None:
             return
@@ -234,6 +235,7 @@ class PositionCloser:
             outcome=worst_pos.outcome,
             category=worst_pos.category,
             strategy=worst_pos.strategy,
+            entry_price=worst_pos.avg_price,
         )
         if close_trade is None:
             logger.warning("rebalance_close_failed", market_id=worst_pos.market_id)

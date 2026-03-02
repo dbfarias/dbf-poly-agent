@@ -108,22 +108,59 @@ export default function TradeTable({ trades, compact, testIdPrefix = "trade" }: 
 }
 
 function TradeDetail({ trade: t }: { trade: Trade }) {
+  const isSell = t.side === "SELL";
+
   return (
     <div className="space-y-3" data-testid={`trade-detail-${t.id}`}>
       {/* Reasoning */}
-      <div>
-        <div className="text-xs text-zinc-500 mb-1">Decision Reasoning</div>
-        <div className="text-sm text-zinc-300 bg-[#1e2130] rounded px-3 py-2">
-          {t.reasoning || "No reasoning recorded"}
+      {t.reasoning && (
+        <div>
+          <div className="text-xs text-zinc-500 mb-1">Decision Reasoning</div>
+          <div className="text-sm text-zinc-300 bg-[#1e2130] rounded px-3 py-2">
+            {t.reasoning}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* SELL summary: Entry vs Exit */}
+      {isSell && t.entry_price > 0 && (
+        <div className="flex items-center gap-3 bg-[#1e2130] rounded px-3 py-2">
+          <div className="text-sm">
+            <span className="text-zinc-500">Bought at </span>
+            <span className="text-zinc-200 font-mono font-medium">
+              ${t.entry_price.toFixed(3)}
+            </span>
+            <span className="text-zinc-500"> → Sold at </span>
+            <span className="text-zinc-200 font-mono font-medium">
+              ${t.price.toFixed(3)}
+            </span>
+          </div>
+          {t.pnl !== 0 && (
+            <span
+              className={clsx(
+                "text-sm font-mono font-bold",
+                t.pnl > 0 ? "text-green-400" : "text-red-400",
+              )}
+            >
+              {t.pnl > 0 ? "+" : ""}${t.pnl.toFixed(2)}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Metrics grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MetricBox label="Estimated Prob" value={`${(t.estimated_prob * 100).toFixed(1)}%`} />
-        <MetricBox label="Market Price" value={`$${t.price.toFixed(3)}`} />
-        <MetricBox label="Edge" value={`${(t.edge * 100).toFixed(2)}%`} />
-        <MetricBox label="Confidence" value={`${(t.confidence * 100).toFixed(0)}%`} />
+        {!isSell && (
+          <>
+            <MetricBox label="Estimated Prob" value={`${(t.estimated_prob * 100).toFixed(1)}%`} />
+            <MetricBox label="Edge" value={`${(t.edge * 100).toFixed(2)}%`} />
+            <MetricBox label="Confidence" value={`${(t.confidence * 100).toFixed(0)}%`} />
+          </>
+        )}
+        {isSell && t.entry_price > 0 && (
+          <MetricBox label="Entry Price" value={`$${t.entry_price.toFixed(3)}`} />
+        )}
+        <MetricBox label={isSell ? "Sell Price" : "Buy Price"} value={`$${t.price.toFixed(3)}`} />
         <MetricBox label="Outcome" value={t.outcome} />
         <MetricBox label="Shares" value={t.size.toFixed(1)} />
         <MetricBox label="Cost" value={`$${t.cost_usd.toFixed(2)}`} />
