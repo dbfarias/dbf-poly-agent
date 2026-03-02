@@ -331,7 +331,7 @@ class TestTryRebalance:
 
     @pytest.mark.asyncio
     async def test_close_fails_returns_none(self):
-        """Handle close_position returning None gracefully."""
+        """Handle close_position returning None for single candidate."""
         with _patch_engine():
             engine = _build_engine()
             loser = make_position(current_price=0.40)
@@ -344,6 +344,80 @@ class TestTryRebalance:
 
             assert result is None
             engine.portfolio.record_trade_close.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_unsellable_tries_next_candidate(self):
+        """When worst loser fails to sell, try the next candidate."""
+        with _patch_engine():
+            engine = _build_engine()
+
+            # Position A: -30% PnL (worst loser, but unsellable)
+            pos_a = make_position(
+                market_id="mkt_unsellable", token_id="tok_a",
+                avg_price=0.50, current_price=0.35, size=10.0,
+            )
+            # Position B: -10% PnL (second worst, sellable)
+            pos_b = make_position(
+                market_id="mkt_sellable", token_id="tok_b",
+                avg_price=0.50, current_price=0.45, size=10.0,
+            )
+
+            engine.portfolio.positions = [pos_a, pos_b]
+
+            # First call (pos_a) returns None (sell failed),
+            # second call (pos_b) succeeds
+            engine.order_manager.close_position = AsyncMock(
+                side_effect=[
+                    None,  # pos_a fails
+                    Trade(
+                        market_id="mkt_sellable",
+                        token_id="tok_b",
+                        side="SELL",
+                        price=0.45,
+                        size=10.0,
+                        status="filled",
+                        is_paper=True,
+                    ),
+                ]
+            )
+
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+            closed_pos, rebal_trade = result
+            assert closed_pos.market_id == "mkt_sellable"
+            assert rebal_trade.status == "filled"
+            # close_position called twice: once for unsellable, once for sellable
+            assert engine.order_manager.close_position.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_all_candidates_fail_returns_none(self):
+        """When all candidates fail to sell, return None."""
+        with _patch_engine():
+            engine = _build_engine()
+
+            pos_a = make_position(
+                market_id="mkt_a", token_id="tok_a",
+                avg_price=0.50, current_price=0.35, size=10.0,
+            )
+            pos_b = make_position(
+                market_id="mkt_b", token_id="tok_b",
+                avg_price=0.50, current_price=0.45, size=10.0,
+            )
+
+            engine.portfolio.positions = [pos_a, pos_b]
+            engine.order_manager.close_position = AsyncMock(return_value=None)
+
+            signal = make_signal(edge=0.05)
+
+            result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is None
+            # Tried both candidates
+            assert engine.order_manager.close_position.call_count == 2
 
     @pytest.mark.asyncio
     async def test_paper_mode_allows_small_positions(self):

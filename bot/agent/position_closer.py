@@ -216,47 +216,54 @@ class PositionCloser:
             return None
 
         candidates.sort(key=lambda x: x[1])
-        worst_pos, worst_pnl_pct = candidates[0]
 
-        logger.info(
-            "rebalance_attempt",
-            closing_market=worst_pos.market_id[:20],
-            closing_strategy=worst_pos.strategy,
-            closing_pnl_pct=round(worst_pnl_pct, 4),
-            new_signal_strategy=signal.strategy,
-            new_signal_edge=round(signal.edge, 4),
-        )
+        for idx, (candidate_pos, candidate_pnl_pct) in enumerate(candidates):
+            logger.info(
+                "rebalance_attempt",
+                closing_market=candidate_pos.market_id[:20],
+                closing_strategy=candidate_pos.strategy,
+                closing_pnl_pct=round(candidate_pnl_pct, 4),
+                new_signal_strategy=signal.strategy,
+                new_signal_edge=round(signal.edge, 4),
+            )
 
-        close_trade = await self.order_manager.close_position(
-            market_id=worst_pos.market_id,
-            token_id=worst_pos.token_id,
-            size=worst_pos.size,
-            current_price=worst_pos.current_price,
-            question=worst_pos.question,
-            outcome=worst_pos.outcome,
-            category=worst_pos.category,
-            strategy=worst_pos.strategy,
-            entry_price=worst_pos.avg_price,
-        )
-        if close_trade is None:
-            logger.warning("rebalance_close_failed", market_id=worst_pos.market_id)
-            return None
+            close_trade = await self.order_manager.close_position(
+                market_id=candidate_pos.market_id,
+                token_id=candidate_pos.token_id,
+                size=candidate_pos.size,
+                current_price=candidate_pos.current_price,
+                question=candidate_pos.question,
+                outcome=candidate_pos.outcome,
+                category=candidate_pos.category,
+                strategy=candidate_pos.strategy,
+                entry_price=candidate_pos.avg_price,
+            )
+            if close_trade is None:
+                logger.warning(
+                    "rebalance_close_failed_trying_next",
+                    market_id=candidate_pos.market_id,
+                    candidates_remaining=len(candidates) - idx - 1,
+                )
+                continue
 
-        await log_rebalance(
-            closed_market_id=worst_pos.market_id,
-            closed_question=worst_pos.question,
-            closed_strategy=worst_pos.strategy,
-            closed_pnl=0.0,
-            new_market_id=signal.market_id,
-            new_question=signal.question,
-            new_strategy=signal.strategy,
-            new_edge=signal.edge,
-        )
+            await log_rebalance(
+                closed_market_id=candidate_pos.market_id,
+                closed_question=candidate_pos.question,
+                closed_strategy=candidate_pos.strategy,
+                closed_pnl=0.0,
+                new_market_id=signal.market_id,
+                new_question=signal.question,
+                new_strategy=signal.strategy,
+                new_edge=signal.edge,
+            )
 
-        logger.info(
-            "rebalance_closed_position",
-            closed_market=worst_pos.market_id[:20],
-            new_signal=signal.market_id[:20],
-            trade_status=close_trade.status,
-        )
-        return worst_pos, close_trade
+            logger.info(
+                "rebalance_closed_position",
+                closed_market=candidate_pos.market_id[:20],
+                new_signal=signal.market_id[:20],
+                trade_status=close_trade.status,
+            )
+            return candidate_pos, close_trade
+
+        logger.warning("rebalance_all_candidates_failed", candidates=len(candidates))
+        return None
