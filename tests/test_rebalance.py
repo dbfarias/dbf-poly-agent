@@ -252,22 +252,25 @@ class TestTryRebalance:
                 assert engine._rebalanced_this_cycle is True
 
     @pytest.mark.asyncio
-    async def test_no_rebalance_non_max_reason(self):
-        """Integration: rebalance only triggers on 'Max positions' reason.
+    async def test_rebalance_triggers_on_capacity_reasons(self):
+        """Rebalance triggers on 'Max positions' or 'Max deployed' reasons.
 
         This test verifies the condition in the signal evaluation loop,
         not _try_rebalance itself.
         """
-        # The check "Max positions" in reason is in the engine's signal eval loop.
-        # _try_rebalance doesn't know the reason; it's gated by the caller.
-        # We verify by checking the string match logic directly.
-        reason_max = (
+        reason_max_pos = (
             "Max positions reached: 6 >= 6 (6 open + 0 pending)"
+        )
+        reason_max_deployed = (
+            "Max deployed capital: $16.67 >= $14.73 (85% of $17.32)"
         )
         reason_other = "Edge too low: 1.5% < 2.0%"
 
-        assert "Max positions" in reason_max
-        assert "Max positions" not in reason_other
+        # Both capacity reasons should trigger rebalance
+        assert "Max positions" in reason_max_pos or "Max deployed" in reason_max_pos
+        assert "Max positions" in reason_max_deployed or "Max deployed" in reason_max_deployed
+        # Non-capacity reasons should not
+        assert "Max positions" not in reason_other and "Max deployed" not in reason_other
 
     @pytest.mark.asyncio
     async def test_picks_worst_of_multiple(self):

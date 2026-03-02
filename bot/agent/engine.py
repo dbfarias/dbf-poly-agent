@@ -561,7 +561,7 @@ class TradingEngine:
                 # Try rebalancing: close weakest loser to make room
                 rebalance_result = None
                 if (
-                    "Max positions" in reason
+                    ("Max positions" in reason or "Max deployed" in reason)
                     and not self._rebalanced_this_cycle
                 ):
                     rebalance_result = await self.closer.try_rebalance(
