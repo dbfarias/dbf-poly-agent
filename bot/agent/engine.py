@@ -567,10 +567,12 @@ class TradingEngine:
                     rebalance_result = await self.closer.try_rebalance(
                         signal, self.portfolio.positions
                     )
+                    # Mark attempted even if it fails, to avoid retrying
+                    # multiple times in the same cycle
+                    self._rebalanced_this_cycle = True
 
                 if rebalance_result is not None:
                     closed_pos, rebal_trade = rebalance_result
-                    self._rebalanced_this_cycle = True
 
                     if rebal_trade.status == "filled":
                         # Paper mode or instantly matched — record PnL now
