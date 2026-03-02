@@ -27,14 +27,15 @@ STOP_LOSS_PCT = 0.012       # 1.2% stop loss
 MAX_HOLD_HOURS = 4.0        # Max time before forced exit
 MIN_PRICE = 0.15            # Min market price for entry
 MAX_PRICE = 0.85            # Max market price for entry
-MIN_MOMENTUM = 0.005        # 0.5% minimum momentum
-MIN_MOMENTUM_TICKS = 3      # Consecutive rising ticks required
+MIN_MOMENTUM = 0.002        # 0.2% minimum momentum (achievable in 60s)
+MIN_MOMENTUM_TICKS = 2      # Consecutive rising ticks required (was 3)
 MAX_SPREAD = 0.03           # Tighter spread than quality filter
-MIN_VOLUME_24H = 250.0      # Higher volume threshold for swing
+MIN_VOLUME_24H = 100.0      # Volume threshold for swing (was 250)
 MIN_HOURS_LEFT = 6.0        # Need time for price movement
 PRICE_HISTORY_MAXLEN = 20   # Snapshots kept per market
 MAX_TRACKED_MARKETS = 500   # Hard ceiling on price history dict size
 MAX_MARKET_ID_LEN = 128     # Match DB column width
+STALE_EVICT_TICKS = 10      # Keep stale entries for N scans before evicting
 
 
 class SwingTradingStrategy(BaseStrategy):
@@ -67,19 +68,28 @@ class SwingTradingStrategy(BaseStrategy):
         self.MIN_HOURS_LEFT = MIN_HOURS_LEFT
         # In-memory price history: market_id → recent bestBid snapshots
         self._price_history: dict[str, deque[float]] = {}
+        # Stale counter: market_id → consecutive scans without this market
+        self._stale_count: dict[str, int] = {}
 
     def _update_price_history(self, markets: list[GammaMarket]) -> None:
-        """Update bestBid snapshots; evict stale entries to prevent unbounded growth."""
+        """Update bestBid snapshots; evict after STALE_EVICT_TICKS absent scans."""
         active_ids = {
             m.id
             for m in markets
             if m.id and m.best_bid_price is not None and m.best_bid_price > 0
         }
 
-        # Evict market IDs no longer in current scan
-        stale = [mid for mid in self._price_history if mid not in active_ids]
-        for mid in stale:
-            del self._price_history[mid]
+        # Increment stale counter for absent markets; evict after grace period
+        absent = [mid for mid in self._price_history if mid not in active_ids]
+        for mid in absent:
+            self._stale_count[mid] = self._stale_count.get(mid, 0) + 1
+            if self._stale_count[mid] >= STALE_EVICT_TICKS:
+                del self._price_history[mid]
+                self._stale_count.pop(mid, None)
+
+        # Reset stale counter for markets that reappeared
+        for mid in active_ids:
+            self._stale_count.pop(mid, None)
 
         for market in markets:
             mid = market.id

@@ -95,24 +95,25 @@ class TestMaxHoursForUrgency:
 
 class TestEstimateProbability:
     def test_high_price_near_resolution(self, strategy):
-        # price=0.95, hours_left=24 → base + time_factor + near_certainty
+        # price=0.95, hours_left=24 → base + conservative time_factor
         prob = strategy._estimate_probability(0.95, 24.0)
         assert prob > 0.95
         assert prob <= 0.99
 
     def test_far_from_resolution(self, strategy):
-        # 160 hours → time_factor small, no near_certainty bonus
+        # 160 hours → time_factor tiny (~0.001)
         prob = strategy._estimate_probability(0.90, 160.0)
-        assert prob < 0.95
+        assert prob < 0.92  # No phantom near_certainty bonus anymore
 
-    def test_near_certainty_bonus(self, strategy):
-        # price>=0.95 and hours<=24 gives +0.04 bonus
-        prob_bonus = strategy._estimate_probability(0.95, 20.0)
-        prob_no_bonus = strategy._estimate_probability(0.95, 150.0)
-        assert prob_bonus > prob_no_bonus
+    def test_time_factor_increases_near_resolution(self, strategy):
+        # Closer to resolution → higher time_factor → higher estimated prob
+        prob_near = strategy._estimate_probability(0.95, 20.0)
+        prob_far = strategy._estimate_probability(0.95, 150.0)
+        assert prob_near > prob_far
 
     def test_capped_at_099(self, strategy):
-        prob = strategy._estimate_probability(0.97, 1.0)
+        # 0.98 + time_factor at 1h ≈ 0.98 + 0.0199 > 0.99 → capped
+        prob = strategy._estimate_probability(0.98, 1.0)
         assert prob == pytest.approx(0.99)
 
 
@@ -196,8 +197,8 @@ class TestShouldExit:
 
 class TestEvaluateMarket:
     async def test_valid_market_returns_signal(self, strategy):
-        # price=0.92, hours=48, max_hours=72 → within range
-        market = _make_market(hours_to_resolution=48.0, price=0.92)
+        # price=0.92, hours=12, max_hours=72 → edge ~1.86% passes 1.5% MIN_EDGE
+        market = _make_market(hours_to_resolution=12.0, price=0.92)
         now = datetime.now(timezone.utc)
         signal = await strategy._evaluate_market(market, now, HOURS_SHORT)
         assert signal is not None

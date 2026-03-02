@@ -114,7 +114,7 @@ class TestSwingTradingMeta:
 
     def test_higher_min_volume(self):
         s = _make_strategy()
-        assert s.MIN_VOLUME_24H == 250.0
+        assert s.MIN_VOLUME_24H == 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +185,8 @@ class TestMomentumDetection:
 
     def test_no_momentum_insufficient_ticks(self):
         s = _make_strategy()
-        s._price_history["mkt1"] = deque([0.50, 0.51], maxlen=20)
+        # Only 1 tick — need at least 2 consecutive rising ticks
+        s._price_history["mkt1"] = deque([0.50], maxlen=20)
         has_mom, pct = s._detect_momentum("mkt1")
         assert has_mom is False
 
@@ -272,7 +273,7 @@ class TestScan:
     @pytest.mark.asyncio
     async def test_no_signal_low_volume(self):
         s = _make_strategy()
-        m = _make_market(volume_24h=100.0, best_bid=0.50)
+        m = _make_market(volume_24h=50.0, best_bid=0.50)
         _seed_momentum(s, prices=[0.46, 0.47, 0.48, 0.49])
         signals = await s.scan([m])
         assert len(signals) == 0

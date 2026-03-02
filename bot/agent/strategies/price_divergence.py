@@ -27,11 +27,11 @@ from .base import BaseStrategy
 logger = structlog.get_logger()
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-MIN_DIVERGENCE_PCT = 0.003       # 0.3% minimum divergence
-MIN_EDGE = 0.005                 # 0.5% minimum edge
+MIN_DIVERGENCE_PCT = 0.01        # 1% minimum divergence (was 0.3% — too noisy)
+MIN_EDGE = 0.02                  # 2% minimum edge (was 0.5% — barely covered costs)
 MAX_EDGE = 0.25                  # 25% max edge — reject absurd signals
-TAKE_PROFIT_PCT = 0.005          # 0.5% take profit
-STOP_LOSS_PCT = 0.010            # 1.0% stop loss
+TAKE_PROFIT_PCT = 0.015          # 1.5% take profit (was 0.5% — too tight)
+STOP_LOSS_PCT = 0.015            # 1.5% stop loss (symmetric with TP)
 MAX_HOLD_HOURS_CRYPTO = 4        # Fast crypto exit
 MAX_HOLD_HOURS_OTHER = 24        # Slower non-crypto exit
 MAX_SPREAD = 0.02                # Tighter than global 4¢

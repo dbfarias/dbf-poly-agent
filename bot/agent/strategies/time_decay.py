@@ -32,10 +32,10 @@ URGENCY_CAP_SHORT = 72.0    # Urgency 1.0 → up to 3 days
 URGENCY_CAP_MAX = 168.0     # Urgency 1.3+ → up to 7 days
 
 # Strategy parameters
-MIN_IMPLIED_PROB = 0.65
+MIN_IMPLIED_PROB = 0.80
 MAX_PRICE = 0.97
-MIN_PRICE = 0.55
-MIN_EDGE = 0.01  # 1.0% minimum edge
+MIN_PRICE = 0.80
+MIN_EDGE = 0.015  # 1.5% minimum edge (real edge, no phantom bonus)
 CONFIDENCE_BASE = 0.75
 
 
@@ -267,25 +267,16 @@ class TimeDecayStrategy(BaseStrategy):
     ) -> float:
         """Estimate real probability from market data.
 
-        High price on an active market = strong consensus.
-        Closer to resolution = less uncertainty remains.
+        Conservative estimation: market price IS the best estimate.
+        Time factor adds only a small bonus (max 2%) for near-resolution
+        convergence — no phantom "near_certainty" bonuses that inflate edge.
         """
         base_prob = market_price
 
-        # Time factor: less time = price is more accurate (scales 0 to 0.05)
-        time_factor = max(0, 1.0 - hours_left / HOURS_MEDIUM) * 0.05
+        # Time factor: less time = price converges to 0 or 1 (scales 0 to 0.02)
+        time_factor = max(0, 1.0 - hours_left / HOURS_MEDIUM) * 0.02
 
-        # Near-certainty bonus: very high price + close to resolution
-        if market_price >= 0.95 and hours_left <= 12:
-            near_certainty = 0.04
-        elif market_price >= 0.93 and hours_left <= 24:
-            near_certainty = 0.03
-        elif market_price >= 0.90 and hours_left <= 48:
-            near_certainty = 0.02
-        else:
-            near_certainty = 0.0
-
-        estimated = base_prob + time_factor + near_certainty
+        estimated = base_prob + time_factor
         return min(0.99, estimated)
 
     def _calculate_confidence(self, price: float, hours_left: float) -> float:
