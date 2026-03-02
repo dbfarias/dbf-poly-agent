@@ -164,6 +164,30 @@ class TestShouldExit:
     async def test_above_070_no_exit(self, strategy):
         assert await strategy.should_exit("mkt1", 0.75) is False
 
+    async def test_take_profit_3pct_after_12h(self, strategy):
+        """3%+ profit after 12h+ hold → exit."""
+        created = datetime.now(timezone.utc) - timedelta(hours=14)
+        result = await strategy.should_exit(
+            "mkt1", 0.93, avg_price=0.90, created_at=created,
+        )
+        assert result is True
+
+    async def test_take_profit_too_fresh(self, strategy):
+        """3%+ profit but only 2h hold → no exit."""
+        created = datetime.now(timezone.utc) - timedelta(hours=2)
+        result = await strategy.should_exit(
+            "mkt1", 0.93, avg_price=0.90, created_at=created,
+        )
+        assert result is False
+
+    async def test_take_profit_insufficient_gain(self, strategy):
+        """1% profit after 12h → no exit (below 3% threshold)."""
+        created = datetime.now(timezone.utc) - timedelta(hours=14)
+        result = await strategy.should_exit(
+            "mkt1", 0.909, avg_price=0.90, created_at=created,
+        )
+        assert result is False
+
 
 # ---------------------------------------------------------------------------
 # _evaluate_market

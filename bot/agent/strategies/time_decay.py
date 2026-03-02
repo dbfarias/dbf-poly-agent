@@ -67,12 +67,17 @@ class TimeDecayStrategy(BaseStrategy):
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
+    EXIT_TAKE_PROFIT_PCT = 0.03  # 3% take-profit threshold
+    EXIT_MIN_HOLD_HOURS = 12.0  # Min hold before take-profit triggers
+
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MIN_IMPLIED_PROB": {"type": float, "min": 0.0, "max": 1.0},
         "CONFIDENCE_BASE": {"type": float, "min": 0.0, "max": 1.0},
         "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
+        "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
+        "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
     }
 
     def __init__(self, *args, **kwargs):
@@ -325,7 +330,8 @@ class TimeDecayStrategy(BaseStrategy):
         return time_score * 0.6 + edge_score * 0.4
 
     async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
-        """Exit if price drops significantly (something unexpected happened)."""
+        """Exit on price drop or take-profit."""
+        # Price drop: something unexpected happened
         if current_price < 0.70:
             self.logger.warning(
                 "time_decay_exit_triggered",
@@ -334,4 +340,24 @@ class TimeDecayStrategy(BaseStrategy):
                 reason="price_drop_below_threshold",
             )
             return True
+
+        # Take-profit: lock in gains after minimum hold period
+        avg_price = kwargs.get("avg_price", 0.0)
+        created_at = kwargs.get("created_at")
+        if avg_price > 0 and created_at is not None:
+            profit_pct = (current_price - avg_price) / avg_price
+            if profit_pct >= self.EXIT_TAKE_PROFIT_PCT:
+                now = datetime.now(timezone.utc)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                held_hours = (now - created_at).total_seconds() / 3600
+                if held_hours >= self.EXIT_MIN_HOLD_HOURS:
+                    self.logger.info(
+                        "time_decay_take_profit",
+                        market_id=market_id,
+                        profit_pct=f"{profit_pct:.1%}",
+                        held_hours=f"{held_hours:.0f}",
+                    )
+                    return True
+
         return False

@@ -140,8 +140,8 @@ class MarketAnalyzer:
     STOP_LOSS_PCT = 0.40  # Exit if lost 40%+ of entry price
     NEAR_WORTHLESS_PRICE = 0.10  # Always exit below 10 cents
     DEFAULT_EXIT_PRICE = 0.70  # Fallback exit for unmatched strategies
-    MAX_POSITION_AGE_HOURS = 168.0  # Auto-close after 7 days (capital efficiency)
-    TAKE_PROFIT_PRICE = 0.97  # Lock in profit near certainty
+    MAX_POSITION_AGE_HOURS = 72.0  # Auto-close after 3 days (capital efficiency)
+    TAKE_PROFIT_PRICE = 0.95  # Lock in profit near certainty
     TAKE_PROFIT_MIN_HOLD_HOURS = 12.0  # Don't take profit on just-opened positions
 
     async def check_exits(
@@ -161,6 +161,7 @@ class MarketAnalyzer:
                             position.current_price,
                             avg_price=position.avg_price,
                             created_at=position.created_at,
+                            question=position.question,
                         )
                         if should_exit:
                             exits.append(position.market_id)

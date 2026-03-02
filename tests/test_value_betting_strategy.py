@@ -733,7 +733,25 @@ class TestShouldExit:
     async def test_extra_kwargs_ignored(self):
         """should_exit accepts **kwargs without raising."""
         strategy = _make_strategy()
-        result = await strategy.should_exit("mkt1", 0.50, avg_price=0.45, created_at="2025-01-01")
+        result = await strategy.should_exit("mkt1", 0.50, avg_price=0.45, created_at=None)
+        assert result is False
+
+    async def test_take_profit_3pct_after_6h(self):
+        """3%+ profit after 6h+ hold → exit."""
+        strategy = _make_strategy()
+        created = datetime.now(timezone.utc) - timedelta(hours=8)
+        result = await strategy.should_exit(
+            "mkt1", 0.93, avg_price=0.90, created_at=created,
+        )
+        assert result is True
+
+    async def test_take_profit_too_fresh(self):
+        """3%+ profit but only 1h hold → no exit."""
+        strategy = _make_strategy()
+        created = datetime.now(timezone.utc) - timedelta(hours=1)
+        result = await strategy.should_exit(
+            "mkt1", 0.93, avg_price=0.90, created_at=created,
+        )
         assert result is False
 
     async def test_relative_stop_loss_triggers_at_10pct(self):

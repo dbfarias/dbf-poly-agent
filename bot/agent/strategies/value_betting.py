@@ -35,9 +35,14 @@ class ValueBettingStrategy(BaseStrategy):
     name = "value_betting"
     min_tier = CapitalTier.TIER1
 
+    EXIT_TAKE_PROFIT_PCT = 0.03  # 3% take-profit threshold
+    EXIT_MIN_HOLD_HOURS = 6.0  # Min hold before take-profit triggers
+
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
+        "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
+        "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
     }
 
     def __init__(self, *args, **kwargs):
@@ -207,8 +212,9 @@ class ValueBettingStrategy(BaseStrategy):
         return time_score * 0.6 + edge_score * 0.4
 
     async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
-        """Exit if price moves against us or edge is captured."""
+        """Exit on price drop, stop-loss, or take-profit."""
         avg_price = kwargs.get("avg_price", 0.0)
+        created_at = kwargs.get("created_at")
 
         # Absolute floor: something went very wrong
         if current_price < 0.40:
@@ -226,5 +232,22 @@ class ValueBettingStrategy(BaseStrategy):
                     loss_pct=f"{loss_pct:.1%}",
                 )
                 return True
+
+        # Take-profit: lock in gains after minimum hold period
+        if avg_price > 0 and created_at is not None:
+            profit_pct = (current_price - avg_price) / avg_price
+            if profit_pct >= self.EXIT_TAKE_PROFIT_PCT:
+                now = datetime.now(timezone.utc)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                held_hours = (now - created_at).total_seconds() / 3600
+                if held_hours >= self.EXIT_MIN_HOLD_HOURS:
+                    self.logger.info(
+                        "value_betting_take_profit",
+                        market_id=market_id,
+                        profit_pct=f"{profit_pct:.1%}",
+                        held_hours=f"{held_hours:.0f}",
+                    )
+                    return True
 
         return False

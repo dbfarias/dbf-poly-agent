@@ -131,6 +131,7 @@ def _position(
     avg_price: float = 0.95,
     current_price: float = 0.93,
     created_at: datetime | None = None,
+    question: str = "Will X happen?",
 ):
     return SimpleNamespace(
         market_id=market_id,
@@ -138,6 +139,7 @@ def _position(
         avg_price=avg_price,
         current_price=current_price,
         created_at=created_at,
+        question=question,
     )
 
 
@@ -185,17 +187,17 @@ class TestCheckStopLoss:
         assert reason is not None
         assert "stop_loss" in reason
 
-    # --- Max position age ---
+    # --- Max position age (72h) ---
 
-    def test_max_age_triggers_exit_after_7_days(self):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=170)
+    def test_max_age_triggers_exit_after_3_days(self):
+        old_time = datetime.now(timezone.utc) - timedelta(hours=73)
         pos = _position(avg_price=0.90, current_price=0.88, created_at=old_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is not None
         assert "max_age" in reason
 
-    def test_no_max_age_exit_within_7_days(self):
-        recent_time = datetime.now(timezone.utc) - timedelta(hours=100)
+    def test_no_max_age_exit_within_3_days(self):
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=71)
         pos = _position(avg_price=0.90, current_price=0.88, created_at=recent_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
@@ -205,31 +207,39 @@ class TestCheckStopLoss:
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
-    # --- Take profit ---
+    # --- Take profit (universal at $0.95) ---
 
-    def test_take_profit_at_97_after_12h(self):
+    def test_take_profit_at_95_after_12h(self):
         old_time = datetime.now(timezone.utc) - timedelta(hours=24)
-        pos = _position(avg_price=0.90, current_price=0.97, created_at=old_time)
+        pos = _position(avg_price=0.90, current_price=0.95, created_at=old_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is not None
         assert "take_profit" in reason
 
-    def test_no_take_profit_below_97(self):
+    def test_no_take_profit_below_95(self):
         old_time = datetime.now(timezone.utc) - timedelta(hours=24)
-        pos = _position(avg_price=0.90, current_price=0.96, created_at=old_time)
+        pos = _position(avg_price=0.90, current_price=0.94, created_at=old_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
     def test_no_take_profit_within_12h(self):
         recent_time = datetime.now(timezone.utc) - timedelta(hours=6)
-        pos = _position(avg_price=0.90, current_price=0.98, created_at=recent_time)
+        pos = _position(avg_price=0.90, current_price=0.96, created_at=recent_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
     def test_no_take_profit_without_created_at(self):
-        pos = _position(avg_price=0.90, current_price=0.98, created_at=None)
+        pos = _position(avg_price=0.90, current_price=0.96, created_at=None)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
+
+    # --- Updated constants ---
+
+    def test_max_position_age_is_72h(self):
+        assert MarketAnalyzer.MAX_POSITION_AGE_HOURS == 72.0
+
+    def test_take_profit_price_is_095(self):
+        assert MarketAnalyzer.TAKE_PROFIT_PRICE == 0.95
 
 
 class TestNormalizeCategory:
@@ -422,6 +432,39 @@ class TestScanMarketsShortTermMerge:
         # Should not raise
         signals = await analyzer.scan_markets(CapitalTier.TIER1)
         assert isinstance(signals, list)
+
+
+class TestCheckExitsQuestionKwarg:
+    """Verify check_exits passes question kwarg to strategy.should_exit."""
+
+    @pytest.mark.asyncio
+    async def test_check_exits_passes_question_to_should_exit(self):
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "price_divergence"
+        mock_strategy.should_exit.return_value = False
+
+        cache = MarketCache(default_ttl=60)
+        analyzer = MarketAnalyzer(
+            gamma_client=MagicMock(),
+            cache=cache,
+            strategies=[mock_strategy],
+        )
+
+        created = datetime.now(timezone.utc) - timedelta(hours=10)
+        pos = _position(
+            strategy="price_divergence",
+            avg_price=0.80,
+            current_price=0.82,
+            created_at=created,
+            question="Will Bitcoin hit $100k?",
+        )
+
+        from bot.config import CapitalTier
+        await analyzer.check_exits([pos], CapitalTier.TIER1)
+
+        mock_strategy.should_exit.assert_called_once()
+        call_kwargs = mock_strategy.should_exit.call_args
+        assert call_kwargs.kwargs.get("question") == "Will Bitcoin hit $100k?"
 
 
 class TestDisabledStrategies:
