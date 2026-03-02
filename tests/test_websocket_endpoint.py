@@ -128,3 +128,50 @@ class TestMaxMessageSize:
     def test_max_message_size_is_reasonable(self):
         assert MAX_MESSAGE_SIZE == 1024
         assert isinstance(MAX_MESSAGE_SIZE, int)
+
+
+# ---------------------------------------------------------------------------
+# _serialize helper tests
+# ---------------------------------------------------------------------------
+
+
+class TestSerialize:
+    """Tests for the _serialize depth guard, Enum, and Decimal handling."""
+
+    def test_serialize_depth_guard(self):
+        """Deeply nested objects are stringified at depth > 10."""
+        from api.routers.websocket import _serialize
+
+        obj = {"a": "leaf"}
+        for _ in range(15):
+            obj = {"nested": obj}
+        result = _serialize(obj)
+        # Should not raise RecursionError; at depth > 10 inner becomes str
+        assert isinstance(result, dict)
+        # Walk down to the depth boundary (depth 0..10 are dicts)
+        current = result
+        for _ in range(11):
+            assert isinstance(current, dict)
+            current = current["nested"]
+        # At depth 11, the value is stringified
+        assert isinstance(current, str)
+
+    def test_serialize_enum(self):
+        """Enum values are serialized to their .value."""
+        from enum import Enum
+
+        from api.routers.websocket import _serialize
+
+        class Color(Enum):
+            RED = "red"
+
+        assert _serialize(Color.RED) == "red"
+
+    def test_serialize_decimal(self):
+        """Decimal values are serialized to float."""
+        from decimal import Decimal
+
+        from api.routers.websocket import _serialize
+
+        assert _serialize(Decimal("3.14")) == 3.14
+        assert isinstance(_serialize(Decimal("3.14")), float)

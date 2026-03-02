@@ -153,7 +153,8 @@ async def test_get_positions_no_address_returns_empty(mock_settings):
 
 
 @patch("bot.polymarket.data_api.settings")
-async def test_get_positions_http_error_returns_empty(mock_settings):
+async def test_get_positions_http_error_propagates(mock_settings):
+    """HTTP errors propagate so @async_retry can retry them."""
     mock_settings.is_paper = False
 
     mock_http = AsyncMock()
@@ -164,8 +165,8 @@ async def test_get_positions_http_error_returns_empty(mock_settings):
     client = DataApiClient()
     client._client = mock_http
 
-    result = await client.get_positions.__wrapped__(client, address="0xWALLET")
-    assert result == []
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_positions.__wrapped__(client, address="0xWALLET")
 
 
 # ------------------------------------------------------------------
@@ -201,7 +202,8 @@ async def test_get_balance_no_address_returns_zero(mock_settings):
 
 
 @patch("bot.polymarket.data_api.settings")
-async def test_get_balance_http_error_returns_zero(mock_settings):
+async def test_get_balance_http_error_propagates(mock_settings):
+    """HTTP errors propagate so @async_retry can retry them."""
     mock_settings.is_paper = False
 
     mock_http = AsyncMock()
@@ -212,8 +214,8 @@ async def test_get_balance_http_error_returns_zero(mock_settings):
     client = DataApiClient()
     client._client = mock_http
 
-    result = await client.get_balance.__wrapped__(client, address="0xWALLET")
-    assert result == 0.0
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_balance.__wrapped__(client, address="0xWALLET")
 
 
 # ------------------------------------------------------------------
@@ -235,3 +237,65 @@ async def test_get_trade_history_returns_list(mock_settings):
     result = await client.get_trade_history.__wrapped__(client, address="0xWALLET")
     assert len(result) == 2
     assert result[0]["id"] == "t1"
+
+
+# ------------------------------------------------------------------
+# Retry behavior — HTTP errors propagate, parse errors handled
+# ------------------------------------------------------------------
+
+
+@patch("bot.polymarket.data_api.settings")
+async def test_get_trade_history_http_error_propagates(mock_settings):
+    """HTTP errors propagate so @async_retry can retry them."""
+    mock_settings.is_paper = False
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(
+        return_value=_make_response(json_data={"error": "fail"}, status_code=502)
+    )
+
+    client = DataApiClient()
+    client._client = mock_http
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_trade_history.__wrapped__(client, address="0xWALLET")
+
+
+@patch("bot.polymarket.data_api.settings")
+async def test_get_positions_parse_error_skips_bad_item(mock_settings):
+    """Malformed position data is skipped, valid ones still returned."""
+    mock_settings.is_paper = False
+
+    api_data = [
+        {
+            "conditionId": "cond-ok",
+            "asset": "token-ok",
+            "outcome": "Yes",
+            "title": "Good market",
+            "size": "10.0",
+            "avgPrice": "0.55",
+            "curPrice": "0.60",
+            "cashPnl": "0.50",
+        },
+        {
+            "conditionId": "cond-bad",
+            "asset": "token-bad",
+            "outcome": "No",
+            "title": "Bad market",
+            "size": "not_a_number",  # Will cause ValueError in float()
+            "avgPrice": "0.30",
+            "curPrice": "0.25",
+            "cashPnl": "-0.25",
+        },
+    ]
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=_make_response(json_data=api_data))
+
+    client = DataApiClient()
+    client._client = mock_http
+
+    result = await client.get_positions.__wrapped__(client, address="0xWALLET")
+    # First item OK, second has bad "size" so skipped
+    assert len(result) == 1
+    assert result[0].market_id == "cond-ok"

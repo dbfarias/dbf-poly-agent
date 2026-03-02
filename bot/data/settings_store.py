@@ -128,11 +128,11 @@ class SettingsStore:
         return applied
 
 
-_GLOBAL_TYPES: dict[str, type] = {
-    "scan_interval_seconds": int,
-    "max_daily_loss_pct": float,
-    "max_drawdown_pct": float,
-    "daily_target_pct": float,
+_GLOBAL_RANGES: dict[str, tuple[type, float, float]] = {
+    "scan_interval_seconds": (int, 5, 600),
+    "max_daily_loss_pct": (float, 0.01, 1.0),
+    "max_drawdown_pct": (float, 0.01, 1.0),
+    "daily_target_pct": (float, 0.001, 0.5),
 }
 
 
@@ -140,12 +140,16 @@ def _apply_global(attr: str, value) -> int:
     if attr not in _GLOBAL_ATTRS or not hasattr(settings, attr):
         return 0
 
-    expected = _GLOBAL_TYPES.get(attr)
-    if expected is not None:
+    spec = _GLOBAL_RANGES.get(attr)
+    if spec is not None:
+        typ, lo, hi = spec
         try:
-            value = expected(value)
+            value = typ(value)
         except (TypeError, ValueError):
             logger.warning("settings_type_coerce_failed", attr=attr, value=value)
+            return 0
+        if not (lo <= value <= hi):
+            logger.warning("settings_out_of_range", attr=attr, value=value)
             return 0
 
     setattr(settings, attr, value)

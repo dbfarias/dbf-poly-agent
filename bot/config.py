@@ -194,6 +194,10 @@ class Settings(BaseSettings):
                     "LIVE mode requires POLY_PRIVATE_KEY. "
                     "API creds (key/secret/passphrase) will be auto-derived."
                 )
+            if not self.dashboard_password:
+                raise ValueError(
+                    "LIVE mode requires DASHBOARD_PASSWORD to be set."
+                )
         return self
 
     @property

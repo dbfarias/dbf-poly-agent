@@ -487,3 +487,59 @@ async def test_round_trip_save_then_load(settings_session_factory, fake_engine):
     finally:
         store_mod.async_session = original
         settings.scan_interval_seconds = orig_scan
+
+
+# ── _GLOBAL_RANGES validation tests ──
+
+
+@pytest.mark.asyncio
+async def test_global_out_of_range_rejected(settings_session_factory, fake_engine):
+    """Global setting with value outside allowed range is not applied."""
+    from bot.data.settings_store import SettingsStore
+
+    # max_daily_loss_pct max is 1.0 — set to 5.0 which should be rejected
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"global.max_daily_loss_pct": json.dumps(5.0)})
+
+    original_val = settings.max_daily_loss_pct
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+    finally:
+        store_mod.async_session = original
+        settings.max_daily_loss_pct = original_val
+
+    assert count == 0  # Out-of-range value should not be applied
+    assert settings.max_daily_loss_pct == original_val
+
+
+@pytest.mark.asyncio
+async def test_global_range_coercion(settings_session_factory, fake_engine):
+    """Global setting is type-coerced before range check."""
+    from bot.data.settings_store import SettingsStore
+
+    # scan_interval_seconds stored as string "60", should be coerced to int
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({"global.scan_interval_seconds": json.dumps("60")})
+
+    original_val = settings.scan_interval_seconds
+
+    import bot.data.settings_store as store_mod
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        count = await SettingsStore.load_and_apply(fake_engine)
+        assert settings.scan_interval_seconds == 60
+        assert isinstance(settings.scan_interval_seconds, int)
+    finally:
+        store_mod.async_session = original
+        settings.scan_interval_seconds = original_val
+
+    assert count == 1

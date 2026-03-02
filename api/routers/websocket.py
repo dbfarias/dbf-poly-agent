@@ -2,6 +2,8 @@
 
 import asyncio
 from datetime import datetime, timezone
+from decimal import Decimal
+from enum import Enum
 
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -125,12 +127,18 @@ async def websocket_endpoint(ws: WebSocket):
         await manager.disconnect(ws)
 
 
-def _serialize(obj):
+def _serialize(obj, _depth: int = 0):
     """Convert non-serializable objects for JSON."""
+    if _depth > 10:
+        return str(obj)
     if isinstance(obj, dict):
-        return {k: _serialize(v) for k, v in obj.items()}
+        return {k: _serialize(v, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_serialize(v) for v in obj]
+        return [_serialize(v, _depth + 1) for v in obj]
     if isinstance(obj, datetime):
         return obj.isoformat()
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, Decimal):
+        return float(obj)
     return obj

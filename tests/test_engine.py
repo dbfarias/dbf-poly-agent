@@ -1717,3 +1717,63 @@ class TestTradingCycleIntegration:
         assert signals_found == 2
         assert approved == 1
         assert placed == 1
+
+
+# ---------------------------------------------------------------------------
+# run() finally block — persists state
+# ---------------------------------------------------------------------------
+
+
+class TestRunPersistsState:
+    """run() must call _persist_state in the finally block."""
+
+    @staticmethod
+    def _patch_background_tasks(engine):
+        """Replace background task coroutines with proper async stubs."""
+        async def _noop():
+            await asyncio.sleep(999)
+
+        engine.heartbeat.start = _noop
+        engine.ws_manager.connect = _noop
+        engine.research_engine.start = _noop
+
+    @pytest.mark.asyncio
+    async def test_run_persists_state_on_cancel(self):
+        """run() calls _persist_state when task is cancelled."""
+        engine = _make_engine()
+        engine._persist_state = AsyncMock()
+        self._patch_background_tasks(engine)
+
+        async def cycle_then_cancel():
+            raise asyncio.CancelledError
+
+        engine._trading_cycle = AsyncMock(side_effect=cycle_then_cancel)
+
+        with pytest.raises(asyncio.CancelledError):
+            await engine.run()
+
+        engine._persist_state.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_persists_state_on_normal_stop(self):
+        """run() calls _persist_state when _running is set to False."""
+        engine = _make_engine()
+        engine._persist_state = AsyncMock()
+        self._patch_background_tasks(engine)
+
+        call_count = 0
+
+        async def stop_after_one():
+            nonlocal call_count
+            call_count += 1
+            engine._running = False
+
+        engine._trading_cycle = AsyncMock(side_effect=stop_after_one)
+
+        with patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.scan_interval_seconds = 0
+            mock_settings.trading_mode.value = "paper"
+            await engine.run()
+
+        engine._persist_state.assert_called_once()
+        assert call_count == 1

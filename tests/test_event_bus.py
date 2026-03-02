@@ -101,6 +101,30 @@ class TestEventBus:
 
         assert results == [{"val": 42}]
 
+    @pytest.mark.asyncio
+    async def test_emit_safe_during_handler_removal(self):
+        """Removing a handler during emit() doesn't crash (list snapshot)."""
+        bus = EventBus()
+        removed = False
+
+        async def self_removing_handler(**kw):
+            nonlocal removed
+            bus.off("test", self_removing_handler)
+            removed = True
+
+        other_called = False
+
+        async def other_handler(**kw):
+            nonlocal other_called
+            other_called = True
+
+        bus.on("test", self_removing_handler)
+        bus.on("test", other_handler)
+        await bus.emit("test")
+
+        assert removed
+        assert other_called
+
     def test_engine_does_not_import_api(self):
         """Verify engine.py no longer imports from api/ package."""
         import ast

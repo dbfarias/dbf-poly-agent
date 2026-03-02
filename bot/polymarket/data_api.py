@@ -39,12 +39,12 @@ class DataApiClient:
         if not addr:
             return []
 
-        try:
-            resp = await self._client.get("/positions", params={"user": addr})
-            resp.raise_for_status()
-            data = resp.json()
-            positions = []
-            for p in data:
+        resp = await self._client.get("/positions", params={"user": addr})
+        resp.raise_for_status()
+        data = resp.json()
+        positions = []
+        for p in data:
+            try:
                 positions.append(
                     PositionInfo(
                         market_id=p.get("conditionId", ""),
@@ -57,10 +57,9 @@ class DataApiClient:
                         unrealized_pnl=float(p.get("cashPnl", 0)),
                     )
                 )
-            return positions
-        except Exception as e:
-            logger.error("get_positions_failed", error=str(e))
-            return []
+            except (ValueError, KeyError) as e:
+                logger.warning("position_parse_error", error=str(e))
+        return positions
 
     @async_retry(max_attempts=3, min_wait=2, max_wait=30)
     async def get_trade_history(
@@ -74,15 +73,11 @@ class DataApiClient:
         if not addr:
             return []
 
-        try:
-            resp = await self._client.get(
-                "/trades", params={"user": addr, "limit": limit}
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            logger.error("get_trade_history_failed", error=str(e))
-            return []
+        resp = await self._client.get(
+            "/trades", params={"user": addr, "limit": limit}
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     @async_retry(max_attempts=3, min_wait=2, max_wait=30)
     async def get_balance(self, address: str | None = None) -> float:
@@ -94,14 +89,10 @@ class DataApiClient:
         if not addr:
             return 0.0
 
-        try:
-            resp = await self._client.get("/balance", params={"user": addr})
-            resp.raise_for_status()
-            data = resp.json()
-            return float(data.get("balance", 0))
-        except Exception as e:
-            logger.error("get_balance_failed", error=str(e))
-            return 0.0
+        resp = await self._client.get("/balance", params={"user": addr})
+        resp.raise_for_status()
+        data = resp.json()
+        return float(data.get("balance", 0))
 
     def _get_wallet_address(self) -> str | None:
         """Derive wallet address from private key."""
