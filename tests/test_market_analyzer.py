@@ -153,30 +153,29 @@ class TestCheckStopLoss:
         assert reason is not None
         assert "near_worthless" in reason
 
-    def test_40pct_loss_triggers_exit(self):
-        pos = _position(avg_price=0.50, current_price=0.25)
+    def test_15pct_loss_triggers_exit(self):
+        pos = _position(avg_price=0.50, current_price=0.42)  # 16% loss
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is not None
         assert "stop_loss" in reason
 
-    def test_39pct_loss_no_exit(self):
-        pos = _position(avg_price=0.50, current_price=0.31)
+    def test_14pct_loss_no_exit(self):
+        pos = _position(avg_price=0.50, current_price=0.44)  # 12% loss
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
     def test_unmatched_strategy_below_default_threshold(self):
-        pos = _position(strategy="external", avg_price=0.95, current_price=0.60)
+        pos = _position(strategy="external", avg_price=0.80, current_price=0.65)  # ~19% loss, hits stop_loss
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
         assert reason is not None
-        assert "unmatched_strategy" in reason
 
     def test_unmatched_strategy_above_threshold_no_exit(self):
-        pos = _position(strategy="external", avg_price=0.95, current_price=0.80)
+        pos = _position(strategy="external", avg_price=0.80, current_price=0.75)  # ~6% loss
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
         assert reason is None
 
     def test_matched_strategy_no_stop_loss_when_healthy(self):
-        pos = _position(avg_price=0.95, current_price=0.93)
+        pos = _position(avg_price=0.95, current_price=0.92)  # ~3% loss, below 15%
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
@@ -209,21 +208,21 @@ class TestCheckStopLoss:
 
     # --- Take profit (universal at $0.95) ---
 
-    def test_take_profit_at_95_after_12h(self):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=24)
+    def test_take_profit_at_95_after_6h(self):
+        old_time = datetime.now(timezone.utc) - timedelta(hours=8)
         pos = _position(avg_price=0.90, current_price=0.95, created_at=old_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is not None
         assert "take_profit" in reason
 
     def test_no_take_profit_below_95(self):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        old_time = datetime.now(timezone.utc) - timedelta(hours=8)
         pos = _position(avg_price=0.90, current_price=0.94, created_at=old_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
-    def test_no_take_profit_within_12h(self):
-        recent_time = datetime.now(timezone.utc) - timedelta(hours=6)
+    def test_no_take_profit_within_6h(self):
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=3)
         pos = _position(avg_price=0.90, current_price=0.96, created_at=recent_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None

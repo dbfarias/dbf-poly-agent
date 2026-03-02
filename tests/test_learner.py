@@ -275,24 +275,24 @@ class TestShouldPauseStrategy:
 
     def test_few_trades_does_not_pause(self):
         learner = PerformanceLearner()
-        trades = make_trades(5, 0, strategy="time_decay")  # All losses, but < 10
+        trades = make_trades(3, 0, strategy="time_decay")  # All losses, but < PAUSE_LOOKBACK
         assert learner.should_pause_strategy("time_decay", trades) is False
 
     def test_bad_performance_pauses(self):
         learner = PerformanceLearner()
-        # 10 trades, 2 wins (20%), losses of $0.50 each → total -$4.0
-        trades = make_trades(PAUSE_LOOKBACK, 2, strategy="time_decay")
+        # 5 trades, 1 win (20%), losses → total PnL negative
+        trades = make_trades(PAUSE_LOOKBACK, 1, strategy="time_decay")
         assert learner.should_pause_strategy("time_decay", trades) is True
 
     def test_good_performance_does_not_pause(self):
         learner = PerformanceLearner()
-        trades = make_trades(PAUSE_LOOKBACK, 8, strategy="time_decay")  # 80% win
+        trades = make_trades(PAUSE_LOOKBACK, 4, strategy="time_decay")  # 80% win
         assert learner.should_pause_strategy("time_decay", trades) is False
 
     def test_already_paused_stays_paused(self):
         learner = PerformanceLearner()
-        # Pause it
-        trades = make_trades(PAUSE_LOOKBACK, 2, strategy="time_decay")
+        # Pause it (1 win out of 5 = 20% WR, triggers pause)
+        trades = make_trades(PAUSE_LOOKBACK, 1, strategy="time_decay")
         learner.should_pause_strategy("time_decay", trades)
         # Call again — should still be paused
         assert learner.should_pause_strategy("time_decay", []) is True

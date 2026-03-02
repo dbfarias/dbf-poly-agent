@@ -25,10 +25,10 @@ MULTIPLIER_MIN = 0.5
 MULTIPLIER_MAX = 2.0
 
 # Auto-pause thresholds
-PAUSE_LOOKBACK = 10  # Last N trades
+PAUSE_LOOKBACK = 5  # Last N trades (was 10 — react faster at Tier 1)
 PAUSE_WIN_RATE = 0.30  # Below this win rate triggers pause consideration
-PAUSE_MIN_LOSS = -1.0  # Must also be losing money to pause
-PAUSE_COOLDOWN_HOURS = 24
+PAUSE_MIN_LOSS = -0.05  # Must also be losing money to pause (was -$1.00)
+PAUSE_COOLDOWN_HOURS = 12  # Resume after 12h (was 24h)
 
 
 class StrategyStats:

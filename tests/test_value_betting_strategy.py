@@ -736,19 +736,19 @@ class TestShouldExit:
         result = await strategy.should_exit("mkt1", 0.50, avg_price=0.45, created_at=None)
         assert result is False
 
-    async def test_take_profit_3pct_after_6h(self):
-        """3%+ profit after 6h+ hold → exit."""
+    async def test_take_profit_above_threshold_after_hold(self):
+        """1.5%+ profit after 2h+ hold → exit."""
         strategy = _make_strategy()
-        created = datetime.now(timezone.utc) - timedelta(hours=8)
+        created = datetime.now(timezone.utc) - timedelta(hours=3)
         result = await strategy.should_exit(
             "mkt1", 0.93, avg_price=0.90, created_at=created,
         )
         assert result is True
 
     async def test_take_profit_too_fresh(self):
-        """3%+ profit but only 1h hold → no exit."""
+        """1.5%+ profit but only 30min hold → no exit."""
         strategy = _make_strategy()
-        created = datetime.now(timezone.utc) - timedelta(hours=1)
+        created = datetime.now(timezone.utc) - timedelta(minutes=30)
         result = await strategy.should_exit(
             "mkt1", 0.93, avg_price=0.90, created_at=created,
         )

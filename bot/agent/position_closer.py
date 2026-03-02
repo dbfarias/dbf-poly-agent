@@ -186,8 +186,8 @@ class PositionCloser:
         The caller should check close_trade.status to decide whether to record
         PnL immediately (filled) or defer to handle_sell_fill (pending).
         """
-        min_rebalance_edge = 0.03
-        min_hold_seconds = 300
+        min_rebalance_edge = 0.015  # 1.5% edge (was 3%)
+        min_hold_seconds = 120  # 2 min (was 5 min)
         min_sell_notional = 1.0  # Match CLOB minimum notional
 
         if signal.edge < min_rebalance_edge:

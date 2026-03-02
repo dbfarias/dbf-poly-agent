@@ -64,7 +64,7 @@ def fake_engine():
     engine.analyzer.MAX_CATEGORY_POSITIONS = 2
     engine.analyzer.MIN_BID_RATIO = 0.50
     engine.analyzer.MIN_VOLUME_24H = 50.0
-    engine.analyzer.STOP_LOSS_PCT = 0.40
+    engine.analyzer.STOP_LOSS_PCT = 0.15
     engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
     engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
     engine.analyzer.disabled_strategies = set()

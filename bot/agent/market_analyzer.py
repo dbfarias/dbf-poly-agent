@@ -137,12 +137,12 @@ class MarketAnalyzer:
         return all_signals
 
     # Universal stop-loss thresholds
-    STOP_LOSS_PCT = 0.40  # Exit if lost 40%+ of entry price
+    STOP_LOSS_PCT = 0.15  # Exit if lost 15%+ of entry price (was 40%)
     NEAR_WORTHLESS_PRICE = 0.10  # Always exit below 10 cents
     DEFAULT_EXIT_PRICE = 0.70  # Fallback exit for unmatched strategies
     MAX_POSITION_AGE_HOURS = 72.0  # Auto-close after 3 days (capital efficiency)
     TAKE_PROFIT_PRICE = 0.95  # Lock in profit near certainty
-    TAKE_PROFIT_MIN_HOLD_HOURS = 12.0  # Don't take profit on just-opened positions
+    TAKE_PROFIT_MIN_HOLD_HOURS = 6.0  # Faster TP lock-in (was 12h)
 
     async def check_exits(
         self, positions: list, tier: CapitalTier

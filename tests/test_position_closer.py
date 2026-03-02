@@ -456,7 +456,7 @@ async def test_try_rebalance_edge_below_threshold():
     try:
         mocks["settings"].is_paper = True
         closer, om, pf, rm = _make_closer()
-        signal = _make_signal(edge=0.02)  # below 0.03 threshold
+        signal = _make_signal(edge=0.01)  # below 1.5% threshold
         pos = _make_position(unrealized_pnl=-0.50)
 
         result = await closer.try_rebalance(signal, [pos])

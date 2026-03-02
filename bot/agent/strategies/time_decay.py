@@ -67,8 +67,8 @@ class TimeDecayStrategy(BaseStrategy):
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
-    EXIT_TAKE_PROFIT_PCT = 0.03  # 3% take-profit threshold
-    EXIT_MIN_HOLD_HOURS = 12.0  # Min hold before take-profit triggers
+    EXIT_TAKE_PROFIT_PCT = 0.015  # 1.5% take-profit threshold (was 3%)
+    EXIT_MIN_HOLD_HOURS = 4.0  # Min hold before take-profit triggers (was 12h)
 
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},

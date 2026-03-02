@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
+from bot.agent.learner import PAUSE_COOLDOWN_HOURS
 
 router = APIRouter(prefix="/api/learner", tags=["learner"])
 
@@ -169,8 +170,8 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
         elapsed_hours = (
             (datetime.now(timezone.utc) - paused_at).total_seconds() / 3600
         )
-        remaining_hours = max(0, 24 - elapsed_hours)
-        expires_at = paused_at + timedelta(hours=24)
+        remaining_hours = max(0, PAUSE_COOLDOWN_HOURS - elapsed_hours)
+        expires_at = paused_at + timedelta(hours=PAUSE_COOLDOWN_HOURS)
         pauses.append({
             "strategy": strategy,
             "paused_at": paused_at.isoformat(),

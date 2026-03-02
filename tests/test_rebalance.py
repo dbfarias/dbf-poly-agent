@@ -154,14 +154,14 @@ class TestTryRebalance:
             engine.portfolio.record_trade_close.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_rebalance_when_edge_below_3pct(self):
-        """Skip if signal.edge < 0.03."""
+    async def test_no_rebalance_when_edge_below_threshold(self):
+        """Skip if signal.edge < 1.5%."""
         with _patch_engine():
             engine = _build_engine()
             loser = make_position(current_price=0.40)
             engine.portfolio.positions = [loser]
 
-            signal = make_signal(edge=0.02)  # Below 3% threshold
+            signal = make_signal(edge=0.01)  # Below 1.5% threshold
 
             result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 

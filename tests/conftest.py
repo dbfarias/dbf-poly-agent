@@ -114,7 +114,7 @@ def mock_engine():
     engine.analyzer.strategies = [mock_strategy]
     engine.analyzer.MAX_SPREAD = 0.04
     engine.analyzer.MAX_CATEGORY_POSITIONS = 2
-    engine.analyzer.STOP_LOSS_PCT = 0.40
+    engine.analyzer.STOP_LOSS_PCT = 0.15
     engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
     engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
     engine.analyzer.disabled_strategies = set()

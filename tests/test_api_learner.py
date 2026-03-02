@@ -352,7 +352,7 @@ class TestGetPauses:
         assert td["is_paused"] is True
         assert td["pause_info"] is not None
         assert td["pause_info"]["elapsed_hours"] == pytest.approx(6.0, abs=0.2)
-        assert td["pause_info"]["remaining_hours"] == pytest.approx(18.0, abs=0.2)
+        assert td["pause_info"]["remaining_hours"] == pytest.approx(6.0, abs=0.2)
         assert "expires_at" in td["pause_info"]
 
     async def test_returns_empty_pauses_when_nothing_paused(

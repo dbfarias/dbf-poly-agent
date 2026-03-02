@@ -35,8 +35,8 @@ class ValueBettingStrategy(BaseStrategy):
     name = "value_betting"
     min_tier = CapitalTier.TIER1
 
-    EXIT_TAKE_PROFIT_PCT = 0.03  # 3% take-profit threshold
-    EXIT_MIN_HOLD_HOURS = 6.0  # Min hold before take-profit triggers
+    EXIT_TAKE_PROFIT_PCT = 0.015  # 1.5% take-profit threshold (was 3%)
+    EXIT_MIN_HOLD_HOURS = 2.0  # Min hold before take-profit triggers (was 6h)
 
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
