@@ -1289,3 +1289,24 @@ class TestCloseIfResolved:
         await portfolio._close_if_resolved(pos, mock_repo)
 
         mock_rm.update_daily_pnl.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# restore_realized_pnl
+# ---------------------------------------------------------------------------
+
+
+class TestRestoreRealizedPnl:
+    def test_restores_todays_pnl(self, portfolio):
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        portfolio.restore_realized_pnl(0.65, today)
+        assert portfolio.realized_pnl_today == 0.65
+
+    def test_ignores_stale_date(self, portfolio):
+        portfolio.restore_realized_pnl(0.65, "2020-01-01")
+        assert portfolio.realized_pnl_today == 0.0
+
+    def test_ignores_zero_pnl(self, portfolio):
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        portfolio.restore_realized_pnl(0.0, today)
+        assert portfolio.realized_pnl_today == 0.0

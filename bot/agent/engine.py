@@ -208,6 +208,13 @@ class TradingEngine:
     async def _restore_state(self) -> None:
         """Restore ephemeral state from DB after restart."""
         await self.risk_manager.restore_daily_pnl()
+
+        # Sync portfolio realized PnL with risk_manager (both track the same value)
+        self.portfolio.restore_realized_pnl(
+            self.risk_manager._daily_pnl,
+            self.risk_manager._daily_pnl_date,
+        )
+
         await self.learner.restore_paused_strategies()
 
         # Restore market cooldowns

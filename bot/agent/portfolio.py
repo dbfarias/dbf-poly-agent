@@ -92,6 +92,16 @@ class Portfolio:
         self._day_start_equity = equity
         self._peak_equity = equity
 
+    def restore_realized_pnl(self, pnl: float, date: str) -> None:
+        """Restore realized PnL from persisted state after restart.
+
+        Only restores if date matches today (stale data is ignored).
+        """
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if date == today and pnl != 0.0:
+            self._realized_pnl_today = pnl
+            self._pnl_date = date
+
     async def sync(self) -> None:
         """Sync portfolio state from blockchain / paper state.
 
