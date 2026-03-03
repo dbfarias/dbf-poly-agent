@@ -10,6 +10,20 @@ from bot.data.repositories import SettingsRepository
 
 logger = structlog.get_logger()
 
+# ── Settings migrations ──
+# Bump _SETTINGS_VERSION and add entries to _MIGRATIONS when code defaults change.
+# On startup, any DB-persisted value listed in a new migration will be overwritten
+# so that the new code default takes effect even if an old value was saved.
+_SETTINGS_VERSION = 2
+
+_MIGRATIONS: dict[int, dict[str, object]] = {
+    # v2: Exit logic fix (2026-03-02) — faster capital rotation
+    2: {
+        "quality.max_position_age_hours": 72.0,
+        "quality.take_profit_price": 0.95,
+    },
+}
+
 # Maps quality_params API keys → (target_obj_name, attribute_name)
 # target_obj_name is resolved on the engine: "analyzer", "learner", "closer"
 _QUALITY_ATTR_MAP: dict[str, tuple[str, str]] = {
@@ -91,6 +105,52 @@ class SettingsStore:
 
         logger.info("settings_persisted", count=len(items))
         return len(items)
+
+    @staticmethod
+    async def run_migrations() -> int:
+        """Apply pending settings migrations.
+
+        Compares DB's stored settings_version against _SETTINGS_VERSION.
+        For each new version, overwrites stale DB values with new code defaults.
+        Returns count of migrated settings.
+        """
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("state.settings_version")
+
+        current = 0
+        if raw is not None:
+            try:
+                current = int(json.loads(raw))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        if current >= _SETTINGS_VERSION:
+            return 0
+
+        migrated = 0
+        items: dict[str, str] = {}
+        for version in range(current + 1, _SETTINGS_VERSION + 1):
+            changes = _MIGRATIONS.get(version, {})
+            for key, value in changes.items():
+                items[key] = json.dumps(value)
+                migrated += 1
+            logger.info(
+                "settings_migration",
+                from_version=current,
+                to_version=version,
+                changes=list(changes.keys()),
+            )
+
+        items["state.settings_version"] = json.dumps(_SETTINGS_VERSION)
+
+        if items:
+            async with async_session() as session:
+                repo = SettingsRepository(session)
+                await repo.set_many(items)
+
+        logger.info("settings_migrations_complete", version=_SETTINGS_VERSION, migrated=migrated)
+        return migrated
 
     @staticmethod
     async def load_and_apply(engine) -> int:

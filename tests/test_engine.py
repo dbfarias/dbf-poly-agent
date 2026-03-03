@@ -143,9 +143,13 @@ class TestEngineInit:
             settings_path = (
                 "bot.data.settings_store.SettingsStore.load_and_apply"
             )
+            migrations_path = (
+                "bot.data.settings_store.SettingsStore.run_migrations"
+            )
             with patch.object(engine, "_seed_strategy_metrics", new_callable=AsyncMock), \
                  patch.object(engine, "_restore_state", new_callable=AsyncMock), \
-                 patch(settings_path, new_callable=AsyncMock, return_value=0):
+                 patch(settings_path, new_callable=AsyncMock, return_value=0), \
+                 patch(migrations_path, new_callable=AsyncMock, return_value=0):
                 await engine.initialize()
 
             mock_clob.initialize.assert_called_once()
@@ -178,9 +182,11 @@ class TestEngineInit:
             engine.order_manager = AsyncMock()
 
             settings_path = "bot.data.settings_store.SettingsStore.load_and_apply"
+            migrations_path = "bot.data.settings_store.SettingsStore.run_migrations"
             with patch.object(engine, "_seed_strategy_metrics", new_callable=AsyncMock), \
                  patch.object(engine, "_restore_state", new_callable=AsyncMock), \
                  patch(settings_path, new_callable=AsyncMock, return_value=3), \
+                 patch(migrations_path, new_callable=AsyncMock, return_value=0), \
                  patch("bot.agent.engine.logger") as mock_logger:
                 await engine.initialize()
 

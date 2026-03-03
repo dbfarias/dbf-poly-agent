@@ -543,3 +543,99 @@ async def test_global_range_coercion(settings_session_factory, fake_engine):
         settings.scan_interval_seconds = original_val
 
     assert count == 1
+
+
+# ── Settings migration tests ──
+
+
+@pytest.mark.asyncio
+async def test_migration_updates_stale_db_values(settings_session_factory):
+    """When DB has no version, migrations overwrite stale values."""
+    from bot.data.settings_store import SettingsStore
+
+    import bot.data.settings_store as store_mod
+
+    # Seed DB with stale value (old default)
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "quality.max_position_age_hours": json.dumps(168.0),
+        })
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        migrated = await SettingsStore.run_migrations()
+        assert migrated >= 1
+
+        # Verify DB now has new value
+        async with settings_session_factory() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("quality.max_position_age_hours")
+            assert json.loads(raw) == 72.0
+
+            # Version stored
+            ver_raw = await repo.get("state.settings_version")
+            assert json.loads(ver_raw) == store_mod._SETTINGS_VERSION
+    finally:
+        store_mod.async_session = original
+
+
+@pytest.mark.asyncio
+async def test_migration_skips_when_already_at_version(settings_session_factory):
+    """When DB version matches code version, no migrations run."""
+    from bot.data.settings_store import SettingsStore
+
+    import bot.data.settings_store as store_mod
+
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "state.settings_version": json.dumps(store_mod._SETTINGS_VERSION),
+            "quality.max_position_age_hours": json.dumps(48.0),  # admin-set value
+        })
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        migrated = await SettingsStore.run_migrations()
+        assert migrated == 0
+
+        # Admin value preserved (not overwritten)
+        async with settings_session_factory() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("quality.max_position_age_hours")
+            assert json.loads(raw) == 48.0
+    finally:
+        store_mod.async_session = original
+
+
+@pytest.mark.asyncio
+async def test_migration_runs_incrementally(settings_session_factory):
+    """Migrations only run versions newer than current DB version."""
+    from bot.data.settings_store import SettingsStore
+
+    import bot.data.settings_store as store_mod
+
+    # Pretend DB is at version 1 (before our migration at v2)
+    async with settings_session_factory() as session:
+        repo = SettingsRepository(session)
+        await repo.set_many({
+            "state.settings_version": json.dumps(1),
+            "quality.max_position_age_hours": json.dumps(168.0),
+        })
+
+    original = store_mod.async_session
+    store_mod.async_session = settings_session_factory
+    try:
+        migrated = await SettingsStore.run_migrations()
+        assert migrated >= 1
+
+        async with settings_session_factory() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("quality.max_position_age_hours")
+            assert json.loads(raw) == 72.0
+            ver_raw = await repo.get("state.settings_version")
+            assert json.loads(ver_raw) == store_mod._SETTINGS_VERSION
+    finally:
+        store_mod.async_session = original

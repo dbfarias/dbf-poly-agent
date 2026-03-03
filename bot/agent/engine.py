@@ -161,9 +161,12 @@ class TradingEngine:
         await self.portfolio.sync()
         await self._seed_strategy_metrics()
 
-        # Restore persisted settings from DB (overrides defaults)
+        # Run settings migrations before restoring (fixes stale DB values)
         from bot.data.settings_store import SettingsStore
 
+        await SettingsStore.run_migrations()
+
+        # Restore persisted settings from DB (overrides defaults)
         restored = await SettingsStore.load_and_apply(self)
         if restored > 0:
             logger.info("settings_restored_from_db", count=restored)
