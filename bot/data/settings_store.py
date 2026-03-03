@@ -332,6 +332,33 @@ class StateStore:
             await repo.set_many(items)
 
     @staticmethod
+    async def save_day_start_equity(equity: float, date: str) -> None:
+        """Persist start-of-day equity so it survives restarts."""
+        items = {
+            "state.day_start_equity": json.dumps(equity),
+            "state.day_start_equity_date": json.dumps(date),
+        }
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many(items)
+
+    @staticmethod
+    async def load_day_start_equity() -> tuple[float, str]:
+        """Load persisted start-of-day equity. Returns (equity, date_str)."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            eq_raw = await repo.get("state.day_start_equity")
+            date_raw = await repo.get("state.day_start_equity_date")
+
+        if eq_raw is None or date_raw is None:
+            return 0.0, ""
+
+        try:
+            return float(json.loads(eq_raw)), json.loads(date_raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return 0.0, ""
+
+    @staticmethod
     async def load_daily_pnl() -> tuple[float, str]:
         """Load persisted daily PnL. Returns (pnl, date_str)."""
         async with async_session() as session:

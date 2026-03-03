@@ -114,10 +114,10 @@ export default function Dashboard() {
             </span>
           </div>
           <div className="flex flex-col sm:flex-row justify-between mt-2 text-xs text-zinc-600 border-t border-[#2a2d3e] pt-2 gap-1 sm:gap-0">
-            <span>Realized: ${portfolio.realized_pnl_today.toFixed(2)}</span>
-            <span>Unrealized: ${portfolio.unrealized_pnl.toFixed(2)}</span>
+            <span>Open P&L: ${portfolio.unrealized_pnl.toFixed(2)}</span>
+            <span>Positions: {portfolio.open_positions}</span>
             <span className={`font-medium ${(portfolio.polymarket_pnl_today ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-              Total P&L: ${(portfolio.polymarket_pnl_today ?? 0).toFixed(2)}
+              Day P&L: ${(portfolio.polymarket_pnl_today ?? 0).toFixed(2)}
             </span>
           </div>
         </div>

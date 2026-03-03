@@ -38,6 +38,7 @@ class RiskManager:
         self._daily_pnl: float = 0.0
         self._daily_pnl_date: str = ""
         self._peak_equity: float = settings.initial_bankroll
+        self._day_start_equity: float = settings.initial_bankroll
         self._is_paused: bool = False
         self._pnl_dirty: bool = False
 
@@ -45,9 +46,14 @@ class RiskManager:
     def is_paused(self) -> bool:
         return self._is_paused
 
+    def set_day_start_equity(self, equity: float) -> None:
+        """Set start-of-day equity for accurate daily PnL calculation."""
+        self._day_start_equity = equity
+
     def reset_daily_state(self, equity: float) -> None:
         """Reset daily PnL counters and peak equity to current equity."""
         self._daily_pnl = 0.0
+        self._day_start_equity = equity
         self._peak_equity = equity
         logger.info("risk_manager_state_reset", equity=equity)
 
@@ -186,10 +192,12 @@ class RiskManager:
         return RiskCheckResult(True)
 
     def _check_daily_loss(self, bankroll: float, config: dict) -> RiskCheckResult:
-        limit = bankroll * config["daily_loss_limit_pct"]
-        if self._daily_pnl < -limit:
+        # Use equity-based PnL (not accumulated trade PnL which can be inflated)
+        daily_pnl = bankroll - self._day_start_equity
+        limit = self._day_start_equity * config["daily_loss_limit_pct"]
+        if daily_pnl < -limit:
             return RiskCheckResult(
-                False, f"Daily loss limit reached: ${self._daily_pnl:.2f} < -${limit:.2f}"
+                False, f"Daily loss limit reached: ${daily_pnl:.2f} < -${limit:.2f}"
             )
         return RiskCheckResult(True)
 
@@ -376,7 +384,7 @@ class RiskManager:
             "peak_equity": self._peak_equity,
             "current_drawdown_pct": dd,
             "max_drawdown_limit_pct": config["max_drawdown_pct"],
-            "daily_pnl": self._daily_pnl,
+            "daily_pnl": bankroll - self._day_start_equity,
             "daily_loss_limit_pct": config["daily_loss_limit_pct"],
             "max_positions": config["max_positions"],
             "is_paused": self._is_paused,

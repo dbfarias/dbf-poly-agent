@@ -215,6 +215,19 @@ class TradingEngine:
             self.risk_manager._daily_pnl_date,
         )
 
+        # Restore day_start_equity so daily PnL survives restarts
+        try:
+            from bot.data.settings_store import StateStore
+
+            equity, date = await StateStore.load_day_start_equity()
+            if equity > 0:
+                self.portfolio.restore_day_start_equity(equity, date)
+                self.risk_manager.set_day_start_equity(
+                    self.portfolio.day_start_equity,
+                )
+        except Exception as e:
+            logger.error("restore_day_start_equity_failed", error=str(e))
+
         await self.learner.restore_paused_strategies()
 
         # Restore market cooldowns
@@ -324,6 +337,7 @@ class TradingEngine:
         # 1. Sync portfolio state
         await self.portfolio.sync()
         self.risk_manager.update_peak_equity(self.portfolio.total_equity)
+        self.risk_manager.set_day_start_equity(self.portfolio.day_start_equity)
 
         # 2. Update learner
         await self._update_learner()
@@ -390,8 +404,12 @@ class TradingEngine:
 
     async def _update_learner(self) -> None:
         """Update learner stats and apply adjustments to strategies."""
+        # Use equity-based PnL (not inflated accumulated realized_pnl_today)
+        equity_pnl = (
+            self.portfolio.total_equity - self.portfolio.day_start_equity
+        )
         self.learner.set_daily_context(
-            realized_pnl=self.portfolio.realized_pnl_today,
+            realized_pnl=equity_pnl,
             equity=self.portfolio.day_start_equity,
             target_pct=settings.daily_target_pct,
         )
@@ -851,8 +869,8 @@ class TradingEngine:
                 today_stats = {"trades_today": 0, "win_rate_today": 0.0}
 
             equity = overview["total_equity"]
-            daily_pnl = overview["realized_pnl_today"]
             day_start = overview.get("day_start_equity", equity)
+            daily_pnl = equity - day_start  # Equity-based (not inflated)
             daily_return = daily_pnl / day_start if day_start > 0 else 0.0
 
             await notify_daily_summary(

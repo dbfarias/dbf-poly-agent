@@ -102,6 +102,16 @@ class Portfolio:
             self._realized_pnl_today = pnl
             self._pnl_date = date
 
+    def restore_day_start_equity(self, equity: float, date: str) -> None:
+        """Restore start-of-day equity from persisted state after restart.
+
+        Prevents polymarket_pnl_today from resetting to $0 after deploys.
+        """
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if date == today and equity > 0:
+            self._day_start_equity = equity
+            self._pnl_date = date  # Prevent sync from resetting
+
     async def sync(self) -> None:
         """Sync portfolio state from blockchain / paper state.
 
@@ -153,6 +163,15 @@ class Portfolio:
                 equity=round(self._day_start_equity, 4),
                 date=today,
             )
+            # Persist so it survives restarts
+            try:
+                from bot.data.settings_store import StateStore
+
+                await StateStore.save_day_start_equity(
+                    self._day_start_equity, today,
+                )
+            except Exception as e:
+                logger.error("persist_day_start_equity_failed", error=str(e))
 
         # Update peak equity
         equity = self.total_equity

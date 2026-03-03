@@ -1310,3 +1310,32 @@ class TestRestoreRealizedPnl:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         portfolio.restore_realized_pnl(0.0, today)
         assert portfolio.realized_pnl_today == 0.0
+
+
+# ---------------------------------------------------------------------------
+# restore_day_start_equity
+# ---------------------------------------------------------------------------
+
+
+class TestRestoreDayStartEquity:
+    def test_restores_todays_equity(self, portfolio):
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        portfolio.restore_day_start_equity(16.98, today)
+        assert portfolio.day_start_equity == 16.98
+
+    def test_ignores_stale_date(self, portfolio):
+        original = portfolio.day_start_equity
+        portfolio.restore_day_start_equity(16.98, "2020-01-01")
+        assert portfolio.day_start_equity == original
+
+    def test_ignores_zero_equity(self, portfolio):
+        original = portfolio.day_start_equity
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        portfolio.restore_day_start_equity(0.0, today)
+        assert portfolio.day_start_equity == original
+
+    def test_prevents_sync_from_resetting(self, portfolio):
+        """Restoring day_start_equity sets _pnl_date so sync doesn't reset it."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        portfolio.restore_day_start_equity(16.98, today)
+        assert portfolio._pnl_date == today

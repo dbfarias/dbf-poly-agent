@@ -928,7 +928,7 @@ class TestMaybeDailySummary:
         engine = _make_engine()
         engine.portfolio = MagicMock()
         engine.portfolio.get_overview.return_value = {
-            "total_equity": 11.5,
+            "total_equity": 11.8,
             "realized_pnl_today": 0.3,
             "day_start_equity": 11.5,
         }
@@ -955,10 +955,10 @@ class TestMaybeDailySummary:
             with patch("bot.data.repositories.TradeRepository.get_today_stats", new=mock_repo.get_today_stats):
                 await engine._maybe_daily_summary()
 
-        # daily_return = 0.3 / 11.5 ≈ 0.02608...
+        # daily_pnl = equity - day_start = 11.8 - 11.5 = 0.3
         call_kwargs = mock_notify.call_args.kwargs
-        assert call_kwargs["equity"] == 11.5
-        assert call_kwargs["daily_pnl"] == 0.3
+        assert call_kwargs["equity"] == 11.8
+        assert call_kwargs["daily_pnl"] == pytest.approx(0.3)
         assert abs(call_kwargs["daily_return"] - 0.3 / 11.5) < 0.001
         assert call_kwargs["trades"] == 5
         assert call_kwargs["win_rate"] == 0.60

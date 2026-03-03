@@ -231,20 +231,45 @@ class TestCheckDuplicatePosition:
 class TestCheckDailyLoss:
     def test_within_limit(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.10
-        rm._daily_pnl = -0.5  # -0.5 vs limit -1.0 (10% of 10)
-        assert rm._check_daily_loss(10.0, config).passed is True
+        # Equity-based: bankroll=9.5, day_start=10.0 → PnL=-0.5, limit=-1.0
+        rm._day_start_equity = 10.0
+        assert rm._check_daily_loss(9.5, config).passed is True
 
     def test_exceeds_limit(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.10
-        rm._daily_pnl = -2.0  # exceeds -1.0 (10% of 10)
-        result = rm._check_daily_loss(10.0, config)
+        # Equity-based: bankroll=8.0, day_start=10.0 → PnL=-2.0, limit=-1.0
+        rm._day_start_equity = 10.0
+        result = rm._check_daily_loss(8.0, config)
         assert result.passed is False
 
     def test_exact_boundary_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # Limit is -1.0 (10% of 10). At exactly -1.0: -1.0 < -1.0 is False → passes
-        rm._daily_pnl = -1.0
-        assert rm._check_daily_loss(10.0, config).passed is True
+        # Equity-based: bankroll=9.0, day_start=10.0 → PnL=-1.0, limit=-1.0
+        # -1.0 < -1.0 is False → passes
+        rm._day_start_equity = 10.0
+        assert rm._check_daily_loss(9.0, config).passed is True
+
+    def test_equity_based_not_accumulated(self, rm):
+        """Daily loss check uses equity delta, not accumulated _daily_pnl."""
+        config = TierConfig.get(CapitalTier.TIER1)
+        # Inflated _daily_pnl says +$5, but equity says -$1.5
+        rm._daily_pnl = 5.0  # Inflated (should be ignored)
+        rm._day_start_equity = 10.0
+        # bankroll=8.5 → equity-based PnL = -1.5 > -1.0 limit → FAIL
+        result = rm._check_daily_loss(8.5, config)
+        assert result.passed is False
+
+
+class TestSetDayStartEquity:
+    def test_sets_equity(self, rm):
+        rm.set_day_start_equity(17.0)
+        assert rm._day_start_equity == 17.0
+
+    def test_risk_metrics_uses_equity_pnl(self, rm):
+        rm._day_start_equity = 10.0
+        rm._daily_pnl = 5.0  # Inflated (should be ignored)
+        metrics = rm.get_risk_metrics(9.5)
+        assert metrics["daily_pnl"] == -0.5  # Equity-based: 9.5 - 10.0
 
 
 # ---------------------------------------------------------------------------
