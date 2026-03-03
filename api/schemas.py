@@ -99,6 +99,22 @@ class StrategyPerformance(BaseModel):
     avg_hold_time_hours: float
 
 
+class StrategyStatus(BaseModel):
+    """Live runtime status for a strategy, combining admin/tier/learner state."""
+
+    name: str
+    label: str
+    min_tier: str
+    is_tier_available: bool
+    is_admin_disabled: bool
+    is_learner_paused: bool
+    pause_remaining_hours: float = 0.0
+    is_active: bool  # tier available AND not disabled AND not paused
+    total_trades: int = 0
+    win_rate: float = 0.0
+    total_pnl: float = 0.0
+
+
 # Markets
 class MarketOpportunity(BaseModel):
     market_id: str

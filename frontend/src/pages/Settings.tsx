@@ -4,11 +4,13 @@ import {
   fetchConfig,
   fetchHealth,
   fetchRiskMetrics,
+  fetchStrategyStatus,
   pauseTrading,
   resetRiskState,
   resumeTrading,
   updateConfig,
 } from "../api/client";
+import type { StrategyStatus } from "../api/client";
 import HelpTooltip from "../components/HelpTooltip";
 
 /** Toast notification state */
@@ -79,6 +81,11 @@ export default function Settings() {
     queryKey: ["health"],
     queryFn: fetchHealth,
     refetchInterval: 10000,
+  });
+  const { data: strategyStatusList } = useQuery({
+    queryKey: ["strategy-status"],
+    queryFn: fetchStrategyStatus,
+    refetchInterval: 15000,
   });
 
   // Toast notifications
@@ -356,50 +363,82 @@ export default function Settings() {
       >
         <h3 className="font-medium text-white mb-1">Strategy Toggles</h3>
         <p className="text-xs text-zinc-500 mb-4">
-          Enable or disable individual strategies. Disabled strategies will not
-          scan for opportunities.
+          Enable or disable individual strategies. Status badges show runtime
+          state.
         </p>
         <div className="space-y-3">
-          {[
-            { name: "arbitrage", label: "Arbitrage" },
-            { name: "time_decay", label: "Time Decay" },
-            { name: "price_divergence", label: "Price Divergence" },
-            { name: "swing_trading", label: "Swing Trading" },
-            { name: "value_betting", label: "Value Betting" },
-            { name: "market_making", label: "Market Making" },
-          ].map(({ name, label }) => {
-            const isEnabled = !disabledStrategies.has(name);
+          {(strategyStatusList ?? []).map((s: StrategyStatus) => {
+            const isEnabled = !disabledStrategies.has(s.name);
             return (
               <div
-                key={name}
-                className="flex items-center justify-between"
-                data-testid={`strategy-toggle-${name}`}
+                key={s.name}
+                className="flex items-center justify-between gap-3"
+                data-testid={`strategy-toggle-${s.name}`}
               >
-                <span className="text-sm text-zinc-300">{label}</span>
-                <button
-                  onClick={() => {
-                    const next = new Set(disabledStrategies);
-                    if (isEnabled) {
-                      next.add(name);
-                    } else {
-                      next.delete(name);
-                    }
-                    setDisabledStrategies(next);
-                    configMut.mutate({
-                      disabled_strategies: Array.from(next),
-                    });
-                  }}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${
-                    isEnabled ? "bg-green-600" : "bg-zinc-700"
-                  }`}
-                  data-testid={`toggle-${name}`}
-                >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm text-zinc-300 whitespace-nowrap">
+                    {s.label}
+                  </span>
+                  {/* Status badges */}
+                  {!s.is_tier_available && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400 whitespace-nowrap">
+                      {s.min_tier.replace("tier", "Tier ")}+
+                    </span>
+                  )}
+                  {s.is_learner_paused && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 whitespace-nowrap"
+                      title={`Auto-paused by learner. ${s.pause_remaining_hours}h remaining.`}
+                    >
+                      Paused {s.pause_remaining_hours}h
+                    </span>
+                  )}
+                  {s.is_active && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400">
+                      Active
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
                   <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                      isEnabled ? "translate-x-5" : "translate-x-0"
+                    className={`text-xs tabular-nums ${s.total_pnl >= 0 ? "text-green-400" : "text-red-400"}`}
+                    title={`${s.total_trades} trades, ${(s.win_rate * 100).toFixed(0)}% WR`}
+                  >
+                    ${s.total_pnl >= 0 ? "+" : ""}
+                    {s.total_pnl.toFixed(2)}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const next = new Set(disabledStrategies);
+                      if (isEnabled) {
+                        next.add(s.name);
+                      } else {
+                        next.delete(s.name);
+                      }
+                      setDisabledStrategies(next);
+                      configMut.mutate({
+                        disabled_strategies: Array.from(next),
+                      });
+                    }}
+                    disabled={!s.is_tier_available}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      !s.is_tier_available
+                        ? "bg-zinc-800 cursor-not-allowed opacity-50"
+                        : isEnabled
+                          ? "bg-green-600"
+                          : "bg-zinc-700"
                     }`}
-                  />
-                </button>
+                    data-testid={`toggle-${s.name}`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                        isEnabled && s.is_tier_available
+                          ? "translate-x-5"
+                          : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             );
           })}

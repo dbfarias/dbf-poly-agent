@@ -117,6 +117,20 @@ export interface StrategyPerformance {
   avg_hold_time_hours: number;
 }
 
+export interface StrategyStatus {
+  name: string;
+  label: string;
+  min_tier: string;
+  is_tier_available: boolean;
+  is_admin_disabled: boolean;
+  is_learner_paused: boolean;
+  pause_remaining_hours: number;
+  is_active: boolean;
+  total_trades: number;
+  win_rate: number;
+  total_pnl: number;
+}
+
 export interface MarketOpportunity {
   market_id: string;
   question: string;
@@ -200,6 +214,9 @@ export const fetchTradeStats = () =>
 
 export const fetchStrategies = () =>
   api.get<StrategyPerformance[]>("/api/strategies/performance").then((r) => r.data);
+
+export const fetchStrategyStatus = () =>
+  api.get<StrategyStatus[]>("/api/strategies/status").then((r) => r.data);
 
 export const fetchMarkets = (limit = 20) =>
   api.get<MarketOpportunity[]>(`/api/markets/scanner?limit=${limit}`).then((r) => r.data);
