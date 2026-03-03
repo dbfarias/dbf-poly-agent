@@ -37,6 +37,15 @@ class ResearchEngine:
         self.news_fetcher = NewsFetcher()
         self.crypto_fetcher = CryptoFetcher()
         self._running = False
+        self._priority_market_ids: set[str] = set()
+
+    def set_priority_markets(self, market_ids: set[str]) -> None:
+        """Update priority markets (open positions + recent signals).
+
+        Called by the trading engine after each cycle so research focuses
+        on markets the bot actually cares about.
+        """
+        self._priority_market_ids = set(market_ids)
 
     @property
     def status(self) -> dict:
@@ -75,8 +84,12 @@ class ResearchEngine:
         """For each cached market: extract keywords, fetch news, compute sentiment."""
         markets = self.market_cache.get_all_markets()
 
-        # Limit to top N markets (sorted by volume via cache order)
-        scan_markets = markets[: self.MAX_MARKETS]
+        # Prioritize markets with open positions or recent signals
+        priority_ids = self._priority_market_ids
+        priority = [m for m in markets if m.id in priority_ids]
+        others = [m for m in markets if m.id not in priority_ids]
+        remaining_slots = max(0, self.MAX_MARKETS - len(priority))
+        scan_markets = priority + others[:remaining_slots]
 
         if not scan_markets:
             logger.debug("research_no_markets_to_scan")

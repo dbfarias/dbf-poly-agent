@@ -346,7 +346,11 @@ class TradingEngine:
         # 9. Take periodic snapshot
         await self._maybe_snapshot()
 
-        # 10. Daily summary
+        # 10. Update research priorities (open positions + recent signals)
+        priority_ids = {p.market_id for p in self.portfolio.positions}
+        self.research_engine.set_priority_markets(priority_ids)
+
+        # 11. Daily summary
         await self._maybe_daily_summary()
 
         _urgency = (

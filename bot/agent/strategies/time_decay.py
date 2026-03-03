@@ -321,17 +321,7 @@ class TimeDecayStrategy(BaseStrategy):
         return time_score * 0.6 + edge_score * 0.4
 
     async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
-        """Exit on price drop or take-profit."""
-        # Price drop: something unexpected happened
-        if current_price < 0.70:
-            self.logger.warning(
-                "time_decay_exit_triggered",
-                market_id=market_id,
-                price=current_price,
-                reason="price_drop_below_threshold",
-            )
-            return True
-
+        """Exit on take-profit only. Stop-loss is handled by the universal check."""
         # Take-profit: lock in gains after minimum hold period
         avg_price = kwargs.get("avg_price", 0.0)
         created_at = kwargs.get("created_at")

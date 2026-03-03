@@ -159,8 +159,9 @@ class TestCalculateConfidence:
 
 
 class TestShouldExit:
-    async def test_below_070_triggers_exit(self, strategy):
-        assert await strategy.should_exit("mkt1", 0.65) is True
+    async def test_below_070_no_exit_universal_stop_handles(self, strategy):
+        """Low price alone doesn't trigger exit — universal stop-loss handles it."""
+        assert await strategy.should_exit("mkt1", 0.65) is False
 
     async def test_above_070_no_exit(self, strategy):
         assert await strategy.should_exit("mkt1", 0.75) is False

@@ -14,13 +14,17 @@ logger = structlog.get_logger()
 # Bump _SETTINGS_VERSION and add entries to _MIGRATIONS when code defaults change.
 # On startup, any DB-persisted value listed in a new migration will be overwritten
 # so that the new code default takes effect even if an old value was saved.
-_SETTINGS_VERSION = 2
+_SETTINGS_VERSION = 3
 
 _MIGRATIONS: dict[int, dict[str, object]] = {
     # v2: Exit logic fix (2026-03-02) — faster capital rotation
     2: {
         "quality.max_position_age_hours": 72.0,
         "quality.take_profit_price": 0.95,
+    },
+    # v3: Signal quality (2026-03-03) — reduce swing noise
+    3: {
+        "strategy.swing_trading.MIN_MOMENTUM_TICKS": 3,
     },
 }
 

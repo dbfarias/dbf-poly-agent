@@ -28,7 +28,7 @@ MAX_HOLD_HOURS = 4.0        # Max time before forced exit
 MIN_PRICE = 0.15            # Min market price for entry
 MAX_PRICE = 0.85            # Max market price for entry
 MIN_MOMENTUM = 0.002        # 0.2% minimum momentum (achievable in 60s)
-MIN_MOMENTUM_TICKS = 2      # Consecutive rising ticks required (was 3)
+MIN_MOMENTUM_TICKS = 3      # Consecutive rising ticks required (reduces noise)
 MAX_SPREAD = 0.03           # Tighter spread than quality filter
 MIN_VOLUME_24H = 100.0      # Volume threshold for swing (was 250)
 MIN_HOURS_LEFT = 6.0        # Need time for price movement
@@ -52,7 +52,7 @@ class SwingTradingStrategy(BaseStrategy):
         "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MIN_MOMENTUM": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_HOURS_LEFT": {"type": float, "min": 0.5, "max": 168.0},
-        "MIN_MOMENTUM_TICKS": {"type": int, "min": 2, "max": 10},
+        "MIN_MOMENTUM_TICKS": {"type": int, "min": 3, "max": 10},
         "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_VOLUME_24H": {"type": float, "min": 0.0, "max": 10000.0},
     }
