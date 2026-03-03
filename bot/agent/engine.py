@@ -222,9 +222,15 @@ class TradingEngine:
             equity, date = await StateStore.load_day_start_equity()
             if equity > 0:
                 self.portfolio.restore_day_start_equity(equity, date)
-                self.risk_manager.set_day_start_equity(
-                    self.portfolio.day_start_equity,
+            else:
+                # First run or no persisted value — save current equity
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                await StateStore.save_day_start_equity(
+                    self.portfolio.day_start_equity, today,
                 )
+            self.risk_manager.set_day_start_equity(
+                self.portfolio.day_start_equity,
+            )
         except Exception as e:
             logger.error("restore_day_start_equity_failed", error=str(e))
 
