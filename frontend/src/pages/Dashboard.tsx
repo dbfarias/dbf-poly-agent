@@ -108,9 +108,11 @@ export default function Dashboard() {
                   : `${(portfolio.daily_progress_pct * 100).toFixed(0)}% progress`}
             </span>
             <span>
-              {(portfolio.polymarket_pnl_today ?? 0) >= 0
-                ? `$${(portfolio.daily_target_usd - (portfolio.polymarket_pnl_today ?? 0)).toFixed(2)} remaining`
-                : `$${Math.abs(portfolio.polymarket_pnl_today ?? 0).toFixed(2)} in the red`}
+              {(portfolio.polymarket_pnl_today ?? 0) >= portfolio.daily_target_usd
+                ? `$${((portfolio.polymarket_pnl_today ?? 0) - portfolio.daily_target_usd).toFixed(2)} above target`
+                : (portfolio.polymarket_pnl_today ?? 0) >= 0
+                  ? `$${(portfolio.daily_target_usd - (portfolio.polymarket_pnl_today ?? 0)).toFixed(2)} remaining`
+                  : `$${Math.abs(portfolio.polymarket_pnl_today ?? 0).toFixed(2)} in the red`}
             </span>
           </div>
           <div className="flex flex-col sm:flex-row justify-between mt-2 text-xs text-zinc-600 border-t border-[#2a2d3e] pt-2 gap-1 sm:gap-0">

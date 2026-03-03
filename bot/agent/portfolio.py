@@ -157,21 +157,33 @@ class Portfolio:
 
         # Capture start-of-day equity AFTER sync (so balance is accurate)
         if need_daily_reset:
-            self._day_start_equity = self.total_equity
-            logger.info(
-                "day_start_equity_captured",
-                equity=round(self._day_start_equity, 4),
-                date=today,
-            )
-            # Persist so it survives restarts
             try:
                 from bot.data.settings_store import StateStore
 
-                await StateStore.save_day_start_equity(
-                    self._day_start_equity, today,
-                )
+                existing, existing_date = await StateStore.load_day_start_equity()
+                if existing_date == today and existing > 0:
+                    # Restore persisted midnight value (don't overwrite on restart)
+                    self._day_start_equity = existing
+                    logger.info(
+                        "day_start_equity_restored",
+                        equity=round(existing, 4),
+                        date=today,
+                    )
+                else:
+                    # First sync of the day — capture and persist
+                    self._day_start_equity = self.total_equity
+                    await StateStore.save_day_start_equity(
+                        self._day_start_equity, today,
+                    )
+                    logger.info(
+                        "day_start_equity_captured",
+                        equity=round(self._day_start_equity, 4),
+                        date=today,
+                    )
             except Exception as e:
-                logger.error("persist_day_start_equity_failed", error=str(e))
+                # Fallback: use current equity
+                self._day_start_equity = self.total_equity
+                logger.error("day_start_equity_persist_failed", error=str(e))
 
         # Update peak equity
         equity = self.total_equity
