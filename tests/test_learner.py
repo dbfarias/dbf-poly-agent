@@ -318,6 +318,20 @@ class TestShouldPauseStrategy:
         # Win rate 20% but total PnL = 10.0 - 0.80 = 9.20 > -1.0
         assert learner.should_pause_strategy("time_decay", trades) is False
 
+    def test_force_unpause_removes_pause(self):
+        """force_unpause clears a paused strategy."""
+        learner = PerformanceLearner()
+        learner._paused_strategies["value_betting"] = (
+            datetime.now(timezone.utc)
+        )
+        assert learner.force_unpause("value_betting") is True
+        assert "value_betting" not in learner._paused_strategies
+
+    def test_force_unpause_not_paused_returns_false(self):
+        """force_unpause on a non-paused strategy returns False."""
+        learner = PerformanceLearner()
+        assert learner.force_unpause("value_betting") is False
+
 
 # ---------------------------------------------------------------------------
 # _compute_calibration

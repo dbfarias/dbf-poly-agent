@@ -2,11 +2,11 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
-from bot.agent.learner import PAUSE_COOLDOWN_HOURS
 
 router = APIRouter(prefix="/api/learner", tags=["learner"])
 
@@ -165,13 +165,14 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
     adjustments = learner._last_adjustments
 
     # Current pause state
+    cooldown_hours = learner.PAUSE_COOLDOWN_HOURS
     pauses = []
     for strategy, paused_at in learner._paused_strategies.items():
         elapsed_hours = (
             (datetime.now(timezone.utc) - paused_at).total_seconds() / 3600
         )
-        remaining_hours = max(0, PAUSE_COOLDOWN_HOURS - elapsed_hours)
-        expires_at = paused_at + timedelta(hours=PAUSE_COOLDOWN_HOURS)
+        remaining_hours = max(0, cooldown_hours - elapsed_hours)
+        expires_at = paused_at + timedelta(hours=cooldown_hours)
         pauses.append({
             "strategy": strategy,
             "paused_at": paused_at.isoformat(),
@@ -202,6 +203,40 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
             if learner._last_computed
             else None
         ),
+    }
+
+
+class UnpauseRequest(BaseModel):
+    strategy: str
+
+
+@router.post("/unpause")
+async def unpause_strategy(
+    body: UnpauseRequest, _: str = Depends(verify_api_key)
+):
+    """Manually unpause a strategy that was auto-paused by the learner.
+
+    Note: the learner may re-pause on its next cycle if performance
+    is still below thresholds. Adjust pause_win_rate / pause_min_loss
+    via the config endpoint to prevent re-pausing.
+    """
+    engine = get_engine()
+    learner = engine.learner
+
+    valid_names = {s.name for s in engine.analyzer.strategies}
+    if body.strategy not in valid_names:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown strategy: {body.strategy}",
+        )
+
+    was_paused = learner.force_unpause(body.strategy)
+    await learner.persist_paused_strategies()
+
+    return {
+        "strategy": body.strategy,
+        "was_paused": was_paused,
+        "status": "unpaused",
     }
 
 

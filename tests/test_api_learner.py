@@ -29,6 +29,7 @@ def _make_mock_learner(
     learner._stats = stats or {}
     learner._paused_strategies = paused_strategies or {}
     learner._last_computed = last_computed
+    learner.PAUSE_COOLDOWN_HOURS = 12
     return learner
 
 
@@ -48,7 +49,10 @@ def _make_adjustments(
     return adj
 
 
-def _make_stats(*, actual_win_rate=0.6, total_trades=20, total_pnl=1.5, avg_edge=0.03, winning_trades=12):
+def _make_stats(
+    *, actual_win_rate=0.6, total_trades=20,
+    total_pnl=1.5, avg_edge=0.03, winning_trades=12,
+):
     """Build a mock StrategyStats object."""
     s = MagicMock()
     s.actual_win_rate = actual_win_rate
@@ -373,3 +377,70 @@ class TestGetPauses:
         assert data["last_computed"] is None
         for s in data["strategies"]:
             assert s["is_paused"] is False
+
+
+# ---------------------------------------------------------------------------
+# POST /api/learner/unpause
+# ---------------------------------------------------------------------------
+
+
+class TestUnpauseStrategy:
+    async def test_unpause_paused_strategy(
+        self, learner_client, mock_engine_learner
+    ):
+        """Unpausing a paused strategy returns was_paused=True."""
+        from unittest.mock import AsyncMock
+
+        learner = _make_mock_learner(
+            paused_strategies={
+                "value_betting": datetime.now(timezone.utc),
+            },
+        )
+        learner.force_unpause = MagicMock(return_value=True)
+        learner.persist_paused_strategies = AsyncMock()
+        mock_engine_learner.learner = learner
+
+        resp = await learner_client.post(
+            "/api/learner/unpause",
+            json={"strategy": "value_betting"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["strategy"] == "value_betting"
+        assert data["was_paused"] is True
+        assert data["status"] == "unpaused"
+        learner.force_unpause.assert_called_once_with(
+            "value_betting",
+        )
+        learner.persist_paused_strategies.assert_awaited_once()
+
+    async def test_unpause_not_paused_strategy(
+        self, learner_client, mock_engine_learner
+    ):
+        """Unpausing a strategy that wasn't paused returns was_paused=False."""
+        from unittest.mock import AsyncMock
+
+        learner = _make_mock_learner()
+        learner.force_unpause = MagicMock(return_value=False)
+        learner.persist_paused_strategies = AsyncMock()
+        mock_engine_learner.learner = learner
+
+        resp = await learner_client.post(
+            "/api/learner/unpause",
+            json={"strategy": "time_decay"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["was_paused"] is False
+
+    async def test_unpause_unknown_strategy_returns_400(
+        self, learner_client, mock_engine_learner
+    ):
+        """Unpausing an unknown strategy returns 400."""
+        mock_engine_learner.learner = _make_mock_learner()
+
+        resp = await learner_client.post(
+            "/api/learner/unpause",
+            json={"strategy": "nonexistent"},
+        )
+        assert resp.status_code == 400

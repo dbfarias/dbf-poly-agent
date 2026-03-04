@@ -293,6 +293,20 @@ class PerformanceLearner:
         else:
             return 0.7
 
+    def force_unpause(self, strategy: str) -> bool:
+        """Manually unpause a strategy.
+
+        Returns True if the strategy was paused and is now unpaused.
+        """
+        if strategy in self._paused_strategies:
+            del self._paused_strategies[strategy]
+            logger.info(
+                "strategy_manually_unpaused",
+                strategy=strategy,
+            )
+            return True
+        return False
+
     def consume_newly_paused(self) -> list[tuple[str, float, float]]:
         """Return and clear the list of newly paused strategies.
 
