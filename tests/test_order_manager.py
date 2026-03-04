@@ -922,6 +922,33 @@ class TestClosePositionMinSize:
         assert result is None
 
 
+class TestClosePositionResolvedMarket:
+    """Resolved markets (price >= 0.999) should skip sell attempt."""
+
+    @pytest.mark.asyncio
+    async def test_live_resolved_market_at_1_skips_sell(self):
+        """Live mode: position at $1.00 returns None (resolved market)."""
+        manager, clob, _ = _build_manager(is_paper=False)
+        result = await manager.close_position(
+            market_id="mkt1", token_id="tok1",
+            size=5.0, current_price=1.0,
+        )
+        assert result is None
+        clob.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_live_resolved_market_at_0999_skips_sell(self):
+        """Live mode: position at $0.999 returns None (resolved market)."""
+        manager, clob, _ = _build_manager(is_paper=False)
+        result = await manager.close_position(
+            market_id="mkt1", token_id="tok1",
+            size=5.0, current_price=0.999,
+        )
+        assert result is None
+        clob.place_order.assert_not_awaited()
+
+
+
 class TestClosePositionSellDedup:
     """Tests for pending sell deduplication."""
 

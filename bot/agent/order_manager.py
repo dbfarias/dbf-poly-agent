@@ -363,6 +363,16 @@ class OrderManager:
         """Close a position by selling."""
         now = datetime.now(timezone.utc)
 
+        # Resolved markets (price at $1.00 or $0.00) can't be sold on
+        # CLOB (only 0.001-0.999). Let Polymarket sync handle redemption.
+        if not self.clob.is_paper and current_price >= 0.999:
+            logger.info(
+                "skip_sell_resolved_market",
+                market_id=market_id,
+                current_price=current_price,
+            )
+            return None
+
         # Skip if a sell for this market is already pending on the CLOB
         for info in self._pending_orders.values():
             if info.get("is_sell") and info.get("market_id") == market_id:
@@ -412,11 +422,16 @@ class OrderManager:
             )
         except Exception as e:
             err_msg = str(e)
-            if "not enough balance" in err_msg or "allowance" in err_msg:
+            if (
+                "not enough balance" in err_msg
+                or "allowance" in err_msg
+                or "min: 0.001" in err_msg
+            ):
                 logger.warning(
-                    "sell_insufficient_balance",
+                    "sell_order_rejected_gracefully",
                     market_id=market_id,
                     size=size,
+                    price=sell_price,
                     error=err_msg,
                 )
                 return None
