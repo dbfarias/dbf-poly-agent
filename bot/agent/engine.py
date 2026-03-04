@@ -101,7 +101,7 @@ class TradingEngine:
         )
         self.order_manager = OrderManager(self.clob_client, self.data_api)
         self.learner = PerformanceLearner()
-        self.closer = PositionCloser(self.order_manager, self.portfolio, self.risk_manager)
+        self.closer = PositionCloser(self.order_manager, self.portfolio, self.risk_manager, self.cache)
 
         # Research engine
         self.research_cache = ResearchCache(default_ttl=3600)

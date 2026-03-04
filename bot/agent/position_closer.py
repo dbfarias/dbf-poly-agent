@@ -8,6 +8,7 @@ from bot.agent.events import event_bus
 from bot.config import settings
 from bot.data.activity import log_exit_triggered, log_position_closed, log_rebalance
 from bot.data.database import async_session
+from bot.data.market_cache import MarketCache
 
 logger = structlog.get_logger()
 
@@ -18,13 +19,18 @@ class PositionCloser:
     Separated from TradingEngine to reduce engine.py size and improve cohesion.
     """
 
-    def __init__(self, order_manager, portfolio, risk_manager):
+    def __init__(self, order_manager, portfolio, risk_manager, cache: MarketCache | None = None):
         self.order_manager = order_manager
         self.portfolio = portfolio
         self.risk_manager = risk_manager
+        self.cache = cache
         # Rebalance params (configurable via admin)
         self.min_rebalance_edge = 0.015  # 1.5% edge minimum
         self.min_hold_seconds = 120  # 2 min minimum hold
+        # Near-resolution protection: skip rebalance if market resolves
+        # within this many hours (unless loss is severe)
+        self.rebalance_resolution_shield_hours = 24.0
+        self.rebalance_resolution_max_loss_pct = 0.15  # 15% loss overrides shield
 
     async def close_position(self, pos) -> None:
         """Close a position and record PnL if immediately filled.
@@ -210,6 +216,24 @@ class PositionCloser:
                 (pos.current_price - pos.avg_price) / pos.avg_price
                 if pos.avg_price > 0 else 0.0
             )
+            # Near-resolution protection: skip if market resolves soon
+            # unless loss is severe enough to override
+            if self.cache and abs(pnl_pct) < self.rebalance_resolution_max_loss_pct:
+                market = self.cache.get_market(pos.market_id)
+                if market is not None:
+                    end = market.end_date
+                    if end is not None:
+                        if end.tzinfo is None:
+                            end = end.replace(tzinfo=timezone.utc)
+                        hours_left = (end - now).total_seconds() / 3600
+                        if hours_left <= self.rebalance_resolution_shield_hours:
+                            logger.info(
+                                "rebalance_skipped_near_resolution",
+                                market_id=pos.market_id[:40],
+                                hours_left=round(hours_left, 1),
+                                pnl_pct=round(pnl_pct, 4),
+                            )
+                            continue
             candidates.append((pos, pnl_pct))
 
         if not candidates:

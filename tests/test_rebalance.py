@@ -10,8 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.agent.engine import TradingEngine
+from bot.data.market_cache import MarketCache
 from bot.data.models import Position, Trade
-from bot.polymarket.types import OrderSide, TradeSignal
+from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -100,6 +101,7 @@ def _build_engine():
     engine.closer.order_manager = engine.order_manager
     engine.closer.portfolio = engine.portfolio
     engine.closer.risk_manager = engine.risk_manager
+    engine.closer.cache = None  # No cache by default; tests that need it set it explicitly
     return engine
 
 
@@ -241,9 +243,12 @@ class TestTryRebalance:
 
             signal = make_signal(edge=0.05)
 
+            positions = engine.portfolio.positions
             with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
                 # First rebalance succeeds
-                rebalance_result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+                rebalance_result = await engine.closer.try_rebalance(
+                    signal, positions,
+                )
                 assert rebalance_result is not None
                 engine._rebalanced_this_cycle = True
 
@@ -480,8 +485,11 @@ class TestTryRebalance:
 
             signal = make_signal(edge=0.05)
 
+            positions = engine.portfolio.positions
             with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
-                rebalance_result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+                rebalance_result = await engine.closer.try_rebalance(
+                    signal, positions,
+                )
 
             assert rebalance_result is not None
 
@@ -574,3 +582,234 @@ class TestRebalanceFlagReset:
             engine._rebalanced_this_cycle = False
 
             assert engine._rebalanced_this_cycle is False
+
+
+# ---------------------------------------------------------------------------
+# Near-resolution rebalance protection
+# ---------------------------------------------------------------------------
+
+
+class TestRebalanceNearResolution:
+    """Positions near market resolution should be shielded from rebalance."""
+
+    @pytest.mark.asyncio
+    async def test_skips_near_resolution_position(self):
+        """Position resolving in 12h with mild loss (-5%) should NOT be rebalanced."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(
+                market_id="mkt_resolving", avg_price=0.50,
+                current_price=0.475, size=10.0,  # -5% loss
+            )
+            engine.portfolio.positions = [loser]
+
+            # Set up cache with market resolving in 12 hours
+            cache = MarketCache()
+            end_in_12h = (datetime.now(timezone.utc) + timedelta(hours=12)).isoformat()
+            cache.set_market("mkt_resolving", GammaMarket(
+                id="mkt_resolving", endDateIso=end_in_12h,
+            ))
+            engine.closer.cache = cache
+
+            signal = make_signal(edge=0.05)
+            result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is None
+            engine.order_manager.close_position.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_allows_far_resolution_position(self):
+        """Position resolving in 48h should still be rebalanced normally."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(
+                market_id="mkt_far", avg_price=0.50,
+                current_price=0.475, size=10.0,  # -5%
+            )
+            engine.portfolio.positions = [loser]
+
+            cache = MarketCache()
+            end_in_48h = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+            cache.set_market("mkt_far", GammaMarket(
+                id="mkt_far", endDateIso=end_in_48h,
+            ))
+            engine.closer.cache = cache
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id="mkt_far", token_id="token_old",
+                    side="SELL", price=0.475, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+            closed_pos, _ = result
+            assert closed_pos.market_id == "mkt_far"
+
+    @pytest.mark.asyncio
+    async def test_severe_loss_overrides_shield(self):
+        """Position at -20% loss should be rebalanced even if resolving in 6h."""
+        with _patch_engine():
+            engine = _build_engine()
+            big_loser = make_position(
+                market_id="mkt_sinking", avg_price=0.50,
+                current_price=0.40, size=10.0,  # -20% loss
+            )
+            engine.portfolio.positions = [big_loser]
+
+            cache = MarketCache()
+            end_in_6h = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+            cache.set_market("mkt_sinking", GammaMarket(
+                id="mkt_sinking", endDateIso=end_in_6h,
+            ))
+            engine.closer.cache = cache
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id="mkt_sinking", token_id="token_old",
+                    side="SELL", price=0.40, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+            closed_pos, _ = result
+            assert closed_pos.market_id == "mkt_sinking"
+
+    @pytest.mark.asyncio
+    async def test_no_cache_skips_shield(self):
+        """Without cache, rebalance proceeds normally (no protection)."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(avg_price=0.50, current_price=0.475, size=10.0)
+            engine.portfolio.positions = [loser]
+            engine.closer.cache = None  # No cache
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id=loser.market_id, token_id=loser.token_id,
+                    side="SELL", price=0.475, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_no_end_date_skips_shield(self):
+        """Market with no end_date should not trigger shield."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(
+                market_id="mkt_no_end", avg_price=0.50,
+                current_price=0.475, size=10.0,
+            )
+            engine.portfolio.positions = [loser]
+
+            cache = MarketCache()
+            cache.set_market("mkt_no_end", GammaMarket(
+                id="mkt_no_end", endDateIso="",  # No end date
+            ))
+            engine.closer.cache = cache
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id="mkt_no_end", token_id="token_old",
+                    side="SELL", price=0.475, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_market_not_in_cache_skips_shield(self):
+        """Position whose market is not in cache should not trigger shield."""
+        with _patch_engine():
+            engine = _build_engine()
+            loser = make_position(
+                market_id="mkt_uncached", avg_price=0.50,
+                current_price=0.475, size=10.0,
+            )
+            engine.portfolio.positions = [loser]
+
+            cache = MarketCache()  # Empty cache
+            engine.closer.cache = cache
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id="mkt_uncached", token_id="token_old",
+                    side="SELL", price=0.475, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_shield_picks_next_candidate(self):
+        """When near-resolution shields one position, rebalance picks the next."""
+        with _patch_engine():
+            engine = _build_engine()
+
+            # Position A: -5% loss, resolving in 6h (shielded)
+            pos_shielded = make_position(
+                market_id="mkt_shielded", token_id="tok_a",
+                avg_price=0.50, current_price=0.475, size=10.0,
+            )
+            # Position B: -8% loss, resolving in 72h (not shielded)
+            pos_available = make_position(
+                market_id="mkt_available", token_id="tok_b",
+                avg_price=0.50, current_price=0.46, size=10.0,
+            )
+
+            engine.portfolio.positions = [pos_shielded, pos_available]
+
+            cache = MarketCache()
+            end_6h = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+            end_72h = (datetime.now(timezone.utc) + timedelta(hours=72)).isoformat()
+            cache.set_market("mkt_shielded", GammaMarket(
+                id="mkt_shielded", endDateIso=end_6h,
+            ))
+            cache.set_market("mkt_available", GammaMarket(
+                id="mkt_available", endDateIso=end_72h,
+            ))
+            engine.closer.cache = cache
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id="mkt_available", token_id="tok_b",
+                    side="SELL", price=0.46, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+            closed_pos, _ = result
+            # Should close the unshielded position, not the near-resolution one
+            assert closed_pos.market_id == "mkt_available"
