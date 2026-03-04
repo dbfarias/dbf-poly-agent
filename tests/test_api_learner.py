@@ -398,6 +398,7 @@ class TestUnpauseStrategy:
         )
         learner.force_unpause = MagicMock(return_value=True)
         learner.persist_paused_strategies = AsyncMock()
+        learner.persist_unpause_immunity = AsyncMock()
         mock_engine_learner.learner = learner
 
         resp = await learner_client.post(
@@ -413,6 +414,7 @@ class TestUnpauseStrategy:
             "value_betting",
         )
         learner.persist_paused_strategies.assert_awaited_once()
+        learner.persist_unpause_immunity.assert_awaited_once()
 
     async def test_unpause_not_paused_strategy(
         self, learner_client, mock_engine_learner
@@ -423,6 +425,7 @@ class TestUnpauseStrategy:
         learner = _make_mock_learner()
         learner.force_unpause = MagicMock(return_value=False)
         learner.persist_paused_strategies = AsyncMock()
+        learner.persist_unpause_immunity = AsyncMock()
         mock_engine_learner.learner = learner
 
         resp = await learner_client.post(

@@ -507,3 +507,127 @@ class TestLearnerIntegration:
 
         assert "recent_strategy" in learner2._paused_strategies
         assert "old_strategy" not in learner2._paused_strategies
+
+
+# ---------------------------------------------------------------------------
+# PerformanceLearner integration: persist/restore unpause_immunity
+# ---------------------------------------------------------------------------
+
+
+class TestLearnerImmunityIntegration:
+    @pytest.mark.asyncio
+    async def test_persist_and_restore_unpause_immunity(
+        self, session_factory, patch_session
+    ):
+        from bot.agent.learner import PerformanceLearner
+
+        learner = PerformanceLearner()
+
+        # Simulate granting immunity
+        now = datetime.now(timezone.utc)
+        learner._unpause_immunity = {
+            "value_betting": now - timedelta(hours=1),
+            "swing_trading": now - timedelta(hours=2),
+        }
+
+        with patch_session:
+            await learner.persist_unpause_immunity()
+
+        # Fresh learner and restore
+        learner2 = PerformanceLearner()
+        assert len(learner2._unpause_immunity) == 0
+
+        with patch_session:
+            await learner2.restore_unpause_immunity()
+
+        assert "value_betting" in learner2._unpause_immunity
+        assert "swing_trading" in learner2._unpause_immunity
+
+    @pytest.mark.asyncio
+    async def test_restore_skips_expired_immunity(
+        self, session_factory, patch_session
+    ):
+        """Immunity older than UNPAUSE_GRACE_HOURS should NOT be restored."""
+        from bot.agent.learner import PerformanceLearner
+
+        learner = PerformanceLearner()
+
+        # Immunity granted 7 hours ago (past the 6h grace)
+        old_time = datetime.now(timezone.utc) - timedelta(hours=7)
+        learner._unpause_immunity = {"value_betting": old_time}
+
+        with patch_session:
+            await learner.persist_unpause_immunity()
+
+        learner2 = PerformanceLearner()
+        with patch_session:
+            await learner2.restore_unpause_immunity()
+
+        assert len(learner2._unpause_immunity) == 0
+
+    @pytest.mark.asyncio
+    async def test_restore_keeps_recent_immunity(
+        self, session_factory, patch_session
+    ):
+        """Immunity within UNPAUSE_GRACE_HOURS should be restored."""
+        from bot.agent.learner import PerformanceLearner
+
+        learner = PerformanceLearner()
+
+        recent_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        learner._unpause_immunity = {"value_betting": recent_time}
+
+        with patch_session:
+            await learner.persist_unpause_immunity()
+
+        learner2 = PerformanceLearner()
+        with patch_session:
+            await learner2.restore_unpause_immunity()
+
+        assert "value_betting" in learner2._unpause_immunity
+
+    @pytest.mark.asyncio
+    async def test_persist_empty_immunity(self, session_factory, patch_session):
+        """Persisting with no immunity should save empty dict."""
+        from bot.agent.learner import PerformanceLearner
+
+        learner = PerformanceLearner()
+        now = datetime.now(timezone.utc)
+        learner._unpause_immunity = {"value_betting": now}
+
+        with patch_session:
+            await learner.persist_unpause_immunity()
+
+        learner._unpause_immunity = {}
+        with patch_session:
+            await learner.persist_unpause_immunity()
+
+        with patch_session:
+            loaded = await StateStore.load_unpause_immunity()
+
+        assert loaded == {}
+
+    @pytest.mark.asyncio
+    async def test_restore_mixed_old_and_recent_immunity(
+        self, session_factory, patch_session
+    ):
+        """Only recent immunity should survive restore; expired ones discarded."""
+        from bot.agent.learner import PerformanceLearner
+
+        learner = PerformanceLearner()
+
+        now = datetime.now(timezone.utc)
+        learner._unpause_immunity = {
+            "recent_strat": now - timedelta(hours=1),
+            "old_strat": now - timedelta(hours=7),
+        }
+
+        with patch_session:
+            await learner.persist_unpause_immunity()
+
+        learner2 = PerformanceLearner()
+        with patch_session:
+            await learner2.restore_unpause_immunity()
+
+        assert "recent_strat" in learner2._unpause_immunity
+        assert "old_strat" not in learner2._unpause_immunity

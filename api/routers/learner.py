@@ -232,6 +232,7 @@ async def unpause_strategy(
 
     was_paused = learner.force_unpause(body.strategy)
     await learner.persist_paused_strategies()
+    await learner.persist_unpause_immunity()
 
     return {
         "strategy": body.strategy,

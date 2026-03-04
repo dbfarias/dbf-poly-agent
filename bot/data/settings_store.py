@@ -400,6 +400,31 @@ class StateStore:
             return {}
 
     @staticmethod
+    async def save_unpause_immunity(immunity: dict[str, str]) -> None:
+        """Persist unpause immunity (strategy_name → ISO grant datetime)."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many(
+                {"state.unpause_immunity": json.dumps(immunity)}
+            )
+
+    @staticmethod
+    async def load_unpause_immunity() -> dict[str, str]:
+        """Load persisted unpause immunity."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("state.unpause_immunity")
+
+        if raw is None:
+            return {}
+
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    @staticmethod
     async def save_paused_strategies(paused: dict[str, str]) -> None:
         """Persist paused strategies (strategy_name → ISO pause datetime)."""
         async with async_session() as session:

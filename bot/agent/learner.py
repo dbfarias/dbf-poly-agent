@@ -332,6 +332,43 @@ class PerformanceLearner:
         self._newly_paused = []
         return result
 
+    async def persist_unpause_immunity(self) -> None:
+        """Save unpause immunity timestamps to DB."""
+        try:
+            from bot.data.settings_store import StateStore
+
+            immunity = {
+                name: dt.isoformat()
+                for name, dt in self._unpause_immunity.items()
+            }
+            await StateStore.save_unpause_immunity(immunity)
+        except Exception as e:
+            logger.error("persist_unpause_immunity_failed", error=str(e))
+
+    async def restore_unpause_immunity(self) -> None:
+        """Restore unpause immunity from DB on startup."""
+        try:
+            from bot.data.settings_store import StateStore
+
+            immunity = await StateStore.load_unpause_immunity()
+            now = datetime.now(timezone.utc)
+            restored = 0
+            for name, iso_str in immunity.items():
+                granted_at = datetime.fromisoformat(iso_str)
+                if granted_at.tzinfo is None:
+                    granted_at = granted_at.replace(tzinfo=timezone.utc)
+                elapsed_h = (now - granted_at).total_seconds() / 3600
+                if elapsed_h < self.UNPAUSE_GRACE_HOURS:
+                    self._unpause_immunity[name] = granted_at
+                    restored += 1
+            if restored > 0:
+                logger.info(
+                    "unpause_immunity_restored",
+                    strategies=list(self._unpause_immunity.keys()),
+                )
+        except Exception as e:
+            logger.error("restore_unpause_immunity_failed", error=str(e))
+
     async def persist_paused_strategies(self) -> None:
         """Save paused strategies to DB."""
         if not self._paused_strategies:

@@ -238,6 +238,7 @@ class TradingEngine:
             logger.error("restore_day_start_equity_failed", error=str(e))
 
         await self.learner.restore_paused_strategies()
+        await self.learner.restore_unpause_immunity()
 
         # Restore market cooldowns
         try:
@@ -263,6 +264,7 @@ class TradingEngine:
         """Persist ephemeral state to DB (called after trades)."""
         await self.risk_manager.persist_daily_pnl()
         await self.learner.persist_paused_strategies()
+        await self.learner.persist_unpause_immunity()
 
         # Persist active cooldowns
         try:
