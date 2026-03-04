@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { DollarSign, Layers, Target, TrendingUp, Wallet, Crosshair } from "lucide-react";
 import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats } from "../api/client";
+import DailyPnlChart from "../components/DailyPnlChart";
+import DailyTargetChart from "../components/DailyTargetChart";
 import EquityChart from "../components/EquityChart";
 import HelpTooltip from "../components/HelpTooltip";
 import { StatCardSkeleton } from "../components/Skeleton";
@@ -183,7 +185,13 @@ export default function Dashboard() {
       </div>
       )}
 
-      {/* Charts */}
+      {/* Daily PnL & Target */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <DailyPnlChart />
+        <DailyTargetChart />
+      </div>
+
+      {/* Equity & Trades Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <EquityChart />
         <WinLossChart />

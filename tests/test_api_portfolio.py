@@ -1,6 +1,6 @@
 """Tests for portfolio API endpoints."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -331,3 +331,135 @@ class TestForceClosePosition:
         )
         assert resp.status_code == 200
         assert resp.json()["market_id"] == "market_abc_123"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portfolio/daily-pnl
+# ---------------------------------------------------------------------------
+
+
+class TestGetDailyPnl:
+    async def test_empty_snapshots(self, client):
+        """Returns empty list when no snapshots exist."""
+        resp = await client.get("/api/portfolio/daily-pnl")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_single_day(self, client, db_session):
+        """Single day with two snapshots computes PnL correctly."""
+        now = datetime.now(timezone.utc)
+        snap1 = PortfolioSnapshot(
+            timestamp=now.replace(hour=0, minute=0, second=0),
+            total_equity=18.00,
+            cash_balance=5.0,
+            positions_value=13.0,
+        )
+        snap2 = PortfolioSnapshot(
+            timestamp=now.replace(hour=23, minute=59),
+            total_equity=18.50,
+            cash_balance=6.0,
+            positions_value=12.5,
+        )
+        db_session.add_all([snap1, snap2])
+        await db_session.commit()
+
+        resp = await client.get("/api/portfolio/daily-pnl")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["start_equity"] == 18.0
+        assert data[0]["end_equity"] == 18.5
+        assert data[0]["pnl"] == pytest.approx(0.5, abs=0.01)
+        assert data[0]["pnl_pct"] == pytest.approx(2.78, abs=0.1)
+
+    async def test_multi_day_ordering(self, client, db_session):
+        """Multiple days are sorted chronologically."""
+        day1 = datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc)
+        day2 = datetime(2026, 3, 2, 12, 0, tzinfo=timezone.utc)
+        snap1 = PortfolioSnapshot(
+            timestamp=day1,
+            total_equity=17.50,
+            cash_balance=5.0,
+            positions_value=12.5,
+        )
+        snap2 = PortfolioSnapshot(
+            timestamp=day2,
+            total_equity=18.00,
+            cash_balance=5.5,
+            positions_value=12.5,
+        )
+        db_session.add_all([snap1, snap2])
+        await db_session.commit()
+
+        resp = await client.get("/api/portfolio/daily-pnl")
+        data = resp.json()
+        assert len(data) == 2
+        assert data[0]["date"] == "2026-03-01"
+        assert data[1]["date"] == "2026-03-02"
+
+    async def test_hit_target_true(self, client, db_session):
+        """Day that exceeds 1% target marks hit_target=True."""
+        day = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        snap_am = PortfolioSnapshot(
+            timestamp=day.replace(hour=1),
+            total_equity=20.0,
+            cash_balance=10.0,
+            positions_value=10.0,
+        )
+        snap_pm = PortfolioSnapshot(
+            timestamp=day.replace(hour=23),
+            total_equity=20.50,  # +2.5% > 1% target
+            cash_balance=10.0,
+            positions_value=10.5,
+        )
+        db_session.add_all([snap_am, snap_pm])
+        await db_session.commit()
+
+        resp = await client.get("/api/portfolio/daily-pnl")
+        data = resp.json()
+        assert data[0]["hit_target"] is True
+
+    async def test_hit_target_false(self, client, db_session):
+        """Day below 1% target marks hit_target=False."""
+        day = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        snap_am = PortfolioSnapshot(
+            timestamp=day.replace(hour=1),
+            total_equity=20.0,
+            cash_balance=10.0,
+            positions_value=10.0,
+        )
+        snap_pm = PortfolioSnapshot(
+            timestamp=day.replace(hour=23),
+            total_equity=20.05,  # +0.25% < 1% target
+            cash_balance=10.0,
+            positions_value=10.05,
+        )
+        db_session.add_all([snap_am, snap_pm])
+        await db_session.commit()
+
+        resp = await client.get("/api/portfolio/daily-pnl")
+        data = resp.json()
+        assert data[0]["hit_target"] is False
+
+    async def test_negative_pnl_day(self, client, db_session):
+        """Negative PnL day has negative values and hit_target=False."""
+        day = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        snap_am = PortfolioSnapshot(
+            timestamp=day.replace(hour=1),
+            total_equity=20.0,
+            cash_balance=10.0,
+            positions_value=10.0,
+        )
+        snap_pm = PortfolioSnapshot(
+            timestamp=day.replace(hour=23),
+            total_equity=19.50,
+            cash_balance=10.0,
+            positions_value=9.5,
+        )
+        db_session.add_all([snap_am, snap_pm])
+        await db_session.commit()
+
+        resp = await client.get("/api/portfolio/daily-pnl")
+        data = resp.json()
+        assert data[0]["pnl"] < 0
+        assert data[0]["hit_target"] is False

@@ -326,6 +326,20 @@ export const fetchLearnerCalibration = () =>
 export const fetchLearnerPauses = () =>
   api.get<LearnerPauses>("/api/learner/pauses").then((r) => r.data);
 
+// Daily PnL types
+export interface DailyPnlPoint {
+  date: string;
+  start_equity: number;
+  end_equity: number;
+  pnl: number;
+  pnl_pct: number;
+  target: number;
+  hit_target: boolean;
+}
+
+export const fetchDailyPnl = () =>
+  api.get<DailyPnlPoint[]>("/api/portfolio/daily-pnl").then((r) => r.data);
+
 // Activity types
 export interface ActivityEvent {
   id: number;

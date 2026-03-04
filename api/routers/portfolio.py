@@ -1,5 +1,7 @@
 """Portfolio API endpoints."""
 
+from collections import defaultdict
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -8,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_db, get_engine
 from api.middleware import verify_api_key
 from api.schemas import AllocationItem, EquityPoint, PortfolioOverview, PositionResponse
+from bot.config import settings
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
 
 logger = structlog.get_logger()
@@ -64,6 +67,67 @@ async def get_equity_curve(
         )
         for s in snapshots
     ]
+
+
+class DailyPnlPoint(BaseModel):
+    date: str
+    start_equity: float
+    end_equity: float
+    pnl: float
+    pnl_pct: float
+    target: float
+    hit_target: bool
+
+
+@router.get("/daily-pnl", response_model=list[DailyPnlPoint])
+async def get_daily_pnl(
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily PnL summary aggregated from portfolio snapshots.
+
+    Groups snapshots by UTC date. For each day, compares the first
+    and last snapshot equity to compute the day's PnL.
+    """
+    repo = PortfolioSnapshotRepository(db)
+    snapshots = await repo.get_equity_curve(days=365)
+
+    if not snapshots:
+        return []
+
+    # Group by UTC date
+    by_day: dict[str, dict] = defaultdict(
+        lambda: {"first": None, "last": None},
+    )
+    for s in snapshots:
+        day = s.timestamp.strftime("%Y-%m-%d")
+        entry = by_day[day]
+        if entry["first"] is None:
+            entry["first"] = s
+        entry["last"] = s
+
+    target_pct = settings.daily_target_pct
+    result = []
+    for day in sorted(by_day):
+        data = by_day[day]
+        start_eq = data["first"].total_equity
+        end_eq = data["last"].total_equity
+        pnl = end_eq - start_eq
+        target = start_eq * target_pct
+        pnl_pct = (
+            (pnl / start_eq * 100) if start_eq > 0 else 0.0
+        )
+        result.append(DailyPnlPoint(
+            date=day,
+            start_equity=round(start_eq, 2),
+            end_equity=round(end_eq, 2),
+            pnl=round(pnl, 4),
+            pnl_pct=round(pnl_pct, 2),
+            target=round(target, 4),
+            hit_target=pnl >= target,
+        ))
+
+    return result
 
 
 @router.get("/allocation", response_model=list[AllocationItem])
