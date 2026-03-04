@@ -326,11 +326,42 @@ class TestShouldPauseStrategy:
         )
         assert learner.force_unpause("value_betting") is True
         assert "value_betting" not in learner._paused_strategies
+        assert "value_betting" in learner._unpause_immunity
 
     def test_force_unpause_not_paused_returns_false(self):
         """force_unpause on a non-paused strategy returns False."""
         learner = PerformanceLearner()
         assert learner.force_unpause("value_betting") is False
+
+    def test_force_unpause_grants_immunity(self):
+        """After force_unpause, strategy is immune to re-pause."""
+        learner = PerformanceLearner()
+        learner._paused_strategies["value_betting"] = (
+            datetime.now(timezone.utc)
+        )
+        learner.force_unpause("value_betting")
+        # Bad trades that would normally trigger a pause
+        trades = make_trades(
+            PAUSE_LOOKBACK, 1, strategy="value_betting",
+        )
+        assert learner.should_pause_strategy(
+            "value_betting", trades,
+        ) is False
+
+    def test_immunity_expires_after_grace_period(self):
+        """Immunity expires after UNPAUSE_GRACE_HOURS."""
+        learner = PerformanceLearner()
+        learner._unpause_immunity["value_betting"] = (
+            datetime.now(timezone.utc)
+            - timedelta(hours=learner.UNPAUSE_GRACE_HOURS + 1)
+        )
+        # Bad trades → should now pause since immunity expired
+        trades = make_trades(
+            PAUSE_LOOKBACK, 1, strategy="value_betting",
+        )
+        assert learner.should_pause_strategy(
+            "value_betting", trades,
+        ) is True
 
 
 # ---------------------------------------------------------------------------

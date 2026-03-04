@@ -85,9 +85,13 @@ class PerformanceLearner:
     # Minimum seconds between full recomputation (avoid hammering DB every 30s cycle)
     RECOMPUTE_INTERVAL = 300  # 5 minutes
 
+    # Grace period after manual unpause (hours)
+    UNPAUSE_GRACE_HOURS = 6.0
+
     def __init__(self):
         self._stats: dict[tuple[str, str], StrategyStats] = {}
         self._paused_strategies: dict[str, datetime] = {}
+        self._unpause_immunity: dict[str, datetime] = {}
         self._last_computed: datetime | None = None
         self._last_adjustments: LearnerAdjustments | None = None
         self._newly_paused: list[tuple[str, float, float]] = []
@@ -294,15 +298,20 @@ class PerformanceLearner:
             return 0.7
 
     def force_unpause(self, strategy: str) -> bool:
-        """Manually unpause a strategy.
+        """Manually unpause a strategy with grace period.
 
+        Grants immunity from auto-pause for UNPAUSE_GRACE_HOURS.
         Returns True if the strategy was paused and is now unpaused.
         """
         if strategy in self._paused_strategies:
             del self._paused_strategies[strategy]
+            self._unpause_immunity[strategy] = (
+                datetime.now(timezone.utc)
+            )
             logger.info(
                 "strategy_manually_unpaused",
                 strategy=strategy,
+                grace_hours=self.UNPAUSE_GRACE_HOURS,
             )
             return True
         return False
@@ -369,6 +378,16 @@ class PerformanceLearner:
         Pause if: last 10 trades have <30% win rate AND total_pnl < -$1.
         Resume after 24h cooldown.
         """
+        # Check manual unpause immunity (grace period)
+        if strategy in self._unpause_immunity:
+            granted_at = self._unpause_immunity[strategy]
+            elapsed = (
+                datetime.now(timezone.utc) - granted_at
+            ).total_seconds() / 3600
+            if elapsed < self.UNPAUSE_GRACE_HOURS:
+                return False
+            del self._unpause_immunity[strategy]
+
         # Check cooldown — if paused, check if cooldown expired
         if strategy in self._paused_strategies:
             paused_at = self._paused_strategies[strategy]
