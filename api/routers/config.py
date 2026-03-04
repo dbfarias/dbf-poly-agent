@@ -183,7 +183,7 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 ),
                 # PositionCloser params
                 "min_rebalance_edge": ("closer", "min_rebalance_edge", float, 0.0, 0.5),
-                "min_hold_seconds": ("closer", "min_hold_seconds", int, 0, 3600),
+                "min_hold_seconds": ("closer", "min_hold_seconds", int, 0, 14400),
                 "rebalance_resolution_shield_hours": (
                     "closer", "rebalance_resolution_shield_hours",
                     float, 0.0, 168.0,
