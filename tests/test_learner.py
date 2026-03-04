@@ -319,14 +319,28 @@ class TestShouldPauseStrategy:
         assert learner.should_pause_strategy("time_decay", trades) is False
 
     def test_force_unpause_removes_pause(self):
-        """force_unpause clears a paused strategy."""
+        """force_unpause clears a paused strategy and adjustments."""
         learner = PerformanceLearner()
         learner._paused_strategies["value_betting"] = (
             datetime.now(timezone.utc)
         )
+        # Simulate existing adjustments with VB paused
+        from bot.agent.learner import LearnerAdjustments
+
+        learner._last_adjustments = LearnerAdjustments(
+            edge_multipliers={},
+            category_confidences={},
+            paused_strategies={"value_betting"},
+            calibration={},
+        )
         assert learner.force_unpause("value_betting") is True
         assert "value_betting" not in learner._paused_strategies
         assert "value_betting" in learner._unpause_immunity
+        # Adjustments also updated
+        assert (
+            "value_betting"
+            not in learner._last_adjustments.paused_strategies
+        )
 
     def test_force_unpause_not_paused_returns_false(self):
         """force_unpause on a non-paused strategy returns False."""

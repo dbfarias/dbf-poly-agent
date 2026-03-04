@@ -301,6 +301,8 @@ class PerformanceLearner:
         """Manually unpause a strategy with grace period.
 
         Grants immunity from auto-pause for UNPAUSE_GRACE_HOURS.
+        Also updates _last_adjustments so the engine stops skipping
+        signals immediately (without waiting for next recompute).
         Returns True if the strategy was paused and is now unpaused.
         """
         if strategy in self._paused_strategies:
@@ -308,6 +310,11 @@ class PerformanceLearner:
             self._unpause_immunity[strategy] = (
                 datetime.now(timezone.utc)
             )
+            # Update live adjustments so engine sees it immediately
+            if self._last_adjustments is not None:
+                self._last_adjustments.paused_strategies.discard(
+                    strategy,
+                )
             logger.info(
                 "strategy_manually_unpaused",
                 strategy=strategy,
