@@ -282,7 +282,7 @@ _QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
     "pause_cooldown_hours": (float, 1.0, 168.0),
     # PositionCloser params
     "min_rebalance_edge": (float, 0.0, 0.5),
-    "min_hold_seconds": (int, 0, 3600),
+    "min_hold_seconds": (int, 0, 14400),
 }
 
 

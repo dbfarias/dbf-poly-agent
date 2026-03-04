@@ -444,6 +444,45 @@ class TestPositionRepositoryUpsert:
         result = await repo.upsert(new_pos)
         assert result.is_open is True
 
+    async def test_upsert_reopen_resets_created_at(self, session):
+        """upsert() must reset created_at when reopening a closed position.
+
+        Without this, min_hold_seconds sees the OLD created_at and allows
+        immediate rebalance sells — the root cause of churning.
+        """
+        repo = PositionRepository(session)
+        from datetime import timedelta
+
+        # Insert a closed position with old created_at
+        pos = make_position(market_id="stale_ts", is_open=False)
+        session.add(pos)
+        await session.commit()
+        old_created = pos.created_at
+
+        # Reopen via upsert
+        new_pos = make_position(market_id="stale_ts", is_open=True)
+        result = await repo.upsert(new_pos)
+
+        assert result.is_open is True
+        # created_at must be refreshed (newer than original)
+        assert result.created_at >= old_created
+
+    async def test_upsert_open_to_open_preserves_created_at(self, session):
+        """upsert() must NOT reset created_at when updating an already-open position."""
+        repo = PositionRepository(session)
+        from datetime import timedelta
+
+        pos = make_position(market_id="keep_ts", is_open=True)
+        session.add(pos)
+        await session.commit()
+        original_created = pos.created_at
+
+        # Update with new price (still open)
+        new_pos = make_position(market_id="keep_ts", is_open=True, current_price=0.60)
+        result = await repo.upsert(new_pos)
+
+        assert result.created_at == original_created
+
     async def test_upsert_does_not_close_position(self, session):
         """upsert() must NOT close an open position (only re-open logic exists)."""
         repo = PositionRepository(session)

@@ -334,6 +334,9 @@ class PositionRepository:
             # Reopen if position reappears on Polymarket after being closed
             if position.is_open and not existing_pos.is_open:
                 existing_pos.is_open = True
+                # Reset created_at so min_hold_seconds works correctly
+                # (stale created_at from old position would bypass hold check)
+                existing_pos.created_at = datetime.now(timezone.utc)
             existing_pos.updated_at = datetime.now(timezone.utc)
             await self.session.commit()
             return existing_pos
