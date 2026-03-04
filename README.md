@@ -103,12 +103,12 @@ The bot automatically adjusts its behavior as the bankroll grows:
  TIER 1                    TIER 2                    TIER 3
  $5 -- $25                 $25 -- $100               $100+
  +-------------------+     +-------------------+     +-------------------+
- | 3 positions max   |     | 6 positions max   |     | 15 positions max  |
- | 55% per trade     | --> | 20% per trade     | --> | 15% per trade     |
- | 80% max deployed  |     | 80% max deployed  |     | 85% max deployed  |
+ | 6 positions max   |     | 6 positions max   |     | 15 positions max  |
+ | 40% per trade     | --> | 20% per trade     | --> | 15% per trade     |
+ | 85% max deployed  |     | 80% max deployed  |     | 85% max deployed  |
  | Min edge: 1%      |     | Min edge: 2%      |     | Min edge: 2%      |
- | Min prob: 65%     |     | Min prob: 70%     |     | Min prob: 60%     |
- | Kelly: 20%        |     | Kelly: 15%        |     | Kelly: 20%        |
+ | Min prob: 55%     |     | Min prob: 70%     |     | Min prob: 60%     |
+ | Kelly: 25%        |     | Kelly: 15%        |     | Kelly: 20%        |
  |                   |     |                   |     |                   |
  | Strategies:       |     | + Swing Trading   |     | + Market Making   |
  | Arbitrage         |     |                   |     |                   |
@@ -147,6 +147,7 @@ The bot automatically adjusts its behavior as the bankroll grows:
                              |  |  - Learner        |   |
                              |  |  - Order Manager  |   |
                              |  |  - Rebalancer     |   |
+                             |  |  - Research Engine|   |
                              |  +--------+---------+   |
                              |           |              |
                              |  +--------v---------+   |
@@ -278,15 +279,15 @@ Signal --> Paused? --> Duplicate? --> Daily Loss --> Drawdown --> Max Positions
 
 | Rule | Tier 1 ($5-$25) | Tier 2 ($25-$100) | Tier 3 ($100+) |
 |:---|:---:|:---:|:---:|
-| Max Positions | 3 | 6 | 15 |
-| Max Per Position | 55% | 20% | 15% |
-| Max Deployed | 80% | 80% | 85% |
+| Max Positions | 6 | 6 | 15 |
+| Max Per Position | 40% | 20% | 15% |
+| Max Deployed | 85% | 80% | 85% |
 | Daily Loss Limit | 10% | 8% | 6% |
 | Max Drawdown | 25% | 15% | 12% |
 | Min Edge Required | 1% | 2% | 2% |
-| Min Win Probability | 65% | 70% | 60% |
-| Max Per Category | 55% | 30% | 30% |
-| Kelly Fraction | 20% | 15% | 20% |
+| Min Win Probability | 55% | 70% | 60% |
+| Max Per Category | 40% | 30% | 30% |
+| Kelly Fraction | 25% | 15% | 20% |
 
 ### Position Sizing
 
@@ -298,7 +299,7 @@ f* = kelly_fraction x (p - c) / (1 - c)
 where:
   p = estimated real probability
   c = market price (cost)
-  kelly_fraction = 0.15-0.20 per tier
+  kelly_fraction = 0.15-0.25 per tier
 
 Minimum: 5 shares (Polymarket CLOB requirement)
 Positions < 5 shares CANNOT be sold -- must wait for resolution
@@ -336,7 +337,7 @@ Every 5 minutes, the learner recomputes statistics from the last 30 days of trad
 | **Category Confidence** | Per-category modifier (0.5-1.5x). Boosts exposure to proven categories, penalizes underperforming ones |
 | **Confidence Calibration** | Compares predicted probability vs actual win rate. If 95% confidence only wins 60%, edge requirements increase |
 | **Urgency Multiplier** | Daily target progress: behind target = more aggressive (expand horizons, lower edge); ahead = conservative |
-| **Strategy Auto-Pause** | If last 10 trades have <30% win rate and PnL < -$1, the strategy is paused for 24 hours |
+| **Strategy Auto-Pause** | If last 5 trades have <30% win rate and PnL < -$0.05, the strategy is paused for 12 hours. Manual unpause via API with 6h grace period |
 
 ### Edge Multiplier Logic
 
@@ -362,17 +363,17 @@ The daily target is 1% (configurable). Progress is tracked in real-time:
 
 ## Active Rebalancing
 
-When all position slots are full (e.g. 6/6 in Tier 2), the bot can find 9+ signals per cycle but blocks them all with "Max positions reached." Active rebalancing solves this by closing the weakest loser to make room.
+When all position slots are full or max deployed capital is reached, the bot can find 9+ signals per cycle but blocks them all. Active rebalancing solves this by closing the weakest loser to make room.
 
 ### How It Works
 
-When a signal is rejected due to "Max positions reached":
+When a signal is rejected due to "Max positions" or "Max deployed capital":
 
 ```
-Signal rejected ("Max positions")
+Signal rejected ("Max positions" or "Max deployed capital")
      |
      v
-Edge >= 3%?  ---NO---> Skip (low-quality signal)
+Edge >= min_rebalance_edge?  ---NO---> Skip (low-quality signal)
      |
     YES
      |
@@ -380,10 +381,10 @@ Edge >= 3%?  ---NO---> Skip (low-quality signal)
 Find losing positions (unrealized PnL <= 0)
      |
      v
-Filter: >= 5 shares, held >= 5 min, not winning
+Filter: >= 5 shares, held >= min_hold_seconds, not winning
      |
      v
-Pick worst (lowest PnL%)
+Pick worst (lowest PnL%) -- if can't sell, try next candidate
      |
      v
 Close position --> Record PnL --> Log rebalance
@@ -397,12 +398,13 @@ Approved? --> Execute trade
 
 ### Rebalance Conditions (ALL must be true)
 
-1. Signal rejected specifically due to "Max positions reached"
-2. New signal edge >= **3%** (only rebalance for high-quality signals)
+1. Signal rejected due to "Max positions" **or** "Max deployed capital"
+2. New signal edge >= **min_rebalance_edge** (default 1.5%, tunable via admin)
 3. Worst position has **unrealized PnL <= 0** (never close winners)
 4. Worst position has **>= 5 shares** (can actually sell on Polymarket CLOB)
-5. Worst position held for at least **5 minutes** (don't sell something just bought)
+5. Worst position held for at least **min_hold_seconds** (default 120s, tunable via admin)
 6. Max **1 rebalance per cycle** (prevent churning)
+7. If sell fails (e.g. insufficient balance), tries next candidate instead of giving up
 
 ---
 
@@ -413,7 +415,7 @@ JWT-authenticated React dashboard with **9 pages** for full visibility into the 
 | Page | Description |
 |:---|:---|
 | **Login** | Secure JWT login (username/password), 24h token expiry, auto-logout on 401 |
-| **Dashboard** | Equity curve (equity + cash), PnL cards, daily progress vs target, active positions |
+| **Dashboard** | Equity curve (equity + cash), daily PnL bar chart, daily target hit/miss tracker, PnL cards, daily progress vs target, active positions |
 | **Trades** | Expandable trade history — click any trade to see reasoning, edge, confidence, estimated probability, price, cost, paper/live |
 | **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio (real-time from trade data) |
 | **Markets** | Live market scanner with opportunities and signals |
@@ -498,6 +500,10 @@ All configuration is via environment variables (`.env` file):
 | `POLY_API_SECRET` | -- | Polymarket API secret |
 | `POLY_API_PASSPHRASE` | -- | Polymarket API passphrase |
 | `POLY_PRIVATE_KEY` | -- | Wallet private key (required for live mode) |
+| `FORCE_HTTPS_COOKIES` | `false` | Set `true` behind HTTPS reverse proxy |
+| `DATABASE_URL` | `sqlite+aiosqlite:///data/polybot.db` | Database connection URL |
+| `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING) |
+| `LOG_FORMAT` | `json` | Log format (json or console) |
 | `TELEGRAM_BOT_TOKEN` | -- | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | -- | Telegram chat ID (optional) |
 
@@ -509,8 +515,11 @@ These parameters can be changed at runtime via the Settings page and are **persi
 
 - Scan interval, snapshot interval
 - Risk parameters per tier (max positions, deployed %, edge, etc.)
-- Strategy parameters (MAX_HOURS, quality filter thresholds)
-- Pause/resume trading
+- Strategy parameters (MAX_HOURS, quality filter thresholds, take-profit %)
+- Learner parameters (pause lookback, win rate threshold, cooldown hours)
+- Rebalance parameters (min_rebalance_edge, min_hold_seconds)
+- Quality gate parameters (max spread, min volume, stop loss, take profit price)
+- Pause/resume trading, force-unpause strategies
 
 ---
 
@@ -543,7 +552,7 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (1255+ tests) + ruff lint + frontend build
+1. **Test** — pytest (1300+ tests, ~30s) + ruff lint + frontend build
 2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
 3. **Deploy** — SSH to server, pull image, restart containers
 
@@ -607,7 +616,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1255 tests** across **30+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
+**1300+ tests** across **30+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -657,6 +666,7 @@ dbf-poly-agent/
 |   |   |-- order_manager.py          # Order lifecycle (place, monitor, cancel)
 |   |   |-- risk_manager.py           # 9 cascading risk checks
 |   |   |-- learner.py                # Adaptive learning engine
+|   |   |-- position_closer.py        # Exit logic + rebalancing
 |   |   +-- strategies/
 |   |       |-- base.py               # Abstract strategy interface
 |   |       |-- time_decay.py         # Near-resolution strategy (primary)
@@ -679,6 +689,8 @@ dbf-poly-agent/
 |   |   |-- activity.py               # Bot activity logger (decision log)
 |   |   |-- settings_store.py         # Persistent settings (survives restarts)
 |   |   +-- market_cache.py           # In-memory TTL cache
+|   |-- research/
+|   |   +-- engine.py                 # Background market research engine
 |   +-- utils/
 |       |-- logging_config.py         # structlog JSON logging
 |       |-- math_utils.py             # Kelly, Sharpe, drawdown
@@ -691,14 +703,14 @@ dbf-poly-agent/
 |   |-- schemas.py                    # Response models (with validation)
 |   |-- dependencies.py               # DB session, engine access
 |   +-- routers/
-|       |-- portfolio.py              # GET /api/portfolio/* + POST force-close
+|       |-- portfolio.py              # GET /api/portfolio/* + daily-pnl + POST force-close
 |       |-- trades.py                 # GET /api/trades/*
 |       |-- strategies.py             # GET /api/strategies/*
 |       |-- markets.py                # GET /api/markets/*
 |       |-- risk.py                   # GET /api/risk/*
 |       |-- config.py                 # GET/PUT /api/config/ + pause/resume/reset
 |       |-- activity.py               # GET /api/activity/ + event types
-|       |-- learner.py                # GET /api/learner/* (multipliers, calibration, pauses)
+|       |-- learner.py                # GET/POST /api/learner/* (multipliers, calibration, pauses, unpause)
 |       +-- websocket.py              # WS /ws/live
 |-- frontend/                         # React 18 + TypeScript + Vite
 |   +-- src/
@@ -773,7 +785,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 1255 tests
+- **pytest** — 1300+ tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`
@@ -799,6 +811,7 @@ All endpoints except `/api/health` and `/api/auth/login` require authentication 
 | `GET` | `/api/portfolio/positions` | Open positions |
 | `GET` | `/api/portfolio/equity-curve` | Equity history |
 | `GET` | `/api/portfolio/allocation` | Category allocation |
+| `GET` | `/api/portfolio/daily-pnl` | Daily PnL history (aggregated by day) |
 | `POST` | `/api/portfolio/positions/close` | Force-close a position |
 | `GET` | `/api/trades/history` | Trade history (filterable) |
 | `GET` | `/api/trades/stats` | Trade statistics |
@@ -812,11 +825,12 @@ All endpoints except `/api/health` and `/api/auth/login` require authentication 
 | `GET` | `/api/learner/multipliers` | Edge multipliers + category confidences |
 | `GET` | `/api/learner/calibration` | Probability calibration per bucket |
 | `GET` | `/api/learner/pauses` | Strategy pause status + cooldowns |
+| `POST` | `/api/learner/unpause` | Force-unpause a strategy (6h grace period) |
 | `GET` | `/api/config/` | Bot configuration |
 | `PUT` | `/api/config/` | Update configuration (persisted) |
 | `POST` | `/api/trading/pause` | Pause trading |
 | `POST` | `/api/trading/resume` | Resume trading |
-| `POST` | `/api/risk/reset` | Reset risk state (peak equity, daily PnL) |
+| `POST` | `/api/config/risk/reset` | Reset risk state (peak equity, daily PnL) |
 | `WS` | `/ws/live?token=KEY` | Real-time updates (token auth) |
 
 ---

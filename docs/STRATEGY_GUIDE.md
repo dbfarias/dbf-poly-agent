@@ -104,15 +104,15 @@
           $5                    $25                   $100
      <-------------------><-----------------><------------------->
      |     TIER 1           |     TIER 2        |     TIER 3        |
-     | - 3 posicoes max     | - 6 posicoes max  | - 15 posicoes max |
-     | - 55% max/posicao    | - 20% max/posicao | - 15% max/posicao |
-     | - 80% max deployed   | - 80% max deployed| - 85% max deployed|
-     | - Kelly 20%          | - Kelly 15%       | - Kelly 20%       |
+     | - 6 posicoes max     | - 6 posicoes max  | - 15 posicoes max |
+     | - 40% max/posicao    | - 20% max/posicao | - 15% max/posicao |
+     | - 85% max deployed   | - 80% max deployed| - 85% max deployed|
+     | - Kelly 25%          | - Kelly 15%       | - Kelly 20%       |
      | - Min edge 1%        | - Min edge 2%     | - Min edge 2%     |
-     | - Min win prob 65%   | - Min win prob 70%| - Min win prob 60% |
+     | - Min win prob 55%   | - Min win prob 70%| - Min win prob 60% |
      | - Daily loss 10%     | - Daily loss 8%   | - Daily loss 6%   |
      | - Drawdown 25%       | - Drawdown 15%    | - Drawdown 12%    |
-     | - Categ max 55%      | - Categ max 30%   | - Categ max 30%   |
+     | - Categ max 40%      | - Categ max 30%   | - Categ max 30%   |
      |                      |                    |                    |
      | Estrategias/Strats:  | + Swing Trading   | + Market Making   |
      | - Arbitrage          |                    |                    |
@@ -379,14 +379,17 @@ Each signal must pass ALL 9 checks in sequence.
     +-- 2. Posicao duplicada?       ---- x REJEITA (mesmo market_id)
     +-- 3. Perda diaria excedida?   ---- x REJEITA (Tier1: 10%, Tier2: 8%, Tier3: 6%)
     +-- 4. Drawdown excedido?       ---- x REJEITA (Tier1: 25%, Tier2: 15%, Tier3: 12%)
-    +-- 5. Max posicoes atingido?   ---- x REJEITA (Tier1: 3, Tier2: 6, Tier3: 15)
+    +-- 5. Max posicoes atingido?   ---- x REJEITA (Tier1: 6, Tier2: 6, Tier3: 15)
     |                                     |
-    |                                     +--> REBALANCE? (se edge >= 3%)
+    |                                     +--> REBALANCE? (se edge >= min_rebalance_edge)
     |                                                |
-    +-- 6. Capital deployed > max?  ---- x REJEITA (Tier1: 80%, Tier2: 80%, Tier3: 85%)
-    +-- 7. Categoria saturada?      ---- x REJEITA (Tier1: 55%, Tier2: 30%, Tier3: 30%)
+    +-- 6. Capital deployed > max?  ---- x REJEITA (Tier1: 85%, Tier2: 80%, Tier3: 85%)
+    |                                     |
+    |                                     +--> REBALANCE? (tambem trigger)
+    |                                                |
+    +-- 7. Categoria saturada?      ---- x REJEITA (Tier1: 40%, Tier2: 30%, Tier3: 30%)
     +-- 8. Edge muito baixo?        ---- x REJEITA (ajustado por tempo + learner)
-    +-- 9. Win prob muito baixa?    ---- x REJEITA (Tier1: 65%, Tier2: 70%, Tier3: 60%)
+    +-- 9. Win prob muito baixa?    ---- x REJEITA (Tier1: 55%, Tier2: 70%, Tier3: 60%)
          |
          v
     [ok] APROVADO --> calcula tamanho via Kelly
@@ -515,8 +518,9 @@ Each signal must pass ALL 9 checks in sequence.
     |     Negativo -> 1.5+ (muito agressivo)              |
     |                                                      |
     |  4. Auto-Pause (por estrategia)                      |
-    |     Ultimos 10 trades < 30% win rate                |
-    |     E PnL total < -$1 -> PAUSA 24h                  |
+    |     Ultimos 5 trades < 30% win rate                 |
+    |     E PnL total < -$0.05 -> PAUSA 12h               |
+    |     Manual unpause via API (6h grace period)        |
     |                                                      |
     |  5. Calibration (confiabilidade das probabilidades)  |
     |     Se sinais de 95% ganham so 60% das vezes        |
@@ -552,17 +556,17 @@ Each signal must pass ALL 9 checks in sequence.
 
 ## Rebalanceamento Ativo / Active Rebalancing
 
-**Problema / Problem:** Bot com 6/6 posicoes (Tier 2 max) encontra 9+ sinais novos por ciclo, mas bloqueia todos com "Max positions reached." Fica esperando exits naturais (take profit, stop loss, resolucao) que podem levar dias.
+**Problema / Problem:** Bot com 6/6 posicoes ou >85% capital deployed encontra 9+ sinais novos por ciclo, mas bloqueia todos com "Max positions" ou "Max deployed capital." Fica esperando exits naturais (take profit, stop loss, resolucao) que podem levar dias.
 
 **Solucao / Solution:** Quando na capacidade maxima e um sinal de alta qualidade aparece, automaticamente fecha a pior posicao perdedora para abrir espaco.
 
 ### Fluxo Completo / Complete Flow
 
 ```
-    Sinal rejeitado por "Max positions reached"
+    Sinal rejeitado por "Max positions" ou "Max deployed capital"
          |
          v
-    [check 1] Edge do sinal >= 3%?
+    [check 1] Edge do sinal >= min_rebalance_edge (default 1.5%)?
          |
         NO --> Skip (sinal de baixa qualidade)
         YES
@@ -576,23 +580,17 @@ Each signal must pass ALL 9 checks in sequence.
          v
     [check 3] Encontrar posicoes perdedoras:
          |
-         +-- Para cada posicao aberta:
+         +-- Para cada posicao aberta (da pior para melhor):
          |   - unrealized_pnl > 0? --> SKIP (nunca fecha vencedoras)
          |   - size < 5 shares (live)? --> SKIP (nao pode vender no CLOB)
-         |   - held < 5 min? --> SKIP (nao vende o que acabou de comprar)
-         |   - OK? --> candidata, calcula PnL%
+         |   - held < min_hold_seconds (default 120s)? --> SKIP
+         |   - Tenta vender: falhou? --> tenta proxima candidata
+         |   - OK? --> fecha posicao
          |
          v
-    Nenhuma candidata? --> Skip (todas vencendo ou muito novas)
+    Nenhuma candidata vendavel? --> Skip
          |
-        TEM candidatas
-         |
-         v
-    Ordena por PnL% (mais negativo primeiro)
-    Seleciona a PIOR
-         |
-         v
-    Fecha posicao via order_manager.close_position()
+        FECHOU uma posicao
          |
          v
     Registra PnL --> Atualiza daily_pnl --> Loga activity
@@ -612,12 +610,13 @@ Each signal must pass ALL 9 checks in sequence.
 
 | # | Condicao / Condition | Motivo / Reason |
 |---|---|---|
-| 1 | Sinal rejeitado por "Max positions" | So rebalanceia quando slots estao cheios |
-| 2 | Edge do novo sinal >= 3% | So vale trocar por sinais de alta qualidade |
+| 1 | Sinal rejeitado por "Max positions" ou "Max deployed" | So rebalanceia quando slots/capital estao cheios |
+| 2 | Edge do novo sinal >= min_rebalance_edge (default 1.5%, tunable) | So vale trocar por sinais de qualidade |
 | 3 | Pior posicao com PnL <= 0 | Nunca fecha posicoes que estao ganhando |
 | 4 | Pior posicao com >= 5 shares | Polymarket CLOB exige minimo de 5 shares para vender |
-| 5 | Posicao mantida >= 5 minutos | Evita vender algo que acabou de comprar |
+| 5 | Posicao mantida >= min_hold_seconds (default 120s, tunable) | Evita vender algo que acabou de comprar |
 | 6 | Max 1 rebalance por ciclo | Evita churning (vender e comprar excessivamente) |
+| 7 | Se venda falha, tenta proxima candidata | Resiliente a ghost positions / balance issues |
 
 ### Exemplo de Rebalance / Rebalance Example
 
@@ -785,9 +784,9 @@ Every bot decision is logged to the `bot_activity` table and visible on the Acti
 ### Saida por Rebalance / Rebalance Exit
 
 Posicoes perdedoras podem ser fechadas a qualquer momento se:
-- Um sinal melhor (edge >= 3%) aparece
+- Um sinal melhor (edge >= min_rebalance_edge) aparece
 - A posicao tem PnL negativo
-- Tem >= 5 shares e foi mantida >= 5 minutos
+- Tem >= 5 shares e foi mantida >= min_hold_seconds
 
 ### Polymarket Constraints
 
@@ -807,7 +806,10 @@ Posicoes perdedoras podem ser fechadas a qualquer momento se:
 - `scan_interval_seconds` (5-3600)
 - `daily_target_pct` (0-100%)
 - Tier configs: max_positions, max_per_position_pct, max_deployed_pct, etc.
-- Strategy params: MAX_HOURS, quality filter thresholds
+- Strategy params: MAX_HOURS, quality filter thresholds, take-profit %
+- Learner params: pause_lookback, pause_win_rate, pause_min_loss, pause_cooldown_hours
+- Rebalance params: min_rebalance_edge, min_hold_seconds
+- Quality gate params: max_spread, min_volume, stop_loss, take_profit_price
 
 ### Via .env (requer restart):
 - `TRADING_MODE` (paper/live)
