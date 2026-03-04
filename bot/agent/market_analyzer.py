@@ -146,9 +146,14 @@ class MarketAnalyzer:
 
     async def check_exits(
         self, positions: list, tier: CapitalTier
-    ) -> list[str]:
-        """Check if any open positions should be exited. Returns market IDs to exit."""
-        exits = []
+    ) -> list[tuple[str, str]]:
+        """Check if any open positions should be exited.
+
+        Returns list of (market_id, exit_reason) tuples so callers can
+        propagate the reason through to the trade DB and learner.
+        """
+        exits: list[tuple[str, str]] = []
+        exited_ids: set[str] = set()
         for position in positions:
             # 1. Strategy-specific exit check
             strategy_matched = False
@@ -164,11 +169,18 @@ class MarketAnalyzer:
                             question=position.question,
                         )
                         if should_exit:
-                            exits.append(position.market_id)
+                            reason = (
+                                should_exit
+                                if isinstance(should_exit, str)
+                                else f"{strategy.name}_exit"
+                            )
+                            exits.append((position.market_id, reason))
+                            exited_ids.add(position.market_id)
                             logger.info(
                                 "exit_signal",
                                 strategy=strategy.name,
                                 market_id=position.market_id,
+                                reason=reason,
                             )
                     except Exception as e:
                         logger.error(
@@ -180,10 +192,11 @@ class MarketAnalyzer:
                     break
 
             # 2. Universal stop-loss for ALL positions (including unmatched strategies)
-            if position.market_id not in exits:
+            if position.market_id not in exited_ids:
                 exit_reason = self._check_stop_loss(position, strategy_matched)
                 if exit_reason:
-                    exits.append(position.market_id)
+                    exits.append((position.market_id, exit_reason))
+                    exited_ids.add(position.market_id)
                     logger.info(
                         "stop_loss_exit",
                         market_id=position.market_id,

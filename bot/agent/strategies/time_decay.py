@@ -69,6 +69,7 @@ class TimeDecayStrategy(BaseStrategy):
 
     EXIT_TAKE_PROFIT_PCT = 0.015  # 1.5% take-profit threshold (was 3%)
     EXIT_MIN_HOLD_HOURS = 4.0  # Min hold before take-profit triggers (was 12h)
+    EXIT_STOP_LOSS_PCT = 0.10   # 10% stop-loss (tighter than universal 15%)
 
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
@@ -78,6 +79,7 @@ class TimeDecayStrategy(BaseStrategy):
         "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
         "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
+        "EXIT_STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 1.0},
     }
 
     def __init__(self, *args, **kwargs):
@@ -321,10 +323,24 @@ class TimeDecayStrategy(BaseStrategy):
         return time_score * 0.6 + edge_score * 0.4
 
     async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
-        """Exit on take-profit only. Stop-loss is handled by the universal check."""
-        # Take-profit: lock in gains after minimum hold period
+        """Exit on strategy-specific stop-loss or take-profit."""
         avg_price = kwargs.get("avg_price", 0.0)
         created_at = kwargs.get("created_at")
+
+        # Strategy-specific stop-loss (tighter than universal 15%)
+        if avg_price > 0:
+            loss_pct = (avg_price - current_price) / avg_price
+            if loss_pct >= self.EXIT_STOP_LOSS_PCT:
+                self.logger.warning(
+                    "time_decay_stop_loss",
+                    market_id=market_id,
+                    avg_price=avg_price,
+                    current_price=current_price,
+                    loss_pct=f"{loss_pct:.1%}",
+                )
+                return True
+
+        # Take-profit: lock in gains after minimum hold period
         if avg_price > 0 and created_at is not None:
             profit_pct = (current_price - avg_price) / avg_price
             if profit_pct >= self.EXIT_TAKE_PROFIT_PCT:

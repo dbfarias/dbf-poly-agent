@@ -32,7 +32,7 @@ class PositionCloser:
         self.rebalance_resolution_shield_hours = 24.0
         self.rebalance_resolution_max_loss_pct = 0.15  # 15% loss overrides shield
 
-    async def close_position(self, pos) -> None:
+    async def close_position(self, pos, *, exit_reason: str = "strategy_exit") -> None:
         """Close a position and record PnL if immediately filled.
 
         In paper mode, the sell is always "filled" so we record immediately.
@@ -72,7 +72,7 @@ class PositionCloser:
                         trade.id, "filled", pnl=pnl, filled_size=pos.size,
                     )
                     await repo.close_trade_for_position(
-                        pos.market_id, pnl, "strategy_exit",
+                        pos.market_id, pnl, exit_reason,
                     )
             except Exception as e:
                 logger.error("close_position_db_error", error=str(e))
@@ -82,7 +82,7 @@ class PositionCloser:
                 question=pos.question,
                 strategy=pos.strategy,
                 pnl=pnl,
-                exit_reason="strategy_exit",
+                exit_reason=exit_reason,
             )
             await event_bus.emit(
                 "trade_filled",
@@ -188,16 +188,20 @@ class PositionCloser:
             size=shares,
         )
 
-    async def try_rebalance(self, signal, positions):
+    async def try_rebalance(self, signal, positions, *, urgency: float = 1.0):
         """Close the weakest losing position to make room for a better signal.
 
         Returns (closed_position, close_trade) if successful, None otherwise.
         The caller should check close_trade.status to decide whether to record
         PnL immediately (filled) or defer to handle_sell_fill (pending).
+
+        When urgency > 1.0 (behind daily target), the minimum edge threshold is
+        lowered proportionally to allow more aggressive capital rotation.
         """
         min_sell_notional = 1.0  # Match CLOB minimum notional
 
-        if signal.edge < self.min_rebalance_edge:
+        effective_min_edge = self.min_rebalance_edge / max(urgency, 1.0)
+        if signal.edge < effective_min_edge:
             return None
 
         candidates = []

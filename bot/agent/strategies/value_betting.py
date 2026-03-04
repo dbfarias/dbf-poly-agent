@@ -38,6 +38,11 @@ class ValueBettingStrategy(BaseStrategy):
     EXIT_TAKE_PROFIT_PCT = 0.015  # 1.5% take-profit threshold (was 3%)
     EXIT_MIN_HOLD_HOURS = 2.0  # Min hold before take-profit triggers (was 6h)
 
+    # Category-based edge adjustment (sports markets significantly outperform)
+    CATEGORY_EDGE_BOOST = 0.20   # +20% edge for boosted categories
+    CATEGORY_EDGE_PENALTY = 0.15  # -15% edge for non-boosted categories
+    BOOSTED_CATEGORIES = {"Sports"}
+
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
@@ -47,6 +52,8 @@ class ValueBettingStrategy(BaseStrategy):
         "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MIN_BOOK_VOLUME": {"type": float, "min": 0.0, "max": 10000.0},
+        "CATEGORY_EDGE_BOOST": {"type": float, "min": 0.0, "max": 1.0},
+        "CATEGORY_EDGE_PENALTY": {"type": float, "min": 0.0, "max": 1.0},
     }
 
     def __init__(self, *args, **kwargs):
@@ -147,6 +154,14 @@ class ValueBettingStrategy(BaseStrategy):
         has_no_token = len(token_ids) >= 2
 
         edge_val = abs(imbalance) * 0.1
+
+        # Apply category-based edge adjustment (sports outperform historically)
+        category = getattr(market, "category", None) or ""
+        if category in self.BOOSTED_CATEGORIES:
+            edge_val *= 1.0 + self.CATEGORY_EDGE_BOOST
+        else:
+            edge_val *= 1.0 - self.CATEGORY_EDGE_PENALTY
+
         if edge_val < self.MIN_EDGE:
             return None
 

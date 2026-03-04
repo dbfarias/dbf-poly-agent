@@ -199,6 +199,47 @@ async def test_close_position_live_pending():
 
 
 # ---------------------------------------------------------------------------
+# 2b. close_position — exit_reason propagated to DB
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_close_position_propagates_exit_reason():
+    """exit_reason param is passed to close_trade_for_position and log."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position()
+        trade = _make_trade(status="filled", trade_id=8)
+        om.close_position = AsyncMock(return_value=trade)
+        pf.record_trade_close = AsyncMock(return_value=0.25)
+
+        mock_session = AsyncMock()
+        mock_repo = MagicMock()
+        mock_repo.update_status = AsyncMock()
+        mock_repo.close_trade_for_position = AsyncMock()
+
+        mocks["async_session"].return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mocks["async_session"].return_value.__aexit__ = AsyncMock(return_value=False)
+        mocks["event_bus"].emit = AsyncMock()
+
+        with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+            await closer.close_position(pos, exit_reason="stop_loss (15% loss)")
+
+        # Verify exit_reason propagated to DB
+        mock_repo.close_trade_for_position.assert_awaited_once_with(
+            pos.market_id, 0.25, "stop_loss (15% loss)",
+        )
+
+        # Verify exit_reason propagated to activity log
+        log_call = mocks["log_closed"].call_args
+        assert log_call.kwargs["exit_reason"] == "stop_loss (15% loss)"
+    finally:
+        _stop_patches(patches)
+
+
+# ---------------------------------------------------------------------------
 # 3. close_position — order_manager returns None (early return)
 # ---------------------------------------------------------------------------
 
@@ -641,5 +682,57 @@ async def test_try_rebalance_live_allows_above_notional():
         result = await closer.try_rebalance(signal, [small])
         assert result is not None
         om.close_position.assert_awaited_once()
+    finally:
+        _stop_patches(patches)
+
+
+# ---------------------------------------------------------------------------
+# 17. try_rebalance — urgency lowers effective min edge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_try_rebalance_urgency_lowers_threshold():
+    """With urgency=1.5, effective min_rebalance_edge is lowered."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        # min_rebalance_edge = 0.015 (default)
+        # Signal edge = 0.01 → normally rejected (0.01 < 0.015)
+        # With urgency=1.5 → effective_min = 0.015 / 1.5 = 0.01 → accepted
+        signal = _make_signal(edge=0.01)
+        pos = _make_position(
+            unrealized_pnl=-0.50,
+            created_at=datetime(2025, 12, 1, tzinfo=timezone.utc),
+        )
+        trade = _make_trade(status="filled")
+        om.close_position = AsyncMock(return_value=trade)
+
+        result = await closer.try_rebalance(signal, [pos], urgency=1.5)
+        assert result is not None
+    finally:
+        _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_try_rebalance_no_urgency_uses_original():
+    """With urgency=1.0, original min_rebalance_edge applies."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        # Signal edge = 0.01 → rejected (0.01 < 0.015)
+        signal = _make_signal(edge=0.01)
+        pos = _make_position(
+            unrealized_pnl=-0.50,
+            created_at=datetime(2025, 12, 1, tzinfo=timezone.utc),
+        )
+
+        result = await closer.try_rebalance(signal, [pos], urgency=1.0)
+        assert result is None
+        om.close_position.assert_not_awaited()
     finally:
         _stop_patches(patches)

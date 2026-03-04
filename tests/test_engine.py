@@ -1651,7 +1651,9 @@ class TestTradingCycleIntegration:
         engine.portfolio.positions = [pos]
 
         engine.analyzer = AsyncMock()
-        engine.analyzer.check_exits = AsyncMock(return_value=["mkt_exit"])
+        engine.analyzer.check_exits = AsyncMock(
+            return_value=[("mkt_exit", "stop_loss (15% loss)")]
+        )
 
         engine.order_manager = AsyncMock()
         engine.risk_manager = MagicMock()
@@ -1663,7 +1665,9 @@ class TestTradingCycleIntegration:
         engine.analyzer.check_exits.assert_called_once_with(
             [pos], CapitalTier.TIER1
         )
-        engine.closer.close_position.assert_called_once_with(pos)
+        engine.closer.close_position.assert_called_once_with(
+            pos, exit_reason="stop_loss (15% loss)"
+        )
 
     @pytest.mark.asyncio
     async def test_evaluate_signals_returns_counts(self):

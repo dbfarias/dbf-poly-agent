@@ -41,6 +41,7 @@ async def get_trade_history(
             reasoning=t.reasoning,
             status=t.status,
             pnl=t.pnl,
+            exit_reason=getattr(t, "exit_reason", None),
             is_paper=t.is_paper,
         )
         for t in trades

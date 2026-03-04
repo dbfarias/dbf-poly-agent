@@ -75,6 +75,7 @@ class TradeResponse(BaseModel):
     status: str
     pnl: float
     entry_price: float = 0.0
+    exit_reason: str | None = None
     is_paper: bool
 
 

@@ -328,3 +328,30 @@ class TestDynamicMaxPrice:
         signal = await strategy._evaluate_market(market, now, HOURS_SHORT)
         assert signal is not None
         assert signal.market_price == 0.95
+
+
+# ---------------------------------------------------------------------------
+# Strategy-specific stop-loss (10%)
+# ---------------------------------------------------------------------------
+
+
+class TestTimeDecayStopLoss:
+    async def test_stop_loss_triggers_at_10pct(self, strategy):
+        """10% loss from entry → should_exit returns True."""
+        # avg=0.90, current=0.80 → 11.1% loss → triggers
+        result = await strategy.should_exit(
+            "mkt1", 0.80, avg_price=0.90, created_at=None,
+        )
+        assert result is True
+
+    async def test_stop_loss_no_trigger_below_threshold(self, strategy):
+        """8% loss from entry → should_exit returns False."""
+        # avg=0.90, current=0.828 → 8% loss → no trigger
+        result = await strategy.should_exit(
+            "mkt1", 0.828, avg_price=0.90, created_at=None,
+        )
+        assert result is False
+
+    async def test_stop_loss_param_in_mutable(self):
+        """EXIT_STOP_LOSS_PCT is in _MUTABLE_PARAMS."""
+        assert "EXIT_STOP_LOSS_PCT" in TimeDecayStrategy._MUTABLE_PARAMS

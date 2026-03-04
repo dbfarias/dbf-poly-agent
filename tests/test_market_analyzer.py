@@ -466,6 +466,102 @@ class TestCheckExitsQuestionKwarg:
         assert call_kwargs.kwargs.get("question") == "Will Bitcoin hit $100k?"
 
 
+class TestCheckExitsReturnFormat:
+    """Verify check_exits returns list[tuple[str, str]] with exit reasons."""
+
+    @pytest.mark.asyncio
+    async def test_strategy_exit_returns_tuple_with_name_exit(self):
+        """Strategy returning True → (market_id, '{name}_exit')."""
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.should_exit.return_value = True
+
+        cache = MarketCache(default_ttl=60)
+        analyzer = MarketAnalyzer(
+            gamma_client=MagicMock(), cache=cache, strategies=[mock_strategy],
+        )
+
+        pos = _position(strategy="time_decay", avg_price=0.80, current_price=0.85)
+
+        from bot.config import CapitalTier
+        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+
+        assert len(exits) == 1
+        market_id, reason = exits[0]
+        assert market_id == "mkt1"
+        assert reason == "time_decay_exit"
+
+    @pytest.mark.asyncio
+    async def test_strategy_exit_returns_string_reason(self):
+        """Strategy returning a string → that string used as reason."""
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "value_betting"
+        mock_strategy.should_exit.return_value = "vb_take_profit_3pct"
+
+        cache = MarketCache(default_ttl=60)
+        analyzer = MarketAnalyzer(
+            gamma_client=MagicMock(), cache=cache, strategies=[mock_strategy],
+        )
+
+        pos = _position(strategy="value_betting", avg_price=0.80, current_price=0.85)
+
+        from bot.config import CapitalTier
+        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+
+        assert len(exits) == 1
+        _, reason = exits[0]
+        assert reason == "vb_take_profit_3pct"
+
+    @pytest.mark.asyncio
+    async def test_stop_loss_exit_returns_reason_from_check_stop_loss(self):
+        """Stop-loss exit → reason string from _check_stop_loss."""
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.should_exit.return_value = False
+
+        cache = MarketCache(default_ttl=60)
+        analyzer = MarketAnalyzer(
+            gamma_client=MagicMock(), cache=cache, strategies=[mock_strategy],
+        )
+
+        # Price dropped 20% → triggers 15% stop-loss
+        created = datetime.now(timezone.utc) - timedelta(hours=2)
+        pos = _position(
+            strategy="time_decay", avg_price=0.80, current_price=0.60,
+            created_at=created,
+        )
+
+        from bot.config import CapitalTier
+        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+
+        assert len(exits) == 1
+        _, reason = exits[0]
+        assert "stop_loss" in reason
+
+    @pytest.mark.asyncio
+    async def test_no_exit_returns_empty_list(self):
+        """No exit conditions met → empty list."""
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.should_exit.return_value = False
+
+        cache = MarketCache(default_ttl=60)
+        analyzer = MarketAnalyzer(
+            gamma_client=MagicMock(), cache=cache, strategies=[mock_strategy],
+        )
+
+        created = datetime.now(timezone.utc) - timedelta(hours=2)
+        pos = _position(
+            strategy="time_decay", avg_price=0.80, current_price=0.79,
+            created_at=created,
+        )
+
+        from bot.config import CapitalTier
+        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+
+        assert exits == []
+
+
 class TestDisabledStrategies:
     @pytest.mark.asyncio
     async def test_disabled_strategy_skipped_in_scan(self):

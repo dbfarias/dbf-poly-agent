@@ -469,13 +469,13 @@ class TradingEngine:
     async def _process_exits(self, tier) -> None:
         """Check and close positions that meet exit criteria."""
         exits = await self.analyzer.check_exits(self.portfolio.positions, tier)
-        for market_id in exits:
+        for market_id, exit_reason in exits:
             pos = next(
                 (p for p in self.portfolio.positions if p.market_id == market_id),
                 None,
             )
             if pos:
-                await self.closer.close_position(pos)
+                await self.closer.close_position(pos, exit_reason=exit_reason)
 
     async def _evaluate_signals(self, tier) -> tuple[int, int, int]:
         """Scan markets, evaluate signals, and execute approved trades.
@@ -607,8 +607,13 @@ class TradingEngine:
                     ("Max positions" in reason or "Max deployed" in reason)
                     and not self._rebalanced_this_cycle
                 ):
+                    _urgency = (
+                        self._learner_adjustments.urgency_multiplier
+                        if self._learner_adjustments
+                        else 1.0
+                    )
                     rebalance_result = await self.closer.try_rebalance(
-                        signal, self.portfolio.positions
+                        signal, self.portfolio.positions, urgency=_urgency
                     )
                     # Mark attempted even if it fails, to avoid retrying
                     # multiple times in the same cycle
