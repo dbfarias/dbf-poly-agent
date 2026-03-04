@@ -98,6 +98,11 @@ class PerformanceLearner:
         self.PAUSE_MIN_LOSS = PAUSE_MIN_LOSS
         self.PAUSE_COOLDOWN_HOURS = PAUSE_COOLDOWN_HOURS
 
+        # Multiplier bounds and min trades (configurable via admin)
+        self.MULTIPLIER_MIN = MULTIPLIER_MIN
+        self.MULTIPLIER_MAX = MULTIPLIER_MAX
+        self.MIN_TRADES_FOR_ADJUSTMENT = MIN_TRADES_FOR_ADJUSTMENT
+
         # Daily target context (set by engine each cycle)
         self._daily_pnl: float = 0.0
         self._daily_equity: float = 0.0
@@ -275,7 +280,7 @@ class PerformanceLearner:
             return 0.8
 
         total = sum(s.total_trades for s in category_trades)
-        if total < MIN_TRADES_FOR_ADJUSTMENT:
+        if total < self.MIN_TRADES_FOR_ADJUSTMENT:
             return 0.8
 
         wins = sum(s.winning_trades for s in category_trades)
@@ -443,7 +448,7 @@ class PerformanceLearner:
 
     def _compute_edge_multiplier(self, stats: StrategyStats) -> float:
         """Compute edge multiplier from stats, clamped to safe range."""
-        if stats.total_trades < MIN_TRADES_FOR_ADJUSTMENT:
+        if stats.total_trades < self.MIN_TRADES_FOR_ADJUSTMENT:
             return 1.2  # Cautious until enough data
 
         win_rate = stats.actual_win_rate
@@ -455,7 +460,7 @@ class PerformanceLearner:
         else:
             multiplier = 1.5
 
-        return max(MULTIPLIER_MIN, min(MULTIPLIER_MAX, multiplier))
+        return max(self.MULTIPLIER_MIN, min(self.MULTIPLIER_MAX, multiplier))
 
     def _compute_category_confidences(
         self, stats: dict[tuple[str, str], StrategyStats]
@@ -469,7 +474,7 @@ class PerformanceLearner:
         result: dict[str, float] = {}
         for category, cat_stats in by_category.items():
             total = sum(s.total_trades for s in cat_stats)
-            if total < MIN_TRADES_FOR_ADJUSTMENT:
+            if total < self.MIN_TRADES_FOR_ADJUSTMENT:
                 result[category] = 0.8
                 continue
 

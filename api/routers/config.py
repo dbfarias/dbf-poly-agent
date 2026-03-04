@@ -52,6 +52,9 @@ def _get_quality_params(engine) -> dict:
         result["pause_win_rate"] = learner.PAUSE_WIN_RATE
         result["pause_min_loss"] = learner.PAUSE_MIN_LOSS
         result["pause_cooldown_hours"] = learner.PAUSE_COOLDOWN_HOURS
+        result["multiplier_min"] = learner.MULTIPLIER_MIN
+        result["multiplier_max"] = learner.MULTIPLIER_MAX
+        result["min_trades_for_adjustment"] = learner.MIN_TRADES_FOR_ADJUSTMENT
     # PositionCloser params
     if hasattr(engine, "closer"):
         closer = engine.closer
@@ -173,6 +176,11 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 "pause_win_rate": ("learner", "PAUSE_WIN_RATE", float, 0.0, 1.0),
                 "pause_min_loss": ("learner", "PAUSE_MIN_LOSS", float, -100.0, 0.0),
                 "pause_cooldown_hours": ("learner", "PAUSE_COOLDOWN_HOURS", float, 1.0, 168.0),
+                "multiplier_min": ("learner", "MULTIPLIER_MIN", float, 0.1, 1.0),
+                "multiplier_max": ("learner", "MULTIPLIER_MAX", float, 1.0, 5.0),
+                "min_trades_for_adjustment": (
+                    "learner", "MIN_TRADES_FOR_ADJUSTMENT", int, 1, 50,
+                ),
                 # PositionCloser params
                 "min_rebalance_edge": ("closer", "min_rebalance_edge", float, 0.0, 0.5),
                 "min_hold_seconds": ("closer", "min_hold_seconds", int, 0, 3600),
