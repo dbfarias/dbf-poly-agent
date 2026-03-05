@@ -26,7 +26,10 @@ class PositionCloser:
         self.cache = cache
         # Rebalance params (configurable via admin)
         self.min_rebalance_edge = 0.015  # 1.5% edge minimum
-        self.min_hold_seconds = 120  # 2 min minimum hold
+        self.min_hold_seconds = 120  # 2 min default (fallback)
+        # Per-strategy hold overrides: strategy_name → seconds
+        # Populated from strategy.MIN_HOLD_SECONDS by engine at init
+        self.strategy_min_hold: dict[str, int] = {}
         # Near-resolution protection: skip rebalance if market resolves
         # within this many hours (unless loss is severe)
         self.rebalance_resolution_shield_hours = 24.0
@@ -212,7 +215,8 @@ class PositionCloser:
             created = pos.created_at
             if created is not None and created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
-            if created and (now - created).total_seconds() < self.min_hold_seconds:
+            hold_limit = self.strategy_min_hold.get(pos.strategy, self.min_hold_seconds)
+            if created and (now - created).total_seconds() < hold_limit:
                 continue
             if pos.unrealized_pnl > 0:
                 continue

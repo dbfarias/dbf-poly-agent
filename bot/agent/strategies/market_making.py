@@ -24,9 +24,13 @@ class MarketMakingStrategy(BaseStrategy):
     name = "market_making"
     min_tier = CapitalTier.TIER3
 
+    # MM positions are managed actively
+    MIN_HOLD_SECONDS = 60  # 1 min
+
     _MUTABLE_PARAMS = {
         "MIN_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
         "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
     def __init__(self, *args, **kwargs):

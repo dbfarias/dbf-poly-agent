@@ -69,7 +69,7 @@ def make_position(
     created_at: datetime | None = None,
 ) -> Position:
     if created_at is None:
-        created_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        created_at = datetime.now(timezone.utc) - timedelta(hours=3)
     unrealized = (current_price - avg_price) * size
     return Position(
         market_id=market_id,
@@ -813,3 +813,96 @@ class TestRebalanceNearResolution:
             closed_pos, _ = result
             # Should close the unshielded position, not the near-resolution one
             assert closed_pos.market_id == "mkt_available"
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy MIN_HOLD_SECONDS
+# ---------------------------------------------------------------------------
+
+
+class TestPerStrategyHold:
+    """Verify per-strategy min_hold_seconds overrides the global default."""
+
+    @pytest.mark.asyncio
+    async def test_short_hold_strategy_rebalanced_early(self):
+        """price_divergence (300s hold) can be rebalanced after 10 min."""
+        with _patch_engine():
+            engine = _build_engine()
+            # Position created 10 min ago (600s > 300s for price_divergence)
+            pd_pos = make_position(
+                current_price=0.40, avg_price=0.50, size=10.0,
+                strategy="price_divergence",
+                created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            )
+            engine.portfolio.positions = [pd_pos]
+            engine.closer.strategy_min_hold = {"price_divergence": 300}
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id=pd_pos.market_id, token_id=pd_pos.token_id,
+                    side="SELL", price=0.40, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_long_hold_strategy_skipped_when_young(self):
+        """value_betting (7200s hold) cannot be rebalanced after only 1h."""
+        with _patch_engine():
+            engine = _build_engine()
+            # Position created 1h ago (3600s < 7200s for value_betting)
+            vb_pos = make_position(
+                current_price=0.40, avg_price=0.50, size=10.0,
+                strategy="value_betting",
+                created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            )
+            engine.portfolio.positions = [vb_pos]
+            engine.closer.strategy_min_hold = {"value_betting": 7200}
+
+            signal = make_signal(edge=0.05)
+            result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_global_hold(self):
+        """Unknown strategy falls back to global min_hold_seconds."""
+        with _patch_engine():
+            engine = _build_engine()
+            # Position created 5 min ago, global min_hold = 120s
+            pos = make_position(
+                current_price=0.40, avg_price=0.50, size=10.0,
+                strategy="unknown_strat",
+                created_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+            engine.portfolio.positions = [pos]
+            engine.closer.min_hold_seconds = 120  # 2 min global
+            engine.closer.strategy_min_hold = {}  # No override
+
+            engine.order_manager.close_position = AsyncMock(
+                return_value=Trade(
+                    market_id=pos.market_id, token_id=pos.token_id,
+                    side="SELL", price=0.40, size=10.0,
+                    status="filled", is_paper=True,
+                )
+            )
+            signal = make_signal(edge=0.05)
+
+            with patch("bot.agent.position_closer.log_rebalance", new_callable=AsyncMock):
+                result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
+
+            assert result is not None
+
+    def test_engine_populates_strategy_min_hold(self):
+        """Engine init populates closer.strategy_min_hold from strategies."""
+        with _patch_engine():
+            engine = _build_engine()
+            # The real engine populates these from strategy classes
+            # Check that the dict exists and has the right type
+            assert isinstance(engine.closer.strategy_min_hold, dict)

@@ -44,6 +44,9 @@ class SwingTradingStrategy(BaseStrategy):
     name = "swing_trading"
     min_tier = CapitalTier.TIER1
 
+    # Swing trades are short-term momentum plays
+    MIN_HOLD_SECONDS = 1800  # 30 min
+
     _MUTABLE_PARAMS = {
         "TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 0.5},
         "STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 0.5},
@@ -55,6 +58,7 @@ class SwingTradingStrategy(BaseStrategy):
         "MIN_MOMENTUM_TICKS": {"type": int, "min": 3, "max": 10},
         "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_VOLUME_24H": {"type": float, "min": 0.0, "max": 10000.0},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
     def __init__(self, *args, **kwargs):

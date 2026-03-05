@@ -138,6 +138,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                     for key, value in params.items():
                         if strategy.update_param(key, value):
                             changes.append(f"{strategy.name}.{key}={value}")
+                            # Sync per-strategy hold to closer
+                            if key == "MIN_HOLD_SECONDS":
+                                engine.closer.strategy_min_hold[strategy.name] = int(value)
         except RuntimeError:
             pass
 

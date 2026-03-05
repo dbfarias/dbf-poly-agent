@@ -24,8 +24,12 @@ class ArbitrageStrategy(BaseStrategy):
     name = "arbitrage"
     min_tier = CapitalTier.TIER1
 
+    # Fast arb: positions should close quickly
+    MIN_HOLD_SECONDS = 60  # 1 min
+
     _MUTABLE_PARAMS = {
         "MIN_ARB_EDGE": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
     def __init__(self, *args, **kwargs):

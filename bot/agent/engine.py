@@ -130,6 +130,12 @@ class TradingEngine:
             self.gamma_client, self.cache, strategies, self.clob_client
         )
 
+        # Populate per-strategy hold times on closer
+        for strat in strategies:
+            hold = getattr(strat, "MIN_HOLD_SECONDS", None)
+            if hold is not None:
+                self.closer.strategy_min_hold[strat.name] = hold
+
         # State
         self._running = False
         self._cycle_count = 0

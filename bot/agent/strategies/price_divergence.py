@@ -69,6 +69,9 @@ class PriceDivergenceStrategy(BaseStrategy):
     name = "price_divergence"
     min_tier = CapitalTier.TIER1
 
+    # Short hold for fast-resolving crypto/sentiment markets
+    MIN_HOLD_SECONDS = 300  # 5 min (crypto markets resolve fast)
+
     _MUTABLE_PARAMS = {
         "MIN_DIVERGENCE_PCT": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
@@ -80,6 +83,7 @@ class PriceDivergenceStrategy(BaseStrategy):
         "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
     def __init__(self, *args, research_cache: ResearchCache | None = None, **kwargs):

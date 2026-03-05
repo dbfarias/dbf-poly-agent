@@ -43,6 +43,9 @@ class ValueBettingStrategy(BaseStrategy):
     CATEGORY_EDGE_PENALTY = 0.15  # -15% edge for non-boosted categories
     BOOSTED_CATEGORIES = {"Sports"}
 
+    # Anti-churn: minimum hold before rebalance can sell this strategy's positions
+    MIN_HOLD_SECONDS = 7200  # 2h (sports resolve in hours, need patience)
+
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
@@ -54,6 +57,7 @@ class ValueBettingStrategy(BaseStrategy):
         "MIN_BOOK_VOLUME": {"type": float, "min": 0.0, "max": 10000.0},
         "CATEGORY_EDGE_BOOST": {"type": float, "min": 0.0, "max": 1.0},
         "CATEGORY_EDGE_PENALTY": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
     def __init__(self, *args, **kwargs):

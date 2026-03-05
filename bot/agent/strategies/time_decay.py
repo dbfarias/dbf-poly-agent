@@ -71,6 +71,9 @@ class TimeDecayStrategy(BaseStrategy):
     EXIT_MIN_HOLD_HOURS = 4.0  # Min hold before take-profit triggers (was 12h)
     EXIT_STOP_LOSS_PCT = 0.10   # 10% stop-loss (tighter than universal 15%)
 
+    # Anti-churn: minimum hold before rebalance can sell this strategy's positions
+    MIN_HOLD_SECONDS = 7200  # 2h (high-prob markets need patience to resolve)
+
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_PRICE": {"type": float, "min": 0.0, "max": 1.0},
@@ -80,6 +83,7 @@ class TimeDecayStrategy(BaseStrategy):
         "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
         "EXIT_STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 1.0},
+        "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
     def __init__(self, *args, **kwargs):
