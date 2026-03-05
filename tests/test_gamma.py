@@ -1168,3 +1168,207 @@ class TestGetHighVolumeMarkets:
             result = await client.get_high_volume_markets()
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_new_markets
+# ---------------------------------------------------------------------------
+
+
+class TestGetNewMarkets:
+    @pytest.mark.asyncio
+    async def test_returns_markets_above_min_volume(self):
+        """Should filter markets by minimum total volume."""
+        client = make_gamma_client()
+        high_vol = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xhigh"), "volume": "200.0"}
+            )
+        )
+        low_vol = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xlow"), "volume": "5.0"}
+            )
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[high_vol, low_vol]),
+        ):
+            result = await client.get_new_markets(min_volume=10.0)
+
+        assert len(result) == 1
+        assert result[0].condition_id == "0xhigh"
+
+    @pytest.mark.asyncio
+    async def test_filters_archived_and_non_accepting(self):
+        """Should exclude archived and non-accepting markets."""
+        client = make_gamma_client()
+        archived = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xarch"), "archived": True}
+            )
+        )
+        not_accepting = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xna"), "acceptingOrders": False}
+            )
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[archived, not_accepting]),
+        ):
+            result = await client.get_new_markets()
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_passes_correct_params(self):
+        """Should pass order=startDate ascending=false to Gamma API."""
+        client = make_gamma_client()
+        mock_fetch = AsyncMock(return_value=[])
+
+        with patch.object(client, "_fetch_gamma_markets", new=mock_fetch):
+            await client.get_new_markets(limit=50)
+
+        params = mock_fetch.call_args[0][0]
+        assert params["order"] == "startDate"
+        assert params["ascending"] == "false"
+        assert params["limit"] == 50
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_exception(self):
+        """Should return empty list when Gamma API fails."""
+        client = make_gamma_client()
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(side_effect=Exception("timeout")),
+        ):
+            result = await client.get_new_markets()
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_trending_markets
+# ---------------------------------------------------------------------------
+
+
+class TestGetTrendingMarkets:
+    @pytest.mark.asyncio
+    async def test_returns_markets_above_min_volume_24h(self):
+        """Should filter markets by minimum 24h volume."""
+        client = make_gamma_client()
+        trending = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xtrend"), "volume24hr": 500.0}
+            )
+        )
+        low_activity = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xlow"), "volume24hr": 20.0}
+            )
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[trending, low_activity]),
+        ):
+            result = await client.get_trending_markets(min_volume_24h=100.0)
+
+        assert len(result) == 1
+        assert result[0].condition_id == "0xtrend"
+
+    @pytest.mark.asyncio
+    async def test_passes_correct_params(self):
+        """Should pass order=volume24hr ascending=false to Gamma API."""
+        client = make_gamma_client()
+        mock_fetch = AsyncMock(return_value=[])
+
+        with patch.object(client, "_fetch_gamma_markets", new=mock_fetch):
+            await client.get_trending_markets(limit=75)
+
+        params = mock_fetch.call_args[0][0]
+        assert params["order"] == "volume24hr"
+        assert params["ascending"] == "false"
+        assert params["limit"] == 75
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_exception(self):
+        """Should return empty list when Gamma API fails."""
+        client = make_gamma_client()
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(side_effect=Exception("timeout")),
+        ):
+            result = await client.get_trending_markets()
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_breaking_markets
+# ---------------------------------------------------------------------------
+
+
+class TestGetBreakingMarkets:
+    @pytest.mark.asyncio
+    async def test_returns_recent_high_activity_markets(self):
+        """Should return markets with volume_24h above threshold."""
+        client = make_gamma_client()
+        breaking = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xbreak"), "volume24hr": 200.0}
+            )
+        )
+        quiet = GammaMarket.model_validate(
+            _transform_gamma_api_market(
+                {**make_gamma_market_dict(condition_id="0xquiet"), "volume24hr": 10.0}
+            )
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[breaking, quiet]),
+        ):
+            result = await client.get_breaking_markets(min_volume_24h=50.0)
+
+        assert len(result) == 1
+        assert result[0].condition_id == "0xbreak"
+
+    @pytest.mark.asyncio
+    async def test_passes_start_date_min_param(self):
+        """Should include start_date_min param based on max_age_hours."""
+        client = make_gamma_client()
+        mock_fetch = AsyncMock(return_value=[])
+
+        with patch.object(client, "_fetch_gamma_markets", new=mock_fetch):
+            await client.get_breaking_markets(max_age_hours=12.0)
+
+        params = mock_fetch.call_args[0][0]
+        assert "start_date_min" in params
+        assert params["order"] == "volume24hr"
+        assert params["ascending"] == "false"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_exception(self):
+        """Should return empty list when Gamma API fails."""
+        client = make_gamma_client()
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(side_effect=Exception("network")),
+        ):
+            result = await client.get_breaking_markets()
+
+        assert result == []

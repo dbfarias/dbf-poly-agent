@@ -327,6 +327,89 @@ class GammaClient:
         markets = await self.get_markets(limit=limit)
         return [m for m in markets if m.accepting_orders]
 
+    async def get_new_markets(
+        self, limit: int = 100, min_volume: float = 10.0,
+    ) -> list[GammaMarket]:
+        """Fetch recently created markets (newest first).
+
+        Discovers markets too new to appear in top-500-by-volume,
+        giving strategies early access to fresh opportunities.
+        """
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": limit,
+            "order": "startDate",
+            "ascending": "false",
+        }
+        try:
+            markets = await self._fetch_gamma_markets(params)
+        except Exception as e:
+            logger.warning("gamma_new_markets_failed", error=str(e))
+            return []
+        return [
+            m for m in markets
+            if m.accepting_orders and not m.archived and m.volume >= min_volume
+        ]
+
+    async def get_trending_markets(
+        self, limit: int = 100, min_volume_24h: float = 100.0,
+    ) -> list[GammaMarket]:
+        """Fetch markets with highest 24h volume (trending).
+
+        Surfaces markets gaining traction that may not rank in top-500
+        by total volume yet.
+        """
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": limit,
+            "order": "volume24hr",
+            "ascending": "false",
+        }
+        try:
+            markets = await self._fetch_gamma_markets(params)
+        except Exception as e:
+            logger.warning("gamma_trending_markets_failed", error=str(e))
+            return []
+        return [
+            m for m in markets
+            if m.accepting_orders and not m.archived and m.volume_24h >= min_volume_24h
+        ]
+
+    async def get_breaking_markets(
+        self,
+        limit: int = 50,
+        max_age_hours: float = 24.0,
+        min_volume_24h: float = 50.0,
+    ) -> list[GammaMarket]:
+        """Fetch breaking markets: recently created + high activity.
+
+        Approximation of Polymarket /breaking — new markets with significant
+        24h volume indicate breaking news events.
+        """
+        now = datetime.now(timezone.utc)
+        start_min = (now - timedelta(hours=max_age_hours)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ",
+        )
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": limit,
+            "start_date_min": start_min,
+            "order": "volume24hr",
+            "ascending": "false",
+        }
+        try:
+            markets = await self._fetch_gamma_markets(params)
+        except Exception as e:
+            logger.warning("gamma_breaking_markets_failed", error=str(e))
+            return []
+        return [
+            m for m in markets
+            if m.accepting_orders and not m.archived and m.volume_24h >= min_volume_24h
+        ]
+
     async def search_markets(self, query: str, limit: int = 20) -> list[GammaMarket]:
         """Search markets by question text."""
         markets = await self.get_active_markets(limit=200)

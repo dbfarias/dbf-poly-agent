@@ -605,3 +605,165 @@ class TestDisabledStrategies:
 
         mock_strategy.scan.assert_called_once()
         assert len(signals) == 1
+
+
+# ---------------------------------------------------------------------------
+# _merge_markets helper
+# ---------------------------------------------------------------------------
+
+
+class TestMergeMarkets:
+    def test_adds_new_markets(self):
+        m1 = _make_gamma_market(market_id="0x1")
+        m2 = _make_gamma_market(market_id="0x2")
+        markets = [m1]
+        existing_ids = {m1.id}
+
+        added = MarketAnalyzer._merge_markets(markets, existing_ids, [m2])
+
+        assert added == 1
+        assert len(markets) == 2
+        assert "0x2" in existing_ids
+
+    def test_skips_duplicates(self):
+        m1 = _make_gamma_market(market_id="0x1")
+        dup = _make_gamma_market(market_id="0x1")
+        markets = [m1]
+        existing_ids = {m1.id}
+
+        added = MarketAnalyzer._merge_markets(markets, existing_ids, [dup])
+
+        assert added == 0
+        assert len(markets) == 1
+
+    def test_mixed_new_and_dup(self):
+        m1 = _make_gamma_market(market_id="0x1")
+        m2 = _make_gamma_market(market_id="0x2")
+        dup = _make_gamma_market(market_id="0x1")
+        markets = [m1]
+        existing_ids = {m1.id}
+
+        added = MarketAnalyzer._merge_markets(markets, existing_ids, [m2, dup])
+
+        assert added == 1
+        assert len(markets) == 2
+
+    def test_empty_new_markets(self):
+        m1 = _make_gamma_market(market_id="0x1")
+        markets = [m1]
+        existing_ids = {m1.id}
+
+        added = MarketAnalyzer._merge_markets(markets, existing_ids, [])
+
+        assert added == 0
+        assert len(markets) == 1
+
+
+# ---------------------------------------------------------------------------
+# scan_markets: new/trending/breaking market source merging
+# ---------------------------------------------------------------------------
+
+
+class TestScanMarketsNewSources:
+    @pytest.mark.asyncio
+    async def test_all_sources_merged_without_duplicates(self):
+        """All 5 sources should be merged; duplicates across sources removed."""
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+
+        active = _make_gamma_market(market_id="0xactive")
+        short = _make_gamma_market(market_id="0xshort")
+        new = _make_gamma_market(market_id="0xnew")
+        trending = _make_gamma_market(market_id="0xtrend")
+        breaking = _make_gamma_market(market_id="0xbreak")
+        dup_active = _make_gamma_market(market_id="0xactive")  # duplicate
+
+        gamma.get_active_markets.return_value = [active]
+        gamma.get_short_term_markets.return_value = [short]
+        gamma.get_new_markets.return_value = [new, dup_active]
+        gamma.get_trending_markets.return_value = [trending]
+        gamma.get_breaking_markets.return_value = [breaking]
+
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "value_betting"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+
+        from bot.config import CapitalTier
+        await analyzer.scan_markets(CapitalTier.TIER1)
+
+        markets_passed = mock_strategy.scan.call_args[0][0]
+        ids = [m.id for m in markets_passed]
+        assert len(ids) == len(set(ids)), "Duplicates found"
+        assert set(ids) == {"0xactive", "0xshort", "0xnew", "0xtrend", "0xbreak"}
+
+    @pytest.mark.asyncio
+    async def test_new_markets_failure_does_not_break_scan(self):
+        """If get_new_markets fails, scan still works with other sources."""
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+
+        gamma.get_active_markets.return_value = [_make_gamma_market(market_id="0x1")]
+        gamma.get_short_term_markets.return_value = []
+        gamma.get_new_markets.side_effect = RuntimeError("API down")
+        gamma.get_trending_markets.return_value = []
+        gamma.get_breaking_markets.return_value = []
+
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+
+        from bot.config import CapitalTier
+        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        assert isinstance(signals, list)
+
+    @pytest.mark.asyncio
+    async def test_trending_failure_does_not_break_scan(self):
+        """If get_trending_markets fails, scan still works."""
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+
+        gamma.get_active_markets.return_value = [_make_gamma_market(market_id="0x1")]
+        gamma.get_short_term_markets.return_value = []
+        gamma.get_new_markets.return_value = []
+        gamma.get_trending_markets.side_effect = RuntimeError("timeout")
+        gamma.get_breaking_markets.return_value = []
+
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+
+        from bot.config import CapitalTier
+        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        assert isinstance(signals, list)
+
+    @pytest.mark.asyncio
+    async def test_breaking_failure_does_not_break_scan(self):
+        """If get_breaking_markets fails, scan still works."""
+        cache = MarketCache(default_ttl=60)
+        gamma = AsyncMock()
+
+        gamma.get_active_markets.return_value = [_make_gamma_market(market_id="0x1")]
+        gamma.get_short_term_markets.return_value = []
+        gamma.get_new_markets.return_value = []
+        gamma.get_trending_markets.return_value = []
+        gamma.get_breaking_markets.side_effect = RuntimeError("network")
+
+        mock_strategy = AsyncMock()
+        mock_strategy.name = "time_decay"
+        mock_strategy.is_enabled_for_tier.return_value = True
+        mock_strategy.scan.return_value = []
+
+        analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
+
+        from bot.config import CapitalTier
+        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        assert isinstance(signals, list)

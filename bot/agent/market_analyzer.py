@@ -82,23 +82,50 @@ class MarketAnalyzer:
             if not markets:
                 return []
 
+        # Shared dedup set for merging all supplementary sources
+        existing_ids = {m.id for m in markets}
+
         # Merge short-term markets (resolving within 48h) for more signals
         try:
             short_term = await self.gamma.get_short_term_markets(
                 max_hours=48, min_volume_24h=30,
             )
-            if short_term:
-                existing_ids = {m.id for m in markets}
-                new_short = [m for m in short_term if m.id not in existing_ids]
-                markets = [*markets, *new_short]
-                if new_short:
-                    logger.info(
-                        "short_term_markets_merged",
-                        new=len(new_short),
-                        total=len(markets),
-                    )
+            added = self._merge_markets(markets, existing_ids, short_term)
+            if added:
+                logger.info("short_term_markets_merged", new=added, total=len(markets))
         except Exception as e:
             logger.warning("short_term_fetch_failed", error=str(e))
+
+        # Merge new markets (recently created, may not be in top-500 yet)
+        try:
+            new_markets = await self.gamma.get_new_markets(limit=100, min_volume=10.0)
+            added = self._merge_markets(markets, existing_ids, new_markets)
+            if added:
+                logger.info("new_markets_merged", new=added, total=len(markets))
+        except Exception as e:
+            logger.warning("new_markets_fetch_failed", error=str(e))
+
+        # Merge trending markets (highest 24h volume)
+        try:
+            trending = await self.gamma.get_trending_markets(
+                limit=100, min_volume_24h=100.0,
+            )
+            added = self._merge_markets(markets, existing_ids, trending)
+            if added:
+                logger.info("trending_markets_merged", new=added, total=len(markets))
+        except Exception as e:
+            logger.warning("trending_markets_fetch_failed", error=str(e))
+
+        # Merge breaking markets (new + high activity = breaking news)
+        try:
+            breaking = await self.gamma.get_breaking_markets(
+                limit=50, max_age_hours=24.0, min_volume_24h=50.0,
+            )
+            added = self._merge_markets(markets, existing_ids, breaking)
+            if added:
+                logger.info("breaking_markets_merged", new=added, total=len(markets))
+        except Exception as e:
+            logger.warning("breaking_markets_fetch_failed", error=str(e))
 
         # Apply quality filter before strategy evaluation
         markets = await self._filter_quality(markets)
@@ -424,6 +451,21 @@ class MarketAnalyzer:
                 await repo.create_batch(scans)
         except Exception as e:
             logger.error("scan_record_failed", error=str(e))
+
+    @staticmethod
+    def _merge_markets(
+        markets: list[GammaMarket],
+        existing_ids: set[str],
+        new_markets: list[GammaMarket],
+    ) -> int:
+        """Merge new markets into the list, skipping duplicates. Returns count added."""
+        added = 0
+        for m in new_markets:
+            if m.id not in existing_ids:
+                existing_ids.add(m.id)
+                markets.append(m)
+                added += 1
+        return added
 
     @staticmethod
     def _question_group_key(question: str) -> str:
