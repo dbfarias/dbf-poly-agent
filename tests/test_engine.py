@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.agent.engine import TradingEngine
-from bot.config import CapitalTier
+from bot.config import CapitalTier, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import OrderBook, OrderBookEntry, OrderSide, TradeSignal
 
@@ -897,8 +897,7 @@ class TestMaybeDailySummary:
         """_maybe_daily_summary skips if last summary was today."""
         engine = _make_engine()
         engine.portfolio = MagicMock()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        engine._last_daily_summary = today
+        engine._last_daily_summary = trading_day()
 
         with patch("bot.agent.engine.notify_daily_summary", new_callable=AsyncMock) as mock_notify:
             await engine._maybe_daily_summary()
@@ -914,8 +913,7 @@ class TestMaybeDailySummary:
             "realized_pnl_today": 0.5,
         }
         # Mark today as already sent
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        engine._last_daily_summary = today
+        engine._last_daily_summary = trading_day()
 
         with patch("bot.agent.engine.notify_daily_summary", new_callable=AsyncMock) as mock_notify:
             await engine._maybe_daily_summary()
@@ -924,7 +922,7 @@ class TestMaybeDailySummary:
 
     @pytest.mark.asyncio
     async def test_daily_summary_sends_at_midnight_window(self):
-        """_maybe_daily_summary sends when hour=0 and minute<2 and not yet sent today."""
+        """_maybe_daily_summary sends at local midnight (03:00 UTC with offset=-3)."""
         engine = _make_engine()
         engine.portfolio = MagicMock()
         engine.portfolio.get_overview.return_value = {
@@ -936,11 +934,12 @@ class TestMaybeDailySummary:
 
         with patch("bot.agent.engine.notify_daily_summary", new_callable=AsyncMock) as mock_notify, \
              patch("bot.agent.engine.datetime") as mock_dt_module, \
+             patch("bot.agent.engine.trading_day", return_value="2099-06-01"), \
              patch("bot.agent.engine.async_session") as mock_session_ctx:
-            # Make every datetime.now(timezone.utc) call return a midnight-like datetime
+            # 03:00 UTC = midnight BRT (offset -3), local_hour = (3 + (-3)) % 24 = 0
             mock_now = MagicMock()
             mock_now.strftime.return_value = "2099-06-01"
-            mock_now.hour = 0
+            mock_now.hour = 3
             mock_now.minute = 0
             mock_dt_module.now.return_value = mock_now
 

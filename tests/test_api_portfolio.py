@@ -348,14 +348,16 @@ class TestGetDailyPnl:
     async def test_single_day(self, client, db_session):
         """Single day with two snapshots computes PnL correctly."""
         now = datetime.now(timezone.utc)
+        # Use hours that fall on the same local trading day (offset -3)
+        # 06:00 UTC = 03:00 local, 20:00 UTC = 17:00 local → same day
         snap1 = PortfolioSnapshot(
-            timestamp=now.replace(hour=0, minute=0, second=0),
+            timestamp=now.replace(hour=6, minute=0, second=0),
             total_equity=18.00,
             cash_balance=5.0,
             positions_value=13.0,
         )
         snap2 = PortfolioSnapshot(
-            timestamp=now.replace(hour=23, minute=59),
+            timestamp=now.replace(hour=20, minute=59),
             total_equity=18.50,
             cash_balance=6.0,
             positions_value=12.5,
@@ -401,13 +403,13 @@ class TestGetDailyPnl:
         """Day that exceeds 1% target marks hit_target=True."""
         day = datetime(2026, 3, 1, tzinfo=timezone.utc)
         snap_am = PortfolioSnapshot(
-            timestamp=day.replace(hour=1),
+            timestamp=day.replace(hour=6),
             total_equity=20.0,
             cash_balance=10.0,
             positions_value=10.0,
         )
         snap_pm = PortfolioSnapshot(
-            timestamp=day.replace(hour=23),
+            timestamp=day.replace(hour=20),
             total_equity=20.50,  # +2.5% > 1% target
             cash_balance=10.0,
             positions_value=10.5,
@@ -423,13 +425,13 @@ class TestGetDailyPnl:
         """Day below 1% target marks hit_target=False."""
         day = datetime(2026, 3, 1, tzinfo=timezone.utc)
         snap_am = PortfolioSnapshot(
-            timestamp=day.replace(hour=1),
+            timestamp=day.replace(hour=6),
             total_equity=20.0,
             cash_balance=10.0,
             positions_value=10.0,
         )
         snap_pm = PortfolioSnapshot(
-            timestamp=day.replace(hour=23),
+            timestamp=day.replace(hour=20),
             total_equity=20.05,  # +0.25% < 1% target
             cash_balance=10.0,
             positions_value=10.05,
@@ -445,13 +447,13 @@ class TestGetDailyPnl:
         """Negative PnL day has negative values and hit_target=False."""
         day = datetime(2026, 3, 1, tzinfo=timezone.utc)
         snap_am = PortfolioSnapshot(
-            timestamp=day.replace(hour=1),
+            timestamp=day.replace(hour=6),
             total_equity=20.0,
             cash_balance=10.0,
             positions_value=10.0,
         )
         snap_pm = PortfolioSnapshot(
-            timestamp=day.replace(hour=23),
+            timestamp=day.replace(hour=20),
             total_equity=19.50,
             cash_balance=10.0,
             positions_value=9.5,

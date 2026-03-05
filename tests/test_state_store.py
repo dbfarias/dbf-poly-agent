@@ -14,6 +14,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+from bot.config import trading_day
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -322,12 +324,11 @@ class TestRiskManagerIntegration:
         rm = RiskManager()
 
         # Simulate a trading day with PnL updates
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         rm.update_daily_pnl(0.50)
         rm.update_daily_pnl(0.25)
 
         assert rm._daily_pnl == pytest.approx(0.75)
-        assert rm._daily_pnl_date == today
+        assert rm._daily_pnl_date == trading_day()
 
         # Persist
         with patch_session:
@@ -341,7 +342,7 @@ class TestRiskManagerIntegration:
             await rm2.restore_daily_pnl()
 
         assert rm2._daily_pnl == pytest.approx(0.75)
-        assert rm2._daily_pnl_date == today
+        assert rm2._daily_pnl_date == trading_day()
 
     @pytest.mark.asyncio
     async def test_persist_skips_when_not_dirty(self, session_factory, patch_session):

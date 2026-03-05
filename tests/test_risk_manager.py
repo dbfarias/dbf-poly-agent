@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pytest
 
 from bot.agent.risk_manager import RiskCheckResult, RiskManager
-from bot.config import CapitalTier, TierConfig, settings
+from bot.config import CapitalTier, TierConfig, settings, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import OrderSide, TradeSignal
 
@@ -126,14 +126,17 @@ class TestPauseResume:
 
 class TestUpdatePeakEquity:
     def test_higher_updates_peak(self, rm):
+        rm._daily_pnl_date = trading_day()
         rm.update_peak_equity(20.0)
         assert rm._peak_equity == 20.0
 
     def test_equal_no_change(self, rm):
+        rm._daily_pnl_date = trading_day()
         rm.update_peak_equity(10.0)
         assert rm._peak_equity == 10.0
 
     def test_lower_no_change(self, rm):
+        rm._daily_pnl_date = trading_day()
         rm.update_peak_equity(3.0)
         assert rm._peak_equity == 10.0
 
@@ -173,8 +176,7 @@ class TestUpdateDailyPnl:
 
     def test_same_day_no_reset(self, rm):
         rm.update_daily_pnl(1.0)
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        assert rm._daily_pnl_date == today
+        assert rm._daily_pnl_date == trading_day()
         rm.update_daily_pnl(0.5)
         assert rm._daily_pnl == pytest.approx(1.5)
 

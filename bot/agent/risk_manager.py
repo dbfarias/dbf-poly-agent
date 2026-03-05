@@ -1,11 +1,9 @@
 """Risk management system with tier-based rules and cascading checks."""
 
-from datetime import datetime, timezone
-
 import structlog
 
 from bot.agent.market_analyzer import normalize_category
-from bot.config import CapitalTier, TierConfig, settings
+from bot.config import CapitalTier, TierConfig, settings, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import TradeSignal
 from bot.utils.math_utils import (
@@ -71,7 +69,7 @@ class RiskManager:
         Also resets peak at daily boundary so drawdown doesn't carry
         forward from stale/inflated peaks (e.g., ghost positions).
         """
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         if self._daily_pnl_date != today:
             # New day — reset peak to current equity
             self._peak_equity = equity
@@ -79,7 +77,7 @@ class RiskManager:
             self._peak_equity = equity
 
     def update_daily_pnl(self, pnl_change: float) -> None:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         if self._daily_pnl_date != today:
             self._daily_pnl = 0.0
             self._daily_pnl_date = today
@@ -104,7 +102,7 @@ class RiskManager:
             from bot.data.settings_store import StateStore
 
             pnl, date_str = await StateStore.load_daily_pnl()
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = trading_day()
             if date_str == today:
                 self._daily_pnl = pnl
                 self._daily_pnl_date = date_str

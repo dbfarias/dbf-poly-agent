@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from bot.config import CapitalTier, settings
+from bot.config import CapitalTier, settings, trading_day
 from bot.data.database import async_session
 from bot.data.models import PortfolioSnapshot, Position
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
@@ -97,7 +97,7 @@ class Portfolio:
 
         Only restores if date matches today (stale data is ignored).
         """
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         if date == today and pnl != 0.0:
             self._realized_pnl_today = pnl
             self._pnl_date = date
@@ -107,7 +107,7 @@ class Portfolio:
 
         Prevents polymarket_pnl_today from resetting to $0 after deploys.
         """
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         if date == today and equity > 0:
             self._day_start_equity = equity
             self._pnl_date = date  # Prevent sync from resetting
@@ -118,10 +118,10 @@ class Portfolio:
         Always fetches real Polymarket balance if connected (even in paper mode)
         so the dashboard shows accurate account data.
 
-        Resets daily PnL and captures day-start equity at midnight UTC.
+        Resets daily PnL and captures day-start equity at local midnight.
         """
-        # Check if this is a new UTC day (reset PnL, but defer equity capture)
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # Check if this is a new trading day (reset PnL, but defer equity capture)
+        today = trading_day()
         need_daily_reset = self._pnl_date != today
         if need_daily_reset:
             if self._pnl_date:

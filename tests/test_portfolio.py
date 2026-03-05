@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.agent.portfolio import Portfolio
-from bot.config import CapitalTier, settings
+from bot.config import CapitalTier, settings, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import PositionInfo
 
@@ -202,7 +202,7 @@ class TestSync:
             await portfolio.sync()
 
         assert portfolio._realized_pnl_today == 0.0
-        assert portfolio._pnl_date == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert portfolio._pnl_date == trading_day()
 
     @pytest.mark.asyncio
     async def test_sync_captures_day_start_equity_on_reset(self, portfolio):
@@ -326,7 +326,7 @@ class TestRecordTrade:
         portfolio._positions = [pos]
         portfolio._realized_pnl_today = 1.0
         # Set pnl_date to today so sync() doesn't reset it
-        portfolio._pnl_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        portfolio._pnl_date = trading_day()
 
         mock_repo = AsyncMock()
         mock_repo.close = AsyncMock()
@@ -1298,7 +1298,7 @@ class TestCloseIfResolved:
 
 class TestRestoreRealizedPnl:
     def test_restores_todays_pnl(self, portfolio):
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         portfolio.restore_realized_pnl(0.65, today)
         assert portfolio.realized_pnl_today == 0.65
 
@@ -1307,7 +1307,7 @@ class TestRestoreRealizedPnl:
         assert portfolio.realized_pnl_today == 0.0
 
     def test_ignores_zero_pnl(self, portfolio):
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         portfolio.restore_realized_pnl(0.0, today)
         assert portfolio.realized_pnl_today == 0.0
 
@@ -1319,7 +1319,7 @@ class TestRestoreRealizedPnl:
 
 class TestRestoreDayStartEquity:
     def test_restores_todays_equity(self, portfolio):
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         portfolio.restore_day_start_equity(16.98, today)
         assert portfolio.day_start_equity == 16.98
 
@@ -1330,12 +1330,12 @@ class TestRestoreDayStartEquity:
 
     def test_ignores_zero_equity(self, portfolio):
         original = portfolio.day_start_equity
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         portfolio.restore_day_start_equity(0.0, today)
         assert portfolio.day_start_equity == original
 
     def test_prevents_sync_from_resetting(self, portfolio):
         """Restoring day_start_equity sets _pnl_date so sync doesn't reset it."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = trading_day()
         portfolio.restore_day_start_equity(16.98, today)
         assert portfolio._pnl_date == today

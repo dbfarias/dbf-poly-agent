@@ -88,10 +88,15 @@ class TradeRepository:
         }
 
     async def get_today_stats(self) -> dict:
-        """Get today's trade count and win rate (UTC day boundary)."""
-        today_start = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        """Get today's trade count and win rate (local trading day)."""
+        from bot.config import settings
+
+        # Local midnight in UTC: e.g., BRT midnight = 03:00 UTC
+        utc_now = datetime.now(timezone.utc)
+        offset = timedelta(hours=settings.timezone_offset_hours)
+        local_now = utc_now + offset
+        local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = local_midnight - offset  # Back to UTC
         total = await self.session.scalar(
             select(func.count(Trade.id)).where(
                 Trade.created_at >= today_start,

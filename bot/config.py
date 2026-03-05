@@ -1,5 +1,6 @@
 """Application configuration via Pydantic Settings."""
 
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -156,6 +157,9 @@ class Settings(BaseSettings):
     max_drawdown_pct: float = 0.25
     daily_target_pct: float = 0.01  # 1% daily profit target
 
+    # Timezone offset for daily boundaries (e.g., -3 for BRT)
+    timezone_offset_hours: int = -3
+
     # Database
     database_url: str = "sqlite+aiosqlite:///data/polybot.db"
 
@@ -210,3 +214,15 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def trading_day() -> str:
+    """Return the current 'trading day' date string adjusted for local timezone.
+
+    Uses TIMEZONE_OFFSET_HOURS so the day boundary matches the user's local
+    midnight instead of UTC midnight.  E.g., offset=-3 (BRT) rolls the day
+    at 03:00 UTC.
+    """
+    offset = timedelta(hours=settings.timezone_offset_hours)
+    local_now = datetime.now(timezone.utc) + offset
+    return local_now.strftime("%Y-%m-%d")

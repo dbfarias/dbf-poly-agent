@@ -86,21 +86,28 @@ async def get_daily_pnl(
 ):
     """Daily PnL summary aggregated from portfolio snapshots.
 
-    Groups snapshots by UTC date. For each day, compares the first
-    and last snapshot equity to compute the day's PnL.
+    Groups snapshots by local trading day (adjusted by timezone_offset_hours).
+    For each day, compares the first and last snapshot equity.
     """
+    from datetime import timedelta
+
+    from bot.config import settings as bot_settings
+
     repo = PortfolioSnapshotRepository(db)
     snapshots = await repo.get_equity_curve(days=365)
 
     if not snapshots:
         return []
 
-    # Group by UTC date
+    offset = timedelta(hours=bot_settings.timezone_offset_hours)
+
+    # Group by local trading day
     by_day: dict[str, dict] = defaultdict(
         lambda: {"first": None, "last": None},
     )
     for s in snapshots:
-        day = s.timestamp.strftime("%Y-%m-%d")
+        local_ts = s.timestamp + offset
+        day = local_ts.strftime("%Y-%m-%d")
         entry = by_day[day]
         if entry["first"] is None:
             entry["first"] = s

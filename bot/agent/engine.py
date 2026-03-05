@@ -12,7 +12,7 @@ from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.position_closer import PositionCloser
 from bot.agent.risk_manager import RiskManager
-from bot.config import settings
+from bot.config import settings, trading_day
 from bot.data.activity import (
     log_cycle_summary,
     log_daily_target_reached,
@@ -227,9 +227,8 @@ class TradingEngine:
                 self.portfolio.restore_day_start_equity(equity, date)
             else:
                 # First run or no persisted value — save current equity
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                 await StateStore.save_day_start_equity(
-                    self.portfolio.day_start_equity, today,
+                    self.portfolio.day_start_equity, trading_day(),
                 )
             self.risk_manager.set_day_start_equity(
                 self.portfolio.day_start_equity,
@@ -440,7 +439,7 @@ class TradingEngine:
 
             # Check if daily target was reached (notify once per day)
             if self._learner_adjustments.urgency_multiplier < 1.0:
-                day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                day_key = trading_day()
                 if self._target_notified_day != day_key:
                     self._target_notified_day = day_key
                     await log_daily_target_reached(
@@ -758,7 +757,7 @@ class TradingEngine:
 
     async def _maybe_notify_risk_limit(self, reason: str) -> None:
         """Send a one-time daily notification when a risk limit is breached."""
-        day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        day_key = trading_day()
 
         if "Daily loss limit" in reason:
             if self._risk_limit_notified.get("daily_loss") != day_key:
@@ -865,12 +864,13 @@ class TradingEngine:
             self._last_snapshot = now
 
     async def _maybe_daily_summary(self) -> None:
-        """Send daily summary at midnight UTC."""
+        """Send daily summary at local midnight."""
         now = datetime.now(timezone.utc)
-        today = now.strftime("%Y-%m-%d")
+        today = trading_day()
         if self._last_daily_summary == today:
             return
-        if now.hour == 0 and now.minute < 2:
+        local_hour = (now.hour + settings.timezone_offset_hours) % 24
+        if local_hour == 0 and now.minute < 2:
             self._last_daily_summary = today
             overview = self.portfolio.get_overview()
 
