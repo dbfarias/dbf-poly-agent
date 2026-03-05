@@ -110,23 +110,32 @@ class TestComputeResearchMultiplier:
         assert mult <= 1.3
 
     def test_neutral_returns_one(self):
+        # Within ±0.15 neutral zone
         assert compute_research_multiplier(sentiment=0.1, article_count=10) == 1.0
-        assert compute_research_multiplier(sentiment=-0.2, article_count=10) == 1.0
+        assert compute_research_multiplier(sentiment=-0.1, article_count=10) == 1.0
+
+    def test_outside_neutral_zone_has_effect(self):
+        # ±0.2 is outside the ±0.15 zone → should have effect
+        assert compute_research_multiplier(sentiment=0.2, article_count=5) < 1.0
+        assert compute_research_multiplier(sentiment=-0.2, article_count=5) > 1.0
 
     def test_few_articles_returns_one(self):
-        # Less than 3 articles = no effect
+        # 0 articles = no effect
         assert compute_research_multiplier(sentiment=0.9, article_count=0) == 1.0
-        assert compute_research_multiplier(sentiment=0.9, article_count=1) == 1.0
-        assert compute_research_multiplier(sentiment=0.9, article_count=2) == 1.0
+
+    def test_one_article_has_effect(self):
+        # 1 article with strong sentiment → should have effect (threshold lowered)
+        mult = compute_research_multiplier(sentiment=0.8, article_count=1)
+        assert mult < 1.0
 
     def test_three_articles_has_effect(self):
         mult = compute_research_multiplier(sentiment=0.8, article_count=3)
         assert mult < 1.0  # Positive sentiment should lower multiplier
 
     def test_more_articles_stronger_effect(self):
-        mult_3 = compute_research_multiplier(sentiment=0.8, article_count=3)
-        mult_10 = compute_research_multiplier(sentiment=0.8, article_count=10)
-        assert mult_10 < mult_3  # More articles = stronger effect
+        mult_1 = compute_research_multiplier(sentiment=0.8, article_count=1)
+        mult_5 = compute_research_multiplier(sentiment=0.8, article_count=5)
+        assert mult_5 < mult_1  # More articles = stronger effect
 
     def test_bounds(self):
         # Max positive: should not go below 0.7

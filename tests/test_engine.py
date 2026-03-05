@@ -1595,7 +1595,8 @@ class TestTradingCycleIntegration:
         bankroll_calls: list[float] = []
 
         async def capture_evaluate(
-            signal, bankroll, open_positions, tier, pending_count, edge_multiplier
+            signal, bankroll, open_positions, tier, pending_count, edge_multiplier,
+            urgency=1.0,
         ):
             bankroll_calls.append(bankroll)
             return (True, 5.0, "approved")

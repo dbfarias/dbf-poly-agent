@@ -35,6 +35,7 @@ class TestGetOverview:
             "daily_target_pct",
             "daily_target_usd",
             "daily_progress_pct",
+            "stuck_positions",
         }
         assert set(data.keys()) == expected_keys
 

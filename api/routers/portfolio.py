@@ -20,7 +20,9 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 @router.get("/overview", response_model=PortfolioOverview)
 async def get_overview(_: str = Depends(verify_api_key)):
     engine = get_engine()
-    return PortfolioOverview(**engine.portfolio.get_overview())
+    overview = engine.portfolio.get_overview()
+    overview["stuck_positions"] = engine.closer.stuck_positions
+    return PortfolioOverview(**overview)
 
 
 @router.get("/positions", response_model=list[PositionResponse])
@@ -251,4 +253,71 @@ async def force_close_position(
         market_id=position.market_id,
         pnl=pnl,
         message=f"Position closed. PnL: ${pnl:.4f}",
+    )
+
+
+class ForceRemoveRequest(BaseModel):
+    """Remove a ghost position from DB without selling on CLOB."""
+    position_id: int
+    pnl: float = Field(default=0.0, description="Manual PnL override (e.g. -2.56 for known loss)")
+    reason: str = Field(
+        default="ghost_position_removed",
+        max_length=200,
+        pattern=r"^[a-zA-Z0-9_\- ]+$",
+    )
+
+
+@router.post("/positions/force-remove", response_model=ForceCloseResponse)
+async def force_remove_position(
+    req: ForceRemoveRequest,
+    _: str = Depends(verify_api_key),
+):
+    """Remove a stuck/ghost position from DB without attempting a CLOB sell.
+
+    Use when the on-chain state is irrecoverable (e.g. allowance errors)
+    and the user wants to free the portfolio slot.
+    """
+    engine = get_engine()
+
+    position = next(
+        (p for p in engine.portfolio.positions if p.id == req.position_id and p.is_open),
+        None,
+    )
+    if not position:
+        raise HTTPException(status_code=404, detail=f"Open position {req.position_id} not found")
+
+    logger.warning(
+        "force_remove_ghost_position",
+        position_id=req.position_id,
+        market_id=position.market_id,
+        pnl=req.pnl,
+        reason=req.reason,
+    )
+
+    # Close in portfolio (no CLOB interaction)
+    await engine.portfolio.record_trade_close(position.market_id, position.current_price)
+    engine.risk_manager.update_daily_pnl(req.pnl)
+
+    # Update trade DB
+    try:
+        from bot.data.database import async_session
+        from bot.data.repositories import TradeRepository
+
+        async with async_session() as session:
+            repo = TradeRepository(session)
+            await repo.close_trade_for_position(
+                position.market_id, req.pnl, req.reason,
+            )
+    except Exception as e:
+        logger.warning("force_remove_db_error", error=str(e))
+
+    # Clear sell failure counter so it doesn't linger
+    engine.closer._sell_fail_count.pop(position.market_id, None)
+
+    return ForceCloseResponse(
+        success=True,
+        position_id=req.position_id,
+        market_id=position.market_id,
+        pnl=req.pnl,
+        message=f"Ghost position removed from DB. PnL: ${req.pnl:.4f}",
     )

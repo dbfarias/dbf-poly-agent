@@ -596,6 +596,12 @@ class TradingEngine:
                 signal.metadata["research_sentiment"] = research.sentiment_score
                 signal.metadata["research_multiplier"] = r_mult
 
+            _urgency = (
+                self._learner_adjustments.urgency_multiplier
+                if self._learner_adjustments
+                else 1.0
+            )
+
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
                 bankroll=effective_bankroll,
@@ -603,6 +609,7 @@ class TradingEngine:
                 tier=tier,
                 pending_count=pending_count,
                 edge_multiplier=edge_multiplier,
+                urgency=_urgency,
             )
 
             if not approved:
@@ -612,11 +619,6 @@ class TradingEngine:
                     ("Max positions" in reason or "Max deployed" in reason)
                     and not self._rebalanced_this_cycle
                 ):
-                    _urgency = (
-                        self._learner_adjustments.urgency_multiplier
-                        if self._learner_adjustments
-                        else 1.0
-                    )
                     rebalance_result = await self.closer.try_rebalance(
                         signal, self.portfolio.positions, urgency=_urgency
                     )
@@ -669,6 +671,7 @@ class TradingEngine:
                         tier=tier,
                         pending_count=pending_count,
                         edge_multiplier=edge_multiplier,
+                        urgency=_urgency,
                     )
                     if not approved:
                         logger.warning(

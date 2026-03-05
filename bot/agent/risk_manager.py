@@ -122,6 +122,7 @@ class RiskManager:
         tier: CapitalTier,
         pending_count: int = 0,
         edge_multiplier: float = 1.0,
+        urgency: float = 1.0,
     ) -> tuple[bool, float, str]:
         """Evaluate a trade signal against all risk checks.
 
@@ -140,7 +141,7 @@ class RiskManager:
             self._check_daily_loss(bankroll, config),
             self._check_drawdown(bankroll, config),
             self._check_max_positions(open_positions, config, pending_count),
-            self._check_total_deployed(open_positions, bankroll, config),
+            self._check_total_deployed(open_positions, bankroll, config, urgency),
             self._check_category_exposure(signal, open_positions, bankroll, config),
             self._check_min_edge(signal, config, edge_multiplier),
             self._check_min_win_prob(signal, config),
@@ -234,15 +235,22 @@ class RiskManager:
         open_positions: list[Position],
         bankroll: float,
         config: dict,
+        urgency: float = 1.0,
     ) -> RiskCheckResult:
         """Reject if too much capital is already deployed.
 
         Enforces max_deployed_pct from tier config (default 60%).
+        When urgency > 1.0 (behind daily target), scales up to 95% max.
         Keeps a cash reserve so the bot can react to better opportunities.
         """
         deployed = sum(p.cost_basis for p in open_positions if p.is_open)
         available = bankroll - deployed
-        max_deployed_pct = config.get("max_deployed_pct", 0.60)
+        base_pct = config.get("max_deployed_pct", 0.60)
+        # Scale up when behind daily target (urgency > 1.0)
+        if urgency > 1.0:
+            max_deployed_pct = min(0.95, base_pct + (urgency - 1.0) * 0.05)
+        else:
+            max_deployed_pct = base_pct
         max_deployed = bankroll * max_deployed_pct
 
         if deployed >= max_deployed:

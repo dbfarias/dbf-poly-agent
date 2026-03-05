@@ -83,6 +83,9 @@ def mock_engine():
     engine.risk_manager.pause = MagicMock()
     engine.risk_manager.resume = MagicMock()
 
+    # Closer (position closer)
+    engine.closer.stuck_positions = []
+
     # Cache
     engine.cache = MagicMock()
     engine.cache.get_all_markets.return_value = []

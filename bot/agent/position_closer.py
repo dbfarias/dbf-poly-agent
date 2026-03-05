@@ -30,6 +30,8 @@ class PositionCloser:
         # Per-strategy hold overrides: strategy_name → seconds
         # Populated from strategy.MIN_HOLD_SECONDS by engine at init
         self.strategy_min_hold: dict[str, int] = {}
+        # Track consecutive sell failures per market (ghost position detection)
+        self._sell_fail_count: dict[str, int] = {}
         # Near-resolution protection: skip rebalance if market resolves
         # within this many hours (unless loss is severe)
         self.rebalance_resolution_shield_hours = 24.0
@@ -60,7 +62,20 @@ class PositionCloser:
             entry_price=pos.avg_price,
         )
         if trade is None:
+            # Track consecutive sell failures (ghost position detection)
+            count = self._sell_fail_count.get(pos.market_id, 0) + 1
+            self._sell_fail_count[pos.market_id] = count
+            if count >= 3:
+                logger.warning(
+                    "position_stuck_sell_failed_3x",
+                    market_id=pos.market_id,
+                    strategy=pos.strategy,
+                    fail_count=count,
+                )
             return
+
+        # Reset fail count on successful sell
+        self._sell_fail_count.pop(pos.market_id, None)
 
         if trade.status == "filled":
             pnl = await self.portfolio.record_trade_close(pos.market_id, pos.current_price)
@@ -210,6 +225,9 @@ class PositionCloser:
         candidates = []
         now = datetime.now(timezone.utc)
         for pos in positions:
+            # Skip ghost positions (3+ consecutive sell failures)
+            if self._sell_fail_count.get(pos.market_id, 0) >= 3:
+                continue
             if not settings.is_paper and pos.size * pos.current_price < min_sell_notional:
                 continue
             created = pos.created_at
@@ -299,3 +317,8 @@ class PositionCloser:
 
         logger.warning("rebalance_all_candidates_failed", candidates=len(candidates))
         return None
+
+    @property
+    def stuck_positions(self) -> list[str]:
+        """Return market_ids with 3+ consecutive sell failures (ghost positions)."""
+        return [mid for mid, count in self._sell_fail_count.items() if count >= 3]

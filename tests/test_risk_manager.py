@@ -408,6 +408,30 @@ class TestCheckTotalDeployed:
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
+    def test_urgency_scales_max_deployed(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # 8.8 deployed out of 10.0 = 88%. At urgency=1.0, 85% limit → FAIL
+        positions = [make_position(cost_basis=8.8)]
+        result = rm._check_total_deployed(positions, 10.0, config, urgency=1.0)
+        assert result.passed is False
+        # At urgency=2.0, limit becomes min(0.95, 0.85 + 0.05) = 90% → PASS
+        result = rm._check_total_deployed(positions, 10.0, config, urgency=2.0)
+        assert result.passed is True
+
+    def test_urgency_capped_at_95pct(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # 9.6 deployed out of 10.0 = 96%. Even urgency=5.0, cap is 95% → FAIL
+        positions = [make_position(cost_basis=9.6)]
+        result = rm._check_total_deployed(positions, 10.0, config, urgency=5.0)
+        assert result.passed is False
+
+    def test_urgency_below_one_keeps_base(self, rm):
+        config = TierConfig.get(CapitalTier.TIER1)
+        # Ahead of target (urgency < 1.0) → keeps base 85%
+        positions = [make_position(cost_basis=9.0)]
+        result = rm._check_total_deployed(positions, 10.0, config, urgency=0.5)
+        assert result.passed is False  # 90% > 85%
+
 
 # ---------------------------------------------------------------------------
 # _check_category_exposure

@@ -22,6 +22,7 @@ class PortfolioOverview(BaseModel):
     daily_target_pct: float = 0.01
     daily_target_usd: float = 0.0
     daily_progress_pct: float = 0.0
+    stuck_positions: list[str] = []
 
 
 class PositionResponse(BaseModel):

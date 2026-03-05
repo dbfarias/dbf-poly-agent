@@ -736,3 +736,97 @@ async def test_try_rebalance_no_urgency_uses_original():
         om.close_position.assert_not_awaited()
     finally:
         _stop_patches(patches)
+
+
+# ---------------------------------------------------------------------------
+# 18. Ghost position detection — sell failure tracking
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sell_failure_increments_count():
+    """Each failed sell (trade=None) increments _sell_fail_count."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position(market_id="ghost_mkt")
+        om.close_position = AsyncMock(return_value=None)
+
+        await closer.close_position(pos)
+        assert closer._sell_fail_count["ghost_mkt"] == 1
+
+        await closer.close_position(pos)
+        assert closer._sell_fail_count["ghost_mkt"] == 2
+    finally:
+        _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_successful_sell_resets_fail_count():
+    """A successful sell resets the failure counter."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position(market_id="reset_mkt")
+        # First, fail twice
+        om.close_position = AsyncMock(return_value=None)
+        await closer.close_position(pos)
+        await closer.close_position(pos)
+        assert closer._sell_fail_count["reset_mkt"] == 2
+
+        # Now succeed — need full mock setup for filled path
+        trade = _make_trade(status="filled")
+        om.close_position = AsyncMock(return_value=trade)
+        pf.record_trade_close = AsyncMock(return_value=0.10)
+        mocks["event_bus"].emit = AsyncMock()
+        mock_session = AsyncMock()
+        mock_repo = MagicMock()
+        mock_repo.update_status = AsyncMock()
+        mock_repo.close_trade_for_position = AsyncMock()
+        mocks["async_session"].return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mocks["async_session"].return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+            await closer.close_position(pos)
+        assert "reset_mkt" not in closer._sell_fail_count
+    finally:
+        _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_rebalance_skips_stuck_positions():
+    """Positions with 3+ sell failures are skipped by try_rebalance."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        # Mark a position as stuck
+        closer._sell_fail_count["stuck_mkt"] = 3
+        signal = _make_signal(edge=0.05)
+        pos = _make_position(
+            market_id="stuck_mkt",
+            unrealized_pnl=-0.50,
+            created_at=datetime(2025, 12, 1, tzinfo=timezone.utc),
+        )
+
+        result = await closer.try_rebalance(signal, [pos])
+        assert result is None
+        om.close_position.assert_not_awaited()
+    finally:
+        _stop_patches(patches)
+
+
+def test_stuck_positions_property():
+    """stuck_positions returns market_ids with 3+ failures."""
+    closer, _, _, _ = _make_closer()
+    closer._sell_fail_count = {"mkt_a": 3, "mkt_b": 1, "mkt_c": 5}
+    stuck = closer.stuck_positions
+    assert "mkt_a" in stuck
+    assert "mkt_c" in stuck
+    assert "mkt_b" not in stuck
+    assert len(stuck) == 2

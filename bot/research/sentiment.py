@@ -36,33 +36,33 @@ def compute_research_multiplier(sentiment: float, article_count: int) -> float:
     """Convert sentiment score to trading multiplier [0.7, 1.3].
 
     Logic:
-    - Positive sentiment (>0.3) -> multiplier < 1.0 (market likely priced in, lower edge bar)
-    - Negative sentiment (<-0.3) -> multiplier > 1.0 (raise edge bar, be cautious)
-    - Neutral / few articles -> 1.0 (no effect)
-    - Min 3 articles for any effect (need data confidence)
+    - Positive sentiment (>0.15) -> multiplier < 1.0 (market likely priced in, lower edge bar)
+    - Negative sentiment (<-0.15) -> multiplier > 1.0 (raise edge bar, be cautious)
+    - Neutral / no articles -> 1.0 (no effect)
+    - Min 1 article for any effect (Polymarket questions rarely get 3+ hits)
 
     The multiplier adjusts the edge requirement:
     - multiplier < 1.0 = more permissive (lower effective min_edge)
     - multiplier > 1.0 = more cautious (higher effective min_edge)
     """
-    # Need at least 3 articles for any signal
-    if article_count < 3:
+    # Need at least 1 article for any signal
+    if article_count < 1:
         return 1.0
 
     # Neutral zone: no adjustment
-    if -0.3 <= sentiment <= 0.3:
+    if -0.15 <= sentiment <= 0.15:
         return 1.0
 
-    # Scale confidence by article count (max at 10+ articles)
-    confidence = min(article_count / 10.0, 1.0)
+    # Scale confidence by article count (max at 5+ articles)
+    confidence = min(article_count / 5.0, 1.0)
 
-    if sentiment > 0.3:
+    if sentiment > 0.15:
         # Positive news: lower the edge bar (multiplier < 1.0)
-        # Max effect: 0.7 at sentiment=1.0 with 10+ articles
-        effect = (sentiment - 0.3) / 0.7  # 0 to 1
+        # Max effect: 0.7 at sentiment=1.0 with 5+ articles
+        effect = (sentiment - 0.15) / 0.85  # 0 to 1
         return max(0.7, 1.0 - (0.3 * effect * confidence))
 
     # Negative news: raise the edge bar (multiplier > 1.0)
-    # Max effect: 1.3 at sentiment=-1.0 with 10+ articles
-    effect = (-sentiment - 0.3) / 0.7  # 0 to 1
+    # Max effect: 1.3 at sentiment=-1.0 with 5+ articles
+    effect = (-sentiment - 0.15) / 0.85  # 0 to 1
     return min(1.3, 1.0 + (0.3 * effect * confidence))
