@@ -657,6 +657,10 @@ class TradingEngine:
                             strategy=closed_pos.strategy,
                         )
 
+                    # Brief pause for CLOB balance settlement after sell
+                    if not settings.is_paper:
+                        await asyncio.sleep(3)
+
                     # Re-evaluate with updated positions (one slot freed)
                     approved, size, reason = await self.risk_manager.evaluate_signal(
                         signal=signal,
