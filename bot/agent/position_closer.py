@@ -289,12 +289,19 @@ class PositionCloser:
                 entry_price=candidate_pos.avg_price,
             )
             if close_trade is None:
+                # Track failure for ghost position detection
+                count = self._sell_fail_count.get(candidate_pos.market_id, 0) + 1
+                self._sell_fail_count[candidate_pos.market_id] = count
                 logger.warning(
                     "rebalance_close_failed_trying_next",
                     market_id=candidate_pos.market_id,
                     candidates_remaining=len(candidates) - idx - 1,
+                    sell_fail_count=count,
                 )
                 continue
+
+            # Reset fail count on successful close
+            self._sell_fail_count.pop(candidate_pos.market_id, None)
 
             await log_rebalance(
                 closed_market_id=candidate_pos.market_id,

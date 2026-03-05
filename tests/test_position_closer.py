@@ -533,6 +533,39 @@ async def test_try_rebalance_close_fails():
         _stop_patches(patches)
 
 
+@pytest.mark.asyncio
+async def test_try_rebalance_failure_increments_sell_fail_count():
+    """Rebalance sell failures also increment _sell_fail_count for ghost detection."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        signal = _make_signal(edge=0.05)
+        pos = _make_position(
+            market_id="rebal_fail_mkt",
+            unrealized_pnl=-0.50,
+            created_at=datetime(2025, 12, 1, tzinfo=timezone.utc),
+        )
+        om.close_position = AsyncMock(return_value=None)
+
+        await closer.try_rebalance(signal, [pos])
+        assert closer._sell_fail_count["rebal_fail_mkt"] == 1
+
+        # After 3 failures, it should be skipped
+        await closer.try_rebalance(signal, [pos])
+        await closer.try_rebalance(signal, [pos])
+        assert closer._sell_fail_count["rebal_fail_mkt"] == 3
+
+        # Now it's stuck — should be skipped
+        result = await closer.try_rebalance(signal, [pos])
+        assert result is None
+        # No additional close attempts (skipped before trying)
+        assert om.close_position.await_count == 3
+    finally:
+        _stop_patches(patches)
+
+
 # ---------------------------------------------------------------------------
 # 12. try_rebalance — skips winning positions (unrealized_pnl > 0)
 # ---------------------------------------------------------------------------
