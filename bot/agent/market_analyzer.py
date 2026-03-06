@@ -18,6 +18,60 @@ from .strategies.base import BaseStrategy
 
 logger = structlog.get_logger()
 
+# Sports/esports keywords for question-text-based filtering.
+# Gamma API category field is unreliable (groupItemTitle is not a category),
+# so we detect market type by matching keywords in the question text.
+_SPORTS_KEYWORDS = re.compile(
+    r"\b("
+    r"nba|nfl|nhl|mlb|mls|ufc|afl|epl|serie a|la liga|bundesliga|ligue 1"
+    r"|premier league|champions league|europa league|copa libertadores"
+    r"|world cup|super bowl|stanley cup|march madness"
+    r"|spread[:\s]|o/u\s|over/under|moneyline"
+    r"|touchdown|field goal|three-pointer|home run|penalty kick"
+    r"|raptors|nuggets|pelicans|panthers|islanders|lightning|jets|kings"
+    r"|lakers|celtics|warriors|bucks|heat|knicks|nets|bulls|suns|76ers"
+    r"|cavaliers|mavericks|rockets|pacers|hawks|pistons|spurs|grizzlies"
+    r"|timberwolves|clippers|blazers|wizards|hornets|magic"
+    r"|chiefs|eagles|cowboys|49ers|ravens|bills|lions|bengals|dolphins"
+    r"|steelers|texans|vikings|packers|broncos|chargers|rams|seahawks"
+    r"|commanders|bears|saints|falcons|cardinals|colts|jaguars|titans"
+    r"|patriots|giants|raiders|browns|buccaneers"
+    r"|yankees|dodgers|mets|braves|astros|padres|phillies|orioles"
+    r"|red sox|cubs|brewers|guardians|royals|rangers|twins|tigers|marlins"
+    r"|maple leafs|bruins|oilers|hurricanes|avalanche|rangers|capitals"
+    r"|penguins|blue jackets|predators|wild|sabres|red wings|senators"
+    r"|canucks|flames|blackhawks|kraken|sharks|ducks|coyotes|flyers"
+    r"|real madrid|barcelona|bayern|juventus|psg|manchester"
+    r"|chelsea|arsenal|liverpool|tottenham|atletico"
+    r"|pumas|unam|santos|tigres|monterrey|america|chivas|cruz azul"
+    r"|valorant|counter-strike|dota|league of legends|overwatch"
+    r"|esports|bo3|bo5"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Simple heuristic: "Will X win on YYYY-MM-DD?" is almost always a sports match
+_SPORTS_WIN_ON_PATTERN = re.compile(
+    r"will .+ win on \d{4}-\d{2}-\d{2}", re.IGNORECASE,
+)
+
+
+def classify_market_type(question: str) -> str:
+    """Classify market type by question text. Returns 'sports', 'crypto', or 'other'."""
+    if _SPORTS_KEYWORDS.search(question) or _SPORTS_WIN_ON_PATTERN.search(question):
+        return "sports"
+    # Crypto detection (from price_divergence)
+    crypto_pattern = re.compile(
+        r"\b(bitcoin|btc|ethereum|eth|solana|sol|xrp|cardano|ada"
+        r"|dogecoin|doge|polkadot|dot|chainlink|link|avalanche|avax"
+        r"|polygon|matic|litecoin|ltc|uniswap|uni|aave|crypto)\b",
+        re.IGNORECASE,
+    )
+    if crypto_pattern.search(question):
+        return "crypto"
+    return "other"
+
+
 # Category normalization: group related categories together
 # All political categories map to "Politics" for concentration checks
 _CATEGORY_GROUPS = {
@@ -68,6 +122,9 @@ class MarketAnalyzer:
         self.strategies = strategies
         self.clob = clob_client
         self.disabled_strategies: set[str] = set()
+        # Market type blocklist: skip markets classified as these types
+        # Types: "sports", "crypto", "other" (from classify_market_type)
+        self.blocked_market_types: set[str] = set()
 
     async def scan_markets(self, tier: CapitalTier) -> list[TradeSignal]:
         """Scan all markets and return ranked signals from all enabled strategies."""
@@ -313,6 +370,15 @@ class MarketAnalyzer:
                     filtered_reasons.get("not_binary", 0) + 1
                 )
                 continue
+
+            # Market type filter (keyword-based, since Gamma API has no category)
+            if self.blocked_market_types:
+                mtype = classify_market_type(market.question)
+                if mtype in self.blocked_market_types:
+                    filtered_reasons["blocked_type"] = (
+                        filtered_reasons.get("blocked_type", 0) + 1
+                    )
+                    continue
 
             # Must have token IDs for both outcomes
             if not market.token_ids or len(market.token_ids) < 2:

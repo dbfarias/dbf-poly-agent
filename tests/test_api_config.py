@@ -29,6 +29,7 @@ class TestGetConfig:
             "strategy_params",
             "quality_params",
             "disabled_strategies",
+            "blocked_market_types",
         }
         assert set(data.keys()) == expected_keys
 

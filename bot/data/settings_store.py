@@ -100,6 +100,12 @@ class SettingsStore:
                 update.disabled_strategies
             )
 
+        # Blocked market types
+        if getattr(update, "blocked_market_types", None) is not None:
+            items["global.blocked_market_types"] = json.dumps(
+                update.blocked_market_types
+            )
+
         if not items:
             return 0
 
@@ -187,6 +193,8 @@ class SettingsStore:
             if prefix == "global" and len(parts) == 2:
                 if parts[1] == "disabled_strategies":
                     applied += _apply_disabled_strategies(engine, value)
+                elif parts[1] == "blocked_market_types":
+                    applied += _apply_blocked_market_types(engine, value)
                 else:
                     applied += _apply_global(parts[1], value)
 
@@ -260,6 +268,14 @@ def _apply_disabled_strategies(engine, value) -> int:
         return 0
     engine.disabled_strategies = set(value)
     engine.analyzer.disabled_strategies = set(value)
+    return 1
+
+
+def _apply_blocked_market_types(engine, value) -> int:
+    if not isinstance(value, list):
+        return 0
+    valid = {"sports", "crypto", "other"}
+    engine.analyzer.blocked_market_types = set(value) & valid
     return 1
 
 

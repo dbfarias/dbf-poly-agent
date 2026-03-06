@@ -121,6 +121,7 @@ def mock_engine():
     engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
     engine.analyzer.DEFAULT_EXIT_PRICE = 0.70
     engine.analyzer.disabled_strategies = set()
+    engine.analyzer.blocked_market_types = set()
 
     # Strategy enable/disable
     engine.disabled_strategies = set()

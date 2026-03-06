@@ -81,9 +81,11 @@ async def get_config(_: str = Depends(verify_api_key)):
         quality_params = {}
 
     disabled = []
+    blocked_types = []
     try:
         if engine is not None:
             disabled = sorted(engine.disabled_strategies)
+            blocked_types = sorted(engine.analyzer.blocked_market_types)
     except Exception as e:
         logger.warning("get_disabled_strategies_failed", error=str(e))
 
@@ -99,6 +101,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         strategy_params=strategy_params,
         quality_params=quality_params,
         disabled_strategies=disabled,
+        blocked_market_types=blocked_types,
     )
 
 
@@ -155,6 +158,17 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
             engine.disabled_strategies = new_disabled
             engine.analyzer.disabled_strategies = new_disabled
             changes.append(f"disabled_strategies={sorted(new_disabled)}")
+        except RuntimeError:
+            pass
+
+    # Blocked market types (question-keyword detection: "sports", "crypto", "other")
+    if update.blocked_market_types is not None:
+        try:
+            engine = get_engine()
+            valid_types = {"sports", "crypto", "other"}
+            new_blocked = set(update.blocked_market_types) & valid_types
+            engine.analyzer.blocked_market_types = new_blocked
+            changes.append(f"blocked_market_types={sorted(new_blocked)}")
         except RuntimeError:
             pass
 

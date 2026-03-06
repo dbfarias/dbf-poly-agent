@@ -175,6 +175,8 @@ class BotConfig(BaseModel):
     quality_params: dict
     # Disabled strategies
     disabled_strategies: list[str] = []
+    # Blocked market types
+    blocked_market_types: list[str] = []
 
 
 class BotConfigUpdate(BaseModel):
@@ -190,6 +192,8 @@ class BotConfigUpdate(BaseModel):
     quality_params: dict | None = None
     # Disabled strategies (full replacement list)
     disabled_strategies: list[str] | None = None
+    # Blocked market types (question-keyword based: "sports", "crypto", "other")
+    blocked_market_types: list[str] | None = None
 
 
 # Activity
