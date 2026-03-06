@@ -147,6 +147,7 @@ class TradingEngine:
         self._target_notified_day: str = ""
         self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
         self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
+        self.market_cooldown_hours: float = 1.0  # configurable via admin API
 
     @property
     def is_running(self) -> bool:
@@ -740,9 +741,7 @@ class TradingEngine:
                     price=trade.price,
                     size=trade.size,
                 )
-                cooldown_hours = (
-                    0.25 if signal.strategy == "price_divergence" else 1.0
-                )
+                cooldown_hours = self.market_cooldown_hours
                 self._market_cooldown[signal.market_id] = (
                     datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)
                 )
@@ -752,9 +751,7 @@ class TradingEngine:
                 cycle_committed += trade.cost_usd
                 pending_count += 1
                 pending_markets.add(signal.market_id)
-                cooldown_hours = (
-                    0.25 if signal.strategy == "price_divergence" else 1.0
-                )
+                cooldown_hours = self.market_cooldown_hours
                 self._market_cooldown[signal.market_id] = (
                     datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)
                 )

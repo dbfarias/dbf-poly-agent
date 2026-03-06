@@ -62,6 +62,8 @@ def _get_quality_params(engine) -> dict:
         result["min_hold_seconds"] = closer.min_hold_seconds
         result["rebalance_resolution_shield_hours"] = closer.rebalance_resolution_shield_hours
         result["rebalance_resolution_max_loss_pct"] = closer.rebalance_resolution_max_loss_pct
+    # Engine-level params
+    result["market_cooldown_hours"] = engine.market_cooldown_hours
     return result
 
 
@@ -186,6 +188,7 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 ),
                 # PositionCloser params
                 "min_rebalance_edge": ("closer", "min_rebalance_edge", float, 0.0, 0.5),
+                "market_cooldown_hours": ("engine", "market_cooldown_hours", float, 0.25, 24.0),
                 "min_hold_seconds": ("closer", "min_hold_seconds", int, 0, 14400),
                 "rebalance_resolution_shield_hours": (
                     "closer", "rebalance_resolution_shield_hours",
@@ -205,7 +208,7 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                     value = typ(value)
                 except (TypeError, ValueError):
                     continue
-                target = getattr(engine, target_name, None)
+                target = engine if target_name == "engine" else getattr(engine, target_name, None)
                 if target is None or not (lo <= value <= hi):
                     continue
                 if hasattr(target, attr):
