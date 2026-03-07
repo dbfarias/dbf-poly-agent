@@ -371,8 +371,10 @@ async def log_llm_debate(
         title=f"AI Debate {icon}: {question[:50]}",
         detail=(
             f"Strategy: {strategy} | Price: ${price:.3f} | Edge: {edge:.1%}\n"
-            f"Proposer: {proposer_verdict} (conf {proposer_confidence:.0%}) — {proposer_reasoning}\n"
-            f"Challenger: {challenger_verdict} (risk {challenger_risk}) — {challenger_objections}\n"
+            f"Proposer: {proposer_verdict} (conf {proposer_confidence:.0%})"
+            f" — {proposer_reasoning}\n"
+            f"Challenger: {challenger_verdict} (risk {challenger_risk})"
+            f" — {challenger_objections}\n"
             f"Cost: ${cost_usd:.4f}"
         ),
         market_id=market_id,
