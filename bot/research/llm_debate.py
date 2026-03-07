@@ -568,7 +568,8 @@ async def _run_counter_round(
         return counter_rebuttal, counter_conviction, final_verdict, final_reasoning, round_cost
     except Exception as e:
         logger.warning("llm_final_challenger_error", error=str(e))
-        return counter_rebuttal, counter_conviction, "REJECT", "Final review unavailable — rejection stands", round_cost
+        fail_reason = "Final review unavailable — rejection stands"
+        return counter_rebuttal, counter_conviction, "REJECT", fail_reason, round_cost
 
 
 async def review_position(
