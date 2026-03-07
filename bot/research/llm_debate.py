@@ -1,5 +1,6 @@
 """LLM debate gate — Proposer vs Challenger pattern for trade signals."""
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -12,6 +13,21 @@ logger = structlog.get_logger()
 _MODEL = "claude-haiku-4-5-20251001"
 _TIMEOUT = 15.0
 _MAX_TOKENS = 300
+_MAX_PROMPT_INPUT_LEN = 200
+_MIN_CONVICTION_FOR_ANALYST = 0.4
+
+
+def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> str:
+    """Sanitize external text before interpolation into LLM prompts.
+
+    Strips control characters, newlines (potential prompt injection),
+    and truncates to max_len.
+    """
+    # Remove control chars and newlines that could inject prompt structure
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", " ", text)
+    # Collapse multiple spaces
+    cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+    return cleaned[:max_len]
 
 _PROPOSER_SYSTEM = (
     "You are a prediction market trading analyst. You evaluate trade opportunities "
@@ -60,6 +76,83 @@ _POSITION_REVIEWER_SYSTEM = (
     "URGENCY: LOW, MEDIUM, or HIGH\n"
     "REASONING: 1-2 sentences"
 )
+
+
+_RISK_PROPOSER_SYSTEM = (
+    "You are an aggressive, data-driven trade proposer on a prediction market bot. "
+    "A risk manager has rejected a promising trade signal. Your job is to challenge "
+    "the rejection with hard numbers and propose concrete fixes.\n\n"
+    "Arguments you can make:\n"
+    "- Edge is close to threshold — small relaxation is justified\n"
+    "- Short time to resolution reduces risk exposure\n"
+    "- Reduced position size mitigates the concern\n"
+    "- Category exposure limit is overly conservative for this market\n"
+    "- Strong sentiment/research support for this trade\n\n"
+    "Respond in this exact format:\n"
+    "REBUTTAL: 2-3 sentences challenging the rejection with specific data\n"
+    "PROPOSED_FIX: One concrete fix (e.g., 'reduce size to 50%', 'accept lower edge')\n"
+    "CONVICTION: 0.0 to 1.0 (how strongly you believe the trade should go through)"
+)
+
+_RISK_ANALYST_SYSTEM = (
+    "You are a senior risk analyst reviewing a risk debate. A trade was rejected "
+    "by the risk manager, and an aggressive proposer is pushing back. You must be "
+    "fair but firm.\n\n"
+    "When to CONCEDE:\n"
+    "- Edge is within 20% of threshold and other factors are favorable\n"
+    "- Resolution is soon (<24h) and max-age won't be an issue\n"
+    "- Reduced position size genuinely mitigates the risk\n"
+    "- Category exposure is near limit but not critically over\n\n"
+    "When to MAINTAIN rejection:\n"
+    "- Edge is far below threshold (>30% under)\n"
+    "- Fundamental risk limits (daily loss, drawdown, duplicate position)\n"
+    "- Win probability too low with no mitigating factors\n"
+    "- Proposer's arguments don't address the core concern\n\n"
+    "Respond in this exact format:\n"
+    "VERDICT: CONCEDE or MAINTAIN\n"
+    "SIZE_ADJUSTMENT: 0.5 to 1.0 (only if CONCEDE — fraction of original size)\n"
+    "REASONING: 2-3 sentences explaining your decision"
+)
+
+# Hard rejections: never debatable, fundamental safety limits (lowercase)
+_HARD_REJECTIONS = frozenset({
+    "trading is paused",
+    "daily loss limit",
+    "max drawdown",
+    "duplicate position",
+})
+
+# Debatable rejection keywords — partial match, lowercase
+_DEBATABLE_KEYWORDS = frozenset({
+    "edge too low",
+    "category exposure",
+    "win prob too low",
+    "max positions",
+    "max deployed",
+})
+
+
+def _is_debatable_rejection(reason: str) -> bool:
+    """Check if a risk rejection is debatable (not a hard safety limit)."""
+    lower = reason.lower()
+    for hard in _HARD_REJECTIONS:
+        if hard in lower:
+            return False
+    return any(kw in lower for kw in _DEBATABLE_KEYWORDS)
+
+
+@dataclass(frozen=True)
+class RiskDebateResult:
+    """Result of a risk rejection debate (proposer vs analyst)."""
+
+    override: bool
+    rejection_reason: str
+    proposer_rebuttal: str
+    analyst_verdict: str  # "CONCEDE" or "MAINTAIN"
+    analyst_reasoning: str
+    adjusted_size_pct: float  # 0.5-1.0 if conceded, 0.0 if maintained
+    total_cost_usd: float
+    elapsed_s: float
 
 
 @dataclass(frozen=True)
@@ -299,9 +392,10 @@ async def review_position(
         return None
 
     pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0.0
+    safe_q = _sanitize_prompt_input(question)
     user_msg = (
         f"Position review:\n"
-        f"Market: {question}\n"
+        f"Market: {safe_q}\n"
         f"Strategy: {strategy}\n"
         f"Entry price: ${entry_price:.3f} → Current: ${current_price:.3f} "
         f"({pnl_pct:+.1f}%)\n"
@@ -356,15 +450,17 @@ def _format_proposer_prompt(
     estimated_prob: float, confidence: float, reasoning: str,
     sentiment_score: float | None, hours_to_resolution: float | None,
 ) -> str:
+    safe_q = _sanitize_prompt_input(question)
+    safe_r = _sanitize_prompt_input(reasoning)
     msg = (
         f"Trade opportunity:\n"
-        f"Market: {question}\n"
+        f"Market: {safe_q}\n"
         f"Strategy: {strategy}\n"
         f"Market price: ${price:.3f}\n"
         f"Our estimated probability: {estimated_prob:.1%}\n"
         f"Edge: {edge:.1%}\n"
         f"Signal confidence: {confidence:.2f}\n"
-        f"Strategy reasoning: {reasoning}\n"
+        f"Strategy reasoning: {safe_r}\n"
     )
     if hours_to_resolution is not None:
         msg += f"Hours until resolution: {hours_to_resolution:.1f}\n"
@@ -379,9 +475,10 @@ def _format_challenger_prompt(
     estimated_prob: float, proposer_reasoning: str,
     sentiment_score: float | None, hours_to_resolution: float | None,
 ) -> str:
+    safe_q = _sanitize_prompt_input(question)
     msg = (
         f"Proposed trade to review:\n"
-        f"Market: {question}\n"
+        f"Market: {safe_q}\n"
         f"Strategy: {strategy}\n"
         f"Market price: ${price:.3f}, Estimated prob: {estimated_prob:.1%}\n"
         f"Edge: {edge:.1%}\n"
@@ -483,3 +580,208 @@ def _parse_reviewer(text: str) -> tuple[str, str, str]:
             reasoning = line.split(":", 1)[1].strip()
 
     return verdict, urgency, reasoning
+
+
+def _parse_risk_proposer(text: str) -> tuple[str, str, float]:
+    """Parse risk proposer response. Returns (rebuttal, proposed_fix, conviction)."""
+    rebuttal = text
+    proposed_fix = ""
+    conviction = 0.5
+
+    for line in text.split("\n"):
+        upper = line.upper().strip()
+        if upper.startswith("REBUTTAL:"):
+            rebuttal = line.split(":", 1)[1].strip()
+        elif upper.startswith("PROPOSED_FIX:") or upper.startswith("PROPOSED FIX:"):
+            proposed_fix = line.split(":", 1)[1].strip()
+        elif upper.startswith("CONVICTION:"):
+            try:
+                conviction = float(line.split(":", 1)[1].strip())
+                conviction = max(0.0, min(1.0, conviction))
+            except ValueError:
+                pass
+
+    return rebuttal, proposed_fix, conviction
+
+
+def _parse_risk_analyst(text: str) -> tuple[str, float, str]:
+    """Parse risk analyst response. Returns (verdict, size_adjustment, reasoning)."""
+    verdict = "MAINTAIN"
+    size_adjustment = 1.0
+    reasoning = text
+
+    for line in text.split("\n"):
+        upper = line.upper().strip()
+        if upper.startswith("VERDICT:"):
+            val = upper.split(":", 1)[1].strip()
+            if "CONCEDE" in val:
+                verdict = "CONCEDE"
+            else:
+                verdict = "MAINTAIN"
+        elif upper.startswith("SIZE_ADJUSTMENT:") or upper.startswith("SIZE ADJUSTMENT:"):
+            try:
+                size_adjustment = float(line.split(":", 1)[1].strip())
+                size_adjustment = max(0.5, min(1.0, size_adjustment))
+            except ValueError:
+                pass
+        elif upper.startswith("REASONING:"):
+            reasoning = line.split(":", 1)[1].strip()
+
+    return verdict, size_adjustment, reasoning
+
+
+async def debate_risk_rejection(
+    question: str,
+    strategy: str,
+    rejection_reason: str,
+    edge: float,
+    price: float,
+    estimated_prob: float,
+    size_usd: float,
+    hours_to_resolution: float | None = None,
+) -> RiskDebateResult | None:
+    """Debate a risk manager rejection: proposer argues, analyst decides.
+
+    Returns RiskDebateResult, or None if debate can't run (budget, hard rejection).
+    """
+    if cost_tracker.is_over_budget:
+        logger.info("risk_debate_budget_exhausted", today_cost=cost_tracker.today_cost)
+        return None
+
+    if not _is_debatable_rejection(rejection_reason):
+        return None
+
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError:
+        return None
+
+    api_key = settings.anthropic_api_key
+    if not api_key:
+        return None
+
+    client = AsyncAnthropic(api_key=api_key, timeout=_TIMEOUT)
+    start = time.monotonic()
+    total_cost = 0.0
+    safe_q = _sanitize_prompt_input(question)
+
+    # --- PROPOSER ---
+    proposer_msg = (
+        f"Risk rejection to challenge:\n"
+        f"Market: {safe_q}\n"
+        f"Strategy: {strategy}\n"
+        f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
+        f"Proposed size: ${size_usd:.2f}\n"
+        f"Rejection reason: {rejection_reason}\n"
+    )
+    if hours_to_resolution is not None:
+        proposer_msg += f"Hours to resolution: {hours_to_resolution:.1f}\n"
+    proposer_msg += "\nChallenge this rejection."
+
+    try:
+        prop_resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=_MAX_TOKENS,
+            system=_RISK_PROPOSER_SYSTEM,
+            messages=[{"role": "user", "content": proposer_msg}],
+        )
+        prop_text = prop_resp.content[0].text.strip()
+        prop_cost = _calc_cost(prop_resp.usage.input_tokens, prop_resp.usage.output_tokens)
+        total_cost += prop_cost
+    except Exception as e:
+        logger.warning("risk_proposer_error", error=str(e))
+        return None
+
+    rebuttal, proposed_fix, conviction = _parse_risk_proposer(prop_text)
+
+    # Low conviction — proposer agrees with rejection
+    if conviction < _MIN_CONVICTION_FOR_ANALYST:
+        elapsed = time.monotonic() - start
+        cost_tracker.add(total_cost)
+        logger.info(
+            "risk_debate_low_conviction",
+            question=question[:60],
+            conviction=conviction,
+            cost_usd=round(total_cost, 5),
+        )
+        return RiskDebateResult(
+            override=False,
+            rejection_reason=rejection_reason,
+            proposer_rebuttal=rebuttal,
+            analyst_verdict="skipped",
+            analyst_reasoning=f"Proposer conviction too low ({conviction:.0%})",
+            adjusted_size_pct=0.0,
+            total_cost_usd=total_cost,
+            elapsed_s=round(elapsed, 2),
+        )
+
+    # --- ANALYST ---
+    analyst_msg = (
+        f"Risk debate review:\n"
+        f"Market: {safe_q}\n"
+        f"Strategy: {strategy}\n"
+        f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
+        f"Original rejection: {rejection_reason}\n\n"
+        f"Proposer's rebuttal: {rebuttal}\n"
+        f"Proposed fix: {proposed_fix}\n"
+        f"Proposer conviction: {conviction:.0%}\n"
+    )
+    if hours_to_resolution is not None:
+        analyst_msg += f"Hours to resolution: {hours_to_resolution:.1f}\n"
+    analyst_msg += "\nShould we CONCEDE or MAINTAIN the rejection?"
+
+    try:
+        analyst_resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=_MAX_TOKENS,
+            system=_RISK_ANALYST_SYSTEM,
+            messages=[{"role": "user", "content": analyst_msg}],
+        )
+        analyst_text = analyst_resp.content[0].text.strip()
+        analyst_cost = _calc_cost(
+            analyst_resp.usage.input_tokens, analyst_resp.usage.output_tokens,
+        )
+        total_cost += analyst_cost
+    except Exception as e:
+        logger.warning("risk_analyst_error", error=str(e))
+        # Fail-safe: maintain rejection
+        elapsed = time.monotonic() - start
+        cost_tracker.add(total_cost)
+        return RiskDebateResult(
+            override=False,
+            rejection_reason=rejection_reason,
+            proposer_rebuttal=rebuttal,
+            analyst_verdict="MAINTAIN",
+            analyst_reasoning="Analyst unavailable — rejection maintained",
+            adjusted_size_pct=0.0,
+            total_cost_usd=total_cost,
+            elapsed_s=round(elapsed, 2),
+        )
+
+    verdict, size_adjustment, reasoning = _parse_risk_analyst(analyst_text)
+    override = verdict == "CONCEDE"
+    elapsed = time.monotonic() - start
+    cost_tracker.add(total_cost)
+
+    logger.info(
+        "risk_debate_complete",
+        question=question[:60],
+        rejection=rejection_reason[:40],
+        conviction=conviction,
+        verdict=verdict,
+        size_adjustment=size_adjustment if override else 0.0,
+        override=override,
+        cost_usd=round(total_cost, 5),
+        elapsed_s=round(elapsed, 2),
+    )
+
+    return RiskDebateResult(
+        override=override,
+        rejection_reason=rejection_reason,
+        proposer_rebuttal=rebuttal,
+        analyst_verdict=verdict,
+        analyst_reasoning=reasoning,
+        adjusted_size_pct=size_adjustment if override else 0.0,
+        total_cost_usd=total_cost,
+        elapsed_s=round(elapsed, 2),
+    )

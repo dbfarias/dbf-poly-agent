@@ -24,6 +24,7 @@ from bot.data.activity import (
     log_position_closed,
     log_price_adjustment,
     log_rebalance,
+    log_risk_debate,
     log_risk_limit_hit,
     log_signal_found,
     log_signal_rejected,
@@ -811,3 +812,56 @@ class TestLogDailyTargetReached:
         assert meta["equity"] == pytest.approx(20.0)
         assert meta["daily_pnl"] == pytest.approx(0.30)
         assert meta["target_pct"] == pytest.approx(0.015)
+
+
+# ---------------------------------------------------------------------------
+# log_risk_debate — covers risk debate logging
+# ---------------------------------------------------------------------------
+
+
+class TestLogRiskDebate:
+    async def test_creates_override_event(self, patched_async_session):
+        """log_risk_debate with override=True should create a success event."""
+        await log_risk_debate(
+            strategy="value_betting", market_id="m1", question="Will X?",
+            rejection_reason="Edge too low", override=True,
+            proposer_rebuttal="Edge is close", analyst_verdict="CONCEDE",
+            analyst_reasoning="Reduced size mitigates", adjusted_size_pct=0.7,
+            edge=0.028, price=0.5, cost_usd=0.0008,
+        )
+        rows = await _fetch_all_activities(patched_async_session)
+        assert len(rows) == 1
+        assert rows[0].event_type == "llm_risk_debate"
+        assert rows[0].level == "success"
+        assert "Overridden" in rows[0].title
+
+    async def test_creates_upheld_event(self, patched_async_session):
+        """log_risk_debate with override=False should create an info event."""
+        await log_risk_debate(
+            strategy="value_betting", market_id="m1", question="Will X?",
+            rejection_reason="Edge too low", override=False,
+            proposer_rebuttal="Weak case", analyst_verdict="MAINTAIN",
+            analyst_reasoning="Edge too far below", adjusted_size_pct=0.0,
+            edge=0.01, price=0.5, cost_usd=0.0008,
+        )
+        rows = await _fetch_all_activities(patched_async_session)
+        assert len(rows) == 1
+        assert rows[0].level == "info"
+        assert "Upheld" in rows[0].title
+
+    async def test_metadata_contains_debate_details(self, patched_async_session):
+        """metadata_json should include all debate fields."""
+        await log_risk_debate(
+            strategy="value_betting", market_id="m1", question="Will X?",
+            rejection_reason="Edge too low: 2% < 3%", override=True,
+            proposer_rebuttal="Close enough", analyst_verdict="CONCEDE",
+            analyst_reasoning="Agreed", adjusted_size_pct=0.8,
+            edge=0.02, price=0.5, cost_usd=0.001,
+        )
+        rows = await _fetch_all_activities(patched_async_session)
+        meta = json.loads(rows[0].metadata_json)
+        assert meta["override"] is True
+        assert meta["rejection_reason"] == "Edge too low: 2% < 3%"
+        assert meta["analyst_verdict"] == "CONCEDE"
+        assert meta["adjusted_size_pct"] == pytest.approx(0.8)
+        assert meta["cost_usd"] == pytest.approx(0.001)

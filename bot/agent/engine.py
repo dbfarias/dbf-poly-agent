@@ -20,6 +20,7 @@ from bot.data.activity import (
     log_llm_debate,
     log_llm_review,
     log_position_closed,
+    log_risk_debate,
     log_risk_limit_hit,
     log_signal_found,
     log_signal_rejected,
@@ -38,7 +39,7 @@ from bot.polymarket.websocket_manager import WebSocketManager
 from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
 from bot.research.llm_debate import cost_tracker as llm_cost_tracker
-from bot.research.llm_debate import debate_signal, review_position
+from bot.research.llm_debate import debate_risk_rejection, debate_signal, review_position
 from bot.utils.notifications import (
     close_telegram_client,
     notify_daily_summary,
@@ -877,21 +878,96 @@ class TradingEngine:
                         )
                         continue
                 else:
-                    logger.debug(
-                        "signal_rejected",
-                        strategy=signal.strategy,
-                        reason=reason,
-                    )
-                    await log_signal_rejected(
-                        strategy=signal.strategy,
-                        market_id=signal.market_id,
-                        question=signal.question,
-                        reason=reason,
-                        edge=signal.edge,
-                        price=signal.market_price,
-                    )
-                    await self._maybe_notify_risk_limit(reason)
-                    continue
+                    # Try LLM risk debate on debatable rejections
+                    risk_override = False
+                    if settings.use_llm_debate and reason:
+                        risk_result = await debate_risk_rejection(
+                            question=signal.question,
+                            strategy=signal.strategy,
+                            rejection_reason=reason,
+                            edge=signal.edge,
+                            price=signal.market_price,
+                            estimated_prob=signal.estimated_prob,
+                            size_usd=size,
+                            hours_to_resolution=signal.metadata.get(
+                                "hours_to_resolution",
+                            ),
+                        )
+                        if risk_result is not None:
+                            await log_risk_debate(
+                                strategy=signal.strategy,
+                                market_id=signal.market_id,
+                                question=signal.question,
+                                rejection_reason=risk_result.rejection_reason,
+                                override=risk_result.override,
+                                proposer_rebuttal=risk_result.proposer_rebuttal,
+                                analyst_verdict=risk_result.analyst_verdict,
+                                analyst_reasoning=risk_result.analyst_reasoning,
+                                adjusted_size_pct=risk_result.adjusted_size_pct,
+                                edge=signal.edge,
+                                price=signal.market_price,
+                                cost_usd=risk_result.total_cost_usd,
+                            )
+                            if risk_result.override:
+                                # Apply size adjustment: Kelly * adjusted %
+                                adjusted_size = size * risk_result.adjusted_size_pct
+                                min_notional = max(1.0, 5.0 * signal.market_price)
+                                available = (
+                                    self.portfolio.total_equity
+                                    - cycle_committed
+                                ) * 0.95
+                                adjusted_size = max(
+                                    min_notional,
+                                    min(adjusted_size, available),
+                                )
+                                # Re-validate hard limits with adjusted size
+                                re_ok, re_size, re_reason = (
+                                    await self.risk_manager.evaluate_signal(
+                                        signal=signal,
+                                        bankroll=self.portfolio.total_equity
+                                        - cycle_committed,
+                                        open_positions=self.portfolio.positions,
+                                        tier=tier,
+                                        pending_count=pending_count,
+                                        edge_multiplier=edge_multiplier,
+                                        urgency=_urgency,
+                                    )
+                                )
+                                if re_ok:
+                                    size = min(adjusted_size, re_size)
+                                    approved = True
+                                    risk_override = True
+                                    logger.info(
+                                        "risk_debate_override",
+                                        strategy=signal.strategy,
+                                        question=signal.question[:60],
+                                        original_reason=reason,
+                                        adjusted_size=round(size, 2),
+                                        size_pct=risk_result.adjusted_size_pct,
+                                    )
+                                else:
+                                    logger.info(
+                                        "risk_debate_override_blocked",
+                                        strategy=signal.strategy,
+                                        reason=re_reason,
+                                    )
+
+                    if not risk_override:
+                        logger.debug(
+                            "signal_rejected",
+                            strategy=signal.strategy,
+                            reason=reason,
+                        )
+                        await log_signal_rejected(
+                            strategy=signal.strategy,
+                            market_id=signal.market_id,
+                            question=signal.question,
+                            reason=reason,
+                            edge=signal.edge,
+                            price=signal.market_price,
+                        )
+                        await self._maybe_notify_risk_limit(reason)
+                        continue
 
             # Check order book liquidity before executing
             if not await self._check_liquidity(signal):

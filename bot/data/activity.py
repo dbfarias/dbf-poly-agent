@@ -429,6 +429,48 @@ async def log_llm_review(
     ))
 
 
+async def log_risk_debate(
+    strategy: str,
+    market_id: str,
+    question: str,
+    rejection_reason: str,
+    override: bool,
+    proposer_rebuttal: str,
+    analyst_verdict: str,
+    analyst_reasoning: str,
+    adjusted_size_pct: float,
+    edge: float,
+    price: float,
+    cost_usd: float,
+) -> None:
+    """Log a risk debate result (proposer vs analyst on risk rejection)."""
+    icon = "Overridden" if override else "Upheld"
+    level = "success" if override else "info"
+    await _write(BotActivity(
+        event_type="llm_risk_debate",
+        level=level,
+        title=f"Risk Debate {icon}: {question[:50]}",
+        detail=(
+            f"Strategy: {strategy} | Price: ${price:.3f} | Edge: {edge:.1%}\n"
+            f"Rejection: {rejection_reason}\n"
+            f"Proposer rebuttal: {proposer_rebuttal}\n"
+            f"Analyst: {analyst_verdict} — {analyst_reasoning}\n"
+            f"Size adjustment: {adjusted_size_pct:.0%} | Cost: ${cost_usd:.4f}"
+        ),
+        market_id=market_id,
+        strategy=strategy,
+        metadata_json=_meta({
+            "rejection_reason": rejection_reason,
+            "override": override,
+            "proposer_rebuttal": proposer_rebuttal,
+            "analyst_verdict": analyst_verdict,
+            "analyst_reasoning": analyst_reasoning,
+            "adjusted_size_pct": adjusted_size_pct,
+            "edge": edge, "price": price, "cost_usd": cost_usd,
+        }),
+    ))
+
+
 async def log_price_adjustment(
     market_id: str,
     strategy: str,

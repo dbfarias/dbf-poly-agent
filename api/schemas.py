@@ -224,6 +224,17 @@ class ActivityResponse(BaseModel):
     has_more: bool
 
 
+# LLM Costs
+class LlmDailyCost(BaseModel):
+    date: str
+    debate_cost: float
+    review_cost: float
+    risk_debate_cost: float = 0.0
+    total_cost: float
+    daily_pnl: float
+    net_profit: float
+
+
 # Health
 class HealthCheck(BaseModel):
     status: str = "ok"

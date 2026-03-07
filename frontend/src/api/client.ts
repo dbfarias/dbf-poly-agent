@@ -416,3 +416,17 @@ export const fetchResearchStatus = () =>
 
 export const fetchResearchMarkets = () =>
   api.get<ResearchMarket[]>("/api/research/markets").then((r) => r.data);
+
+// LLM Cost tracking
+export interface LlmDailyCost {
+  date: string;
+  debate_cost: number;
+  review_cost: number;
+  risk_debate_cost: number;
+  total_cost: number;
+  daily_pnl: number;
+  net_profit: number;
+}
+
+export const fetchLlmCosts = () =>
+  api.get<LlmDailyCost[]>("/api/activity/llm-costs").then((r) => r.data);

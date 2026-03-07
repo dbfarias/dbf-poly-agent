@@ -1,14 +1,20 @@
 """Activity log API — human-readable bot decision log."""
 
 import json
+from collections import defaultdict
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.dependencies import get_db
 from api.middleware import verify_api_key
-from api.schemas import ActivityEvent, ActivityResponse
+from api.schemas import ActivityEvent, ActivityResponse, LlmDailyCost
+from bot.config import settings as bot_settings
 from bot.data.database import async_session
 from bot.data.models import BotActivity
+from bot.data.repositories import PortfolioSnapshotRepository
 
 router = APIRouter(prefix="/api/activity", tags=["activity"])
 
@@ -77,3 +83,79 @@ async def get_event_types(_: str = Depends(verify_api_key)):
             .order_by(BotActivity.event_type)
         )
         return [row[0] for row in result.all()]
+
+
+@router.get("/llm-costs", response_model=list[LlmDailyCost])
+async def get_llm_costs(
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily LLM cost breakdown vs trading PnL."""
+    # Fetch all LLM activity rows (use injected db session for both queries)
+    llm_types = ("llm_debate", "llm_review", "llm_risk_debate")
+    result = await db.execute(
+        select(BotActivity)
+        .where(BotActivity.event_type.in_(llm_types))
+        .order_by(BotActivity.timestamp.asc())
+    )
+    rows = result.scalars().all()
+
+    offset = timedelta(hours=bot_settings.timezone_offset_hours)
+
+    # Group costs by date and event_type
+    cost_by_day: dict[str, dict[str, float]] = defaultdict(
+        lambda: {"llm_debate": 0.0, "llm_review": 0.0, "llm_risk_debate": 0.0},
+    )
+    for row in rows:
+        local_ts = row.timestamp + offset
+        day = local_ts.strftime("%Y-%m-%d")
+        try:
+            meta = json.loads(row.metadata_json) if row.metadata_json else {}
+        except (json.JSONDecodeError, TypeError):
+            meta = {}
+        cost = float(meta.get("cost_usd", 0.0))
+        cost_by_day[day][row.event_type] += cost
+
+    # Build daily PnL lookup from portfolio snapshots
+    snap_repo = PortfolioSnapshotRepository(db)
+    snapshots = await snap_repo.get_equity_curve(days=365)
+    pnl_by_day: dict[str, float] = {}
+    day_data: dict[str, dict] = defaultdict(
+        lambda: {"first": None, "last": None},
+    )
+    for s in snapshots:
+        local_ts = s.timestamp + offset
+        day = local_ts.strftime("%Y-%m-%d")
+        entry = day_data[day]
+        if entry["first"] is None:
+            entry["first"] = s
+        entry["last"] = s
+    for day, data in day_data.items():
+        pnl_by_day[day] = data["last"].total_equity - data["first"].total_equity
+
+    # Merge: all days that have either costs or PnL
+    all_days = sorted(set(cost_by_day.keys()) | set(pnl_by_day.keys()))
+    result_list = []
+    for day in all_days:
+        costs = cost_by_day.get(day, {"llm_debate": 0.0, "llm_review": 0.0, "llm_risk_debate": 0.0})
+        debate_cost = costs["llm_debate"]
+        review_cost = costs["llm_review"]
+        risk_debate_cost = costs["llm_risk_debate"]
+        total_cost = debate_cost + review_cost + risk_debate_cost
+
+        # Skip days with no LLM activity
+        if total_cost == 0.0:
+            continue
+
+        daily_pnl = pnl_by_day.get(day, 0.0)
+        result_list.append(LlmDailyCost(
+            date=day,
+            debate_cost=round(debate_cost, 5),
+            review_cost=round(review_cost, 5),
+            risk_debate_cost=round(risk_debate_cost, 5),
+            total_cost=round(total_cost, 5),
+            daily_pnl=round(daily_pnl, 4),
+            net_profit=round(daily_pnl - total_cost, 4),
+        ))
+
+    return result_list

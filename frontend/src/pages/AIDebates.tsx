@@ -1,13 +1,88 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { fetchActivity, fetchConfig } from "../api/client";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { fetchActivity, fetchConfig, fetchLlmCosts } from "../api/client";
 import type { ActivityEvent } from "../api/client";
 
-type TabType = "debates" | "reviews";
+type TabType = "debates" | "reviews" | "risk_debates";
+
+function CostVsPnlChart() {
+  const { data: costs } = useQuery({
+    queryKey: ["llm-costs"],
+    queryFn: fetchLlmCosts,
+    refetchInterval: 60000,
+  });
+
+  if (!costs || costs.length === 0) {
+    return null;
+  }
+
+  const totalCost = costs.reduce((s, c) => s + c.total_cost, 0);
+  const totalPnl = costs.reduce((s, c) => s + c.daily_pnl, 0);
+  const netProfit = totalPnl - totalCost;
+
+  return (
+    <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-medium text-zinc-300">LLM Cost vs Trading PnL</h3>
+        <div className="flex gap-4 text-xs">
+          <span className="text-zinc-400">
+            Total Cost: <span className="text-red-400">${totalCost.toFixed(4)}</span>
+          </span>
+          <span className="text-zinc-400">
+            Total PnL: <span className={totalPnl >= 0 ? "text-green-400" : "text-red-400"}>
+              {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(4)}
+            </span>
+          </span>
+          <span className="text-zinc-400">
+            Net: <span className={netProfit >= 0 ? "text-green-400" : "text-red-400"}>
+              {netProfit >= 0 ? "+" : ""}${netProfit.toFixed(4)}
+            </span>
+          </span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={costs} margin={{ top: 5, right: 5, left: -10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3e" />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 10, fill: "#71717a" }}
+            tickFormatter={(v: string) => v.slice(5)}
+          />
+          <YAxis tick={{ fontSize: 10, fill: "#71717a" }} />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "#1e2130",
+              border: "1px solid #2a2d3e",
+              borderRadius: 8,
+              fontSize: 12,
+            }}
+            formatter={(value: number, name: string) => [
+              `$${value.toFixed(4)}`,
+              name,
+            ]}
+          />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Bar dataKey="daily_pnl" name="Trading PnL" fill="#22c55e" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="total_cost" name="LLM Cost" fill="#ef4444" radius={[2, 2, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 function DebateCard({ event }: { event: ActivityEvent }) {
   const meta = event.metadata as Record<string, unknown>;
-  const approved = meta.approved as boolean;
+  const approved = meta.approved === true;
   const proposerVerdict = (meta.proposer_verdict as string) ?? "?";
   const proposerConf = (meta.proposer_confidence as number) ?? 0;
   const proposerReasoning = (meta.proposer_reasoning as string) ?? "";
@@ -165,7 +240,7 @@ function ReviewCard({ event }: { event: ActivityEvent }) {
             <span className="text-xs text-zinc-500">{event.strategy}</span>
           </div>
           <p className="text-sm text-zinc-200 mt-1 line-clamp-2">
-            {event.title.replace(/^AI Review: (HOLD|EXIT) \((LOW|MEDIUM|HIGH)\) — /, "")}
+            {event.title.replace(/^AI Review: (HOLD|EXIT|REDUCE|INCREASE) \((LOW|MEDIUM|HIGH)\) — /, "")}
           </p>
         </div>
         <div className="text-right shrink-0">
@@ -194,6 +269,97 @@ function ReviewCard({ event }: { event: ActivityEvent }) {
   );
 }
 
+function RiskDebateCard({ event }: { event: ActivityEvent }) {
+  const meta = event.metadata as Record<string, unknown>;
+  const override = meta.override === true;
+  const rejectionReason = (meta.rejection_reason as string) ?? "";
+  const proposerRebuttal = (meta.proposer_rebuttal as string) ?? "";
+  const analystVerdict = (meta.analyst_verdict as string) ?? "?";
+  const analystReasoning = (meta.analyst_reasoning as string) ?? "";
+  const adjustedSizePct = (meta.adjusted_size_pct as number) ?? 0;
+  const edge = (meta.edge as number) ?? 0;
+  const price = (meta.price as number) ?? 0;
+  const costUsd = (meta.cost_usd as number) ?? 0;
+
+  const ts = new Date(event.timestamp);
+  const timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const dateStr = ts.toLocaleDateString([], { month: "short", day: "numeric" });
+
+  return (
+    <div
+      className={`bg-[#1e2130] rounded-lg border p-4 ${
+        override ? "border-green-800/50" : "border-zinc-700/50"
+      }`}
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                override
+                  ? "bg-green-900/40 text-green-400"
+                  : "bg-zinc-700 text-zinc-400"
+              }`}
+            >
+              {override ? "OVERRIDDEN" : "UPHELD"}
+            </span>
+            <span className="text-xs text-zinc-500">{event.strategy}</span>
+            {override && adjustedSizePct > 0 && (
+              <span className="text-[10px] text-amber-400">
+                Size: {(adjustedSizePct * 100).toFixed(0)}%
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-zinc-200 mt-1 line-clamp-2">
+            {event.title.replace(/^Risk Debate (Overridden|Upheld): /, "")}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xs text-zinc-500">{dateStr}</div>
+          <div className="text-xs text-zinc-400">{timeStr}</div>
+        </div>
+      </div>
+
+      {/* Market data */}
+      <div className="flex gap-4 text-xs text-zinc-400 mb-3">
+        <span>Price: ${price.toFixed(3)}</span>
+        <span>Edge: {(edge * 100).toFixed(1)}%</span>
+        <span>Cost: ${costUsd.toFixed(4)}</span>
+      </div>
+
+      {/* Risk rejection reason */}
+      <div className="rounded bg-red-950/30 border border-red-900/30 p-3 mb-2">
+        <span className="text-xs font-medium text-red-400">REJECTION</span>
+        <p className="text-xs text-zinc-300 mt-1">{rejectionReason}</p>
+      </div>
+
+      {/* Proposer rebuttal */}
+      <div className="rounded bg-orange-950/20 border border-orange-900/30 p-3 mb-2">
+        <span className="text-xs font-medium text-orange-400">PROPOSER REBUTTAL</span>
+        <p className="text-xs text-zinc-300 mt-1">{proposerRebuttal}</p>
+      </div>
+
+      {/* Analyst verdict */}
+      <div className="rounded bg-cyan-950/20 border border-cyan-900/30 p-3">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs font-medium text-cyan-400">RISK ANALYST</span>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+              analystVerdict === "CONCEDE"
+                ? "bg-green-900/40 text-green-400"
+                : "bg-zinc-700 text-zinc-400"
+            }`}
+          >
+            {analystVerdict}
+          </span>
+        </div>
+        <p className="text-xs text-zinc-300">{analystReasoning}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function AIDebates() {
   const [tab, setTab] = useState<TabType>("debates");
 
@@ -214,10 +380,25 @@ export default function AIDebates() {
     refetchInterval: 15000,
   });
 
+  const { data: riskDebateData, isLoading: riskDebatesLoading } = useQuery({
+    queryKey: ["activity", "llm_risk_debate"],
+    queryFn: () => fetchActivity({ event_type: "llm_risk_debate", limit: 50 }),
+    refetchInterval: 15000,
+  });
+
   const debates = debateData?.events ?? [];
   const reviews = reviewData?.events ?? [];
-  const isLoading = tab === "debates" ? debatesLoading : reviewsLoading;
-  const events = tab === "debates" ? debates : reviews;
+  const riskDebates = riskDebateData?.events ?? [];
+
+  const isLoading =
+    tab === "debates"
+      ? debatesLoading
+      : tab === "reviews"
+        ? reviewsLoading
+        : riskDebatesLoading;
+
+  const events =
+    tab === "debates" ? debates : tab === "reviews" ? reviews : riskDebates;
 
   // Stats
   const approvedCount = debates.filter(
@@ -246,10 +427,23 @@ export default function AIDebates() {
     (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
     0,
   );
+  const riskOverrideCount = riskDebates.filter(
+    (e) => (e.metadata as Record<string, unknown>).override === true,
+  ).length;
+  const riskUpheldCount = riskDebates.filter(
+    (e) => (e.metadata as Record<string, unknown>).override === false,
+  ).length;
+  const totalRiskDebateCost = riskDebates.reduce(
+    (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
+    0,
+  );
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto" data-testid="ai-debates-page">
       <h2 className="text-xl font-bold">AI Debates</h2>
+
+      {/* Cost vs PnL chart */}
+      <CostVsPnlChart />
 
       {/* Status banner */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -291,7 +485,7 @@ export default function AIDebates() {
       <div className="flex gap-1 bg-[#1a1d29] rounded-lg p-1">
         <button
           onClick={() => setTab("debates")}
-          className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-colors ${
+          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
             tab === "debates"
               ? "bg-indigo-600 text-white"
               : "text-zinc-400 hover:text-zinc-200"
@@ -299,23 +493,38 @@ export default function AIDebates() {
         >
           Trade Debates
           {debates.length > 0 && (
-            <span className="ml-2 text-xs opacity-70">
-              {approvedCount} approved / {rejectedCount} rejected
+            <span className="ml-1 text-xs opacity-70">
+              {approvedCount}/{rejectedCount}
             </span>
           )}
         </button>
         <button
           onClick={() => setTab("reviews")}
-          className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-colors ${
+          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
             tab === "reviews"
               ? "bg-indigo-600 text-white"
               : "text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Position Reviews
+          Reviews
           {reviews.length > 0 && (
-            <span className="ml-2 text-xs opacity-70">
-              {holdReviews}H / {reduceReviews}R / {exitReviews}E / {increaseReviews}I
+            <span className="ml-1 text-xs opacity-70">
+              {holdReviews}H/{reduceReviews}R/{exitReviews}E/{increaseReviews}I
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab("risk_debates")}
+          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+            tab === "risk_debates"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Risk Debates
+          {riskDebates.length > 0 && (
+            <span className="ml-1 text-xs opacity-70">
+              {riskOverrideCount}/{riskUpheldCount}
             </span>
           )}
         </button>
@@ -346,21 +555,39 @@ export default function AIDebates() {
           <span>Total cost: ${totalReviewCost.toFixed(4)}</span>
         </div>
       )}
+      {tab === "risk_debates" && riskDebates.length > 0 && (
+        <div className="flex gap-4 text-xs text-zinc-500">
+          <span>
+            Override rate:{" "}
+            {riskDebates.length > 0
+              ? ((riskOverrideCount / riskDebates.length) * 100).toFixed(0)
+              : 0}
+            %
+          </span>
+          <span>Total cost: ${totalRiskDebateCost.toFixed(4)}</span>
+        </div>
+      )}
 
       {/* Events list */}
       {isLoading ? (
         <div className="text-center text-zinc-500 py-12">Loading...</div>
       ) : events.length === 0 ? (
         <div className="text-center text-zinc-500 py-12">
-          <p className="text-lg mb-2">No {tab === "debates" ? "debates" : "reviews"} yet</p>
+          <p className="text-lg mb-2">
+            No {tab === "debates" ? "debates" : tab === "reviews" ? "reviews" : "risk debates"} yet
+          </p>
           <p className="text-sm">
             {tab === "debates"
               ? config?.use_llm_debate
                 ? "Debates will appear here as the bot evaluates trade signals."
                 : "Enable the AI Debate Gate in Settings to start."
-              : config?.use_llm_reviewer
-                ? "Reviews will appear as the AI checks open positions."
-                : "Enable the Position Reviewer in Settings to start."}
+              : tab === "reviews"
+                ? config?.use_llm_reviewer
+                  ? "Reviews will appear as the AI checks open positions."
+                  : "Enable the Position Reviewer in Settings to start."
+                : config?.use_llm_debate
+                  ? "Risk debates will appear when AI challenges risk rejections."
+                  : "Enable the AI Debate Gate in Settings to start."}
           </p>
         </div>
       ) : (
@@ -368,8 +595,10 @@ export default function AIDebates() {
           {events.map((event) =>
             tab === "debates" ? (
               <DebateCard key={event.id} event={event} />
-            ) : (
+            ) : tab === "reviews" ? (
               <ReviewCard key={event.id} event={event} />
+            ) : (
+              <RiskDebateCard key={event.id} event={event} />
             ),
           )}
         </div>
