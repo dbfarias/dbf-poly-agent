@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import { useAuth } from "./hooks/useAuth";
 import Activity from "./pages/Activity";
+import AIDebates from "./pages/AIDebates";
 import Dashboard from "./pages/Dashboard";
 import Learner from "./pages/Learner";
 import Login from "./pages/Login";
@@ -34,6 +35,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           <Route path="risk" element={<Risk />} />
           <Route path="research" element={<Research />} />
           <Route path="learner" element={<Learner />} />
+          <Route path="ai-debates" element={<AIDebates />} />
           <Route path="activity" element={<Activity />} />
           <Route path="settings" element={<Settings />} />
         </Route>

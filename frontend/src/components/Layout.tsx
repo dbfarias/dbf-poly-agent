@@ -6,6 +6,7 @@ import {
   LineChart,
   LogOut,
   Menu,
+  MessageSquare,
   Newspaper,
   RefreshCw,
   ScrollText,
@@ -27,6 +28,7 @@ const navItems = [
   { to: "/risk", icon: Shield, label: "Risk" },
   { to: "/research", icon: Newspaper, label: "Research" },
   { to: "/learner", icon: Brain, label: "Learner" },
+  { to: "/ai-debates", icon: MessageSquare, label: "AI Debates" },
   { to: "/activity", icon: ScrollText, label: "Activity" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];

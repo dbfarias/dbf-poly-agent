@@ -13,7 +13,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 
 ---
 
-**$5 to $500** | **6 Strategies** | **Tier-Based Risk** | **Active Rebalancing** | **Adaptive Learning** | **Real-Time Dashboard**
+**$5 to $500** | **6 Strategies** | **AI Trade Debates** | **Tier-Based Risk** | **Active Rebalancing** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
@@ -25,6 +25,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 - [Growth Model](#growth-model)
 - [Architecture](#architecture)
 - [Trading Strategies](#trading-strategies)
+- [AI-Powered Analysis](#ai-powered-analysis)
 - [Risk Management](#risk-management)
 - [Adaptive Learning](#adaptive-learning)
 - [Active Rebalancing](#active-rebalancing)
@@ -55,7 +56,10 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | **Tier-Based Risk System** | 3 capital tiers with automatic position sizing and limit adaptation |
 | **Quarter-Kelly Sizing** | Conservative position sizing to minimize risk of ruin |
 | **Paper Trading Mode** | ON by default — test safely before going live |
-| **Secure Dashboard** | JWT-authenticated React app with 9 pages: dashboard, trades, strategies, markets, risk, activity, learner, settings |
+| **AI Trade Debates** | Claude Haiku-powered Proposer vs Challenger debate gate — every trade is debated before execution |
+| **AI Position Reviewer** | LLM reviews open positions every ~30min: HOLD, EXIT, REDUCE, or INCREASE recommendations |
+| **LLM Sentiment** | Optional Claude-powered sentiment analysis replacing VADER for deeper market understanding |
+| **Secure Dashboard** | JWT-authenticated React app with 11 pages including AI Debates viewer and Research |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Activity Log** | Every bot decision logged with reasoning — visible in dashboard |
 | **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries |
@@ -132,22 +136,23 @@ The bot automatically adjusts its behavior as the bankroll grows:
 |   React Dashboard   |     |   FastAPI + Bot         |
 |   (Static Nginx)    |     |   (Single Process)      |
 |                     |     |                          |
-|  9 Pages:           |     |  +------------------+   |
+|  11 Pages:          |     |  +------------------+   |
 |  - Login            |<--->|  |   FastAPI App     |   |
 |  - Dashboard        | API |  |   /api/* + /ws/*  |   |
 |  - Trades           |     |  +--------+---------+   |
 |  - Strategies       |     |           |              |
 |  - Markets          |     |  +--------v---------+   |
 |  - Risk             |     |  |  Trading Engine   |   |
-|  - Activity         |     |  |  (asyncio task)   |   |
+|  - Research         |     |  |  (asyncio task)   |   |
 |  - Learner          |     |  |                   |   |
-|  - Settings         |     |  |  - 6 Strategies   |   |
-+---------------------+     |  |  - Risk Manager   |   |
-                             |  |  - Portfolio      |   |
-                             |  |  - Learner        |   |
+|  - AI Debates       |     |  |  - 6 Strategies   |   |
+|  - Activity         |     |  |  - Risk Manager   |   |
+|  - Settings         |     |  |  - Portfolio      |   |
++---------------------+     |  |  - Learner        |   |
                              |  |  - Order Manager  |   |
                              |  |  - Rebalancer     |   |
                              |  |  - Research Engine|   |
+                             |  |  - LLM Debate Gate|   |
                              |  +--------+---------+   |
                              |           |              |
                              |  +--------v---------+   |
@@ -261,18 +266,81 @@ Places limit orders below mid-price to capture the spread. Only enabled with $10
 
 ---
 
-## Risk Management
+## AI-Powered Analysis
 
-Multi-layered risk system with **9 cascading checks** — every trade must pass all gates:
+Three independent LLM features using **Claude Haiku 4.5** — each toggleable via dashboard with a shared daily budget cap.
+
+### 1. Trade Debate Gate (Proposer vs Challenger)
+
+Every trade signal goes through a two-agent debate before execution:
 
 ```
-Signal --> Paused? --> Duplicate? --> Daily Loss --> Drawdown --> Max Positions
-            |            |              |             |              |
-            x STOP       x STOP         x STOP       x STOP        x STOP
+Signal Found --> PROPOSER Agent --> BUY or PASS?
+                                        |
+                              BUY       |       PASS
+                               |        |        |
+                               v        |     SKIP (save cost)
+                        CHALLENGER Agent |
+                     APPROVE or REJECT?  |
+                          |              |
+                    APPROVE     REJECT   |
+                       |           |     |
+                    EXECUTE     SKIP   SKIP
+```
+
+- **Proposer** evaluates market data, edge, sentiment, timing — votes BUY or PASS
+- **Challenger** critiques the proposal — looks for flawed assumptions, missed risks, market efficiency
+- Trade only executes if Proposer says BUY **and** Challenger doesn't REJECT
+- If Proposer says PASS, Challenger is skipped (saves API cost)
+- All debates are logged to the Activity table and visible on the AI Debates dashboard page
+
+### 2. Position Reviewer (4-Action)
+
+Every ~30 minutes, the AI reviews each open position (>2h old) and recommends one of 4 actions:
+
+| Action | When | Engine Behavior |
+|:---|:---|:---|
+| **HOLD** | Thesis intact, price stable | No action |
+| **EXIT** | Thesis broken, risk too high | Full close (HIGH urgency only) |
+| **REDUCE** | Take partial profits, cut exposure | Sell half the position (MEDIUM+ urgency) |
+| **INCREASE** | Thesis strengthened, price improved | Log recommendation (manual review) |
+
+Reviews are staggered across cycles (position hash modulo) to spread API costs evenly.
+
+### 3. LLM Sentiment Analysis
+
+Optional replacement for VADER (lexicon-based) sentiment:
+
+- Sends market question + news headlines to Claude Haiku
+- Returns sentiment score (-1.0 to +1.0) with contextual understanding
+- Understands sarcasm, market implications, and nuance that VADER misses
+- Cached via ResearchCache (1h TTL) to minimize API calls
+
+### Cost Control
+
+| Feature | Est. Cost/Day | Toggle |
+|:---|:---:|:---|
+| Sentiment | ~$0.38 | `use_llm_sentiment` |
+| Debate Gate | ~$1.10 | `use_llm_debate` |
+| Position Reviewer | ~$0.20 | `use_llm_reviewer` |
+| **Total** | **~$1.68** | Daily budget cap (default $3.00) |
+
+All LLM calls share a global `LlmCostTracker`. When the daily budget is exhausted, all LLM features gracefully fall back to non-LLM behavior (VADER sentiment, no debate gate, no reviews).
+
+---
+
+## Risk Management
+
+Multi-layered risk system with **10 cascading checks** — every trade must pass all gates:
+
+```
+Signal --> Paused? --> Duplicate? --> AI Debate --> Daily Loss --> Drawdown
+            |            |              |              |             |
+            x STOP       x STOP     x REJECT          x STOP       x STOP
                                                                      |
-   EXECUTE <-- Win Prob <-- Min Edge <-- Category <-- Deployed <-----+
-      |           |           |            |            |
-      OK          x SKIP      x SKIP       x SKIP      x SKIP
+   EXECUTE <-- Win Prob <-- Min Edge <-- Category <-- Deployed <-- Max Pos
+      |           |           |            |            |            |
+      OK          x SKIP      x SKIP       x SKIP      x SKIP     x SKIP
 ```
 
 ### Risk Limits by Tier
@@ -410,7 +478,7 @@ Approved? --> Execute trade
 
 ## Dashboard
 
-JWT-authenticated React dashboard with **9 pages** for full visibility into the bot's operations:
+JWT-authenticated React dashboard with **11 pages** for full visibility into the bot's operations:
 
 | Page | Description |
 |:---|:---|
@@ -420,9 +488,11 @@ JWT-authenticated React dashboard with **9 pages** for full visibility into the 
 | **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio (real-time from trade data) |
 | **Markets** | Live market scanner with opportunities and signals |
 | **Risk** | Drawdown chart, category exposure (pie), risk limits by tier |
-| **Activity** | Bot decision log — every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
+| **Research** | News sentiment analysis: per-market headlines, sentiment scores, research multipliers |
 | **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, probability calibration chart, strategy pause status and cooldown timers |
-| **Settings** | Pause/resume trading, risk parameters, strategy parameters (MAX_HOURS, quality filters), system info. Persisted across restarts |
+| **AI Debates** | Trade debate history (Proposer vs Challenger verdicts + reasoning) and position review log (HOLD/EXIT/REDUCE/INCREASE). Tabbed view with approval rates and cost tracking |
+| **Activity** | Bot decision log — every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
+| **Settings** | AI feature toggles (sentiment/debate/reviewer + daily budget), strategy toggles, risk parameters, strategy parameters, quality filters, system info. All persisted across restarts |
 
 Features: real-time WebSocket updates (JWT-authenticated), auto-refreshing queries, global refresh button, auto-logout on token expiry.
 
@@ -504,6 +574,7 @@ All configuration is via environment variables (`.env` file):
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/polybot.db` | Database connection URL |
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING) |
 | `LOG_FORMAT` | `json` | Log format (json or console) |
+| `ANTHROPIC_API_KEY` | -- | Anthropic API key for Claude Haiku (required for AI features) |
 | `TELEGRAM_BOT_TOKEN` | -- | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | -- | Telegram chat ID (optional) |
 
@@ -519,6 +590,8 @@ These parameters can be changed at runtime via the Settings page and are **persi
 - Learner parameters (pause lookback, win rate threshold, cooldown hours)
 - Rebalance parameters (min_rebalance_edge, min_hold_seconds)
 - Quality gate parameters (max spread, min volume, stop loss, take profit price)
+- AI features (LLM sentiment, debate gate, position reviewer toggles + daily budget)
+- Blocked market types (sports, crypto, other)
 - Pause/resume trading, force-unpause strategies
 
 ---
@@ -616,7 +689,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1300+ tests** across **30+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
+**1350+ tests** across **35+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -647,9 +720,11 @@ cd frontend && npx vite build
 | `test_api_auth.py` | JWT creation, decoding, expiry, password verification |
 | `test_settings_store.py` | Persist/restore settings across restarts |
 | `test_market_analyzer.py` | Market scanning, quality filtering, deduplication |
+| `test_llm_debate.py` | 18 tests — debate parsers, cost tracker, full debate flow, position review |
+| `test_llm_sentiment.py` | 10 tests — Haiku sentiment, clamping, errors, routing |
 | `test_config.py` | Tier config, settings validation, capital tiers |
 | `test_math_utils.py` | Kelly criterion, Sharpe ratio, drawdown |
-| + 10 more | API routers, types, cache, strategies, price rounding |
+| + 12 more | API routers, types, cache, strategies, price rounding |
 
 ---
 
@@ -690,7 +765,11 @@ dbf-poly-agent/
 |   |   |-- settings_store.py         # Persistent settings (survives restarts)
 |   |   +-- market_cache.py           # In-memory TTL cache
 |   |-- research/
-|   |   +-- engine.py                 # Background market research engine
+|   |   |-- engine.py                 # Background market research engine
+|   |   |-- llm_sentiment.py          # Claude Haiku sentiment analysis
+|   |   |-- llm_debate.py             # Proposer vs Challenger debate gate + Position reviewer
+|   |   |-- sentiment.py              # VADER lexicon-based sentiment (fallback)
+|   |   +-- cache.py                  # Research result cache (1h TTL)
 |   +-- utils/
 |       |-- logging_config.py         # structlog JSON logging
 |       |-- math_utils.py             # Kelly, Sharpe, drawdown
@@ -714,7 +793,7 @@ dbf-poly-agent/
 |       +-- websocket.py              # WS /ws/live
 |-- frontend/                         # React 18 + TypeScript + Vite
 |   +-- src/
-|       |-- pages/                    # 9 pages (Login + 8 dashboard pages)
+|       |-- pages/                    # 11 pages (Login + 10 dashboard pages)
 |       |-- components/               # Reusable UI (TradeTable, Layout, charts)
 |       |-- api/client.ts             # API client + types + 401 interceptor
 |       +-- hooks/
@@ -726,7 +805,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 1255+ pytest tests (30+ files)
+|-- tests/                            # 1350+ pytest tests (35+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -752,6 +831,7 @@ dbf-poly-agent/
 - **structlog** — JSON logging
 - **Pydantic v2** — validation & settings
 - **PyJWT** — JWT authentication
+- **anthropic** — Claude Haiku AI (debate + sentiment)
 - **tenacity** — retry logic
 
 </td>
@@ -785,7 +865,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 1300+ tests
+- **pytest** — 1350+ tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`

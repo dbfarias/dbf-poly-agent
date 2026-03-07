@@ -43,14 +43,20 @@ _CHALLENGER_SYSTEM = (
 
 _POSITION_REVIEWER_SYSTEM = (
     "You are a portfolio analyst reviewing an open prediction market position. "
-    "Given current market data, decide if we should HOLD or EXIT.\n"
+    "Given current market data, decide what action to take.\n"
     "Consider:\n"
     "- Has the thesis changed since entry?\n"
     "- Is the current price reflecting new information?\n"
     "- Are we better off freeing this capital for other opportunities?\n"
-    "- How close is resolution and does that change the risk?\n\n"
+    "- How close is resolution and does that change the risk?\n"
+    "- Is this a good swing trade opportunity (price improved, thesis stronger)?\n\n"
+    "Actions:\n"
+    "- HOLD: thesis intact, keep position as is\n"
+    "- EXIT: thesis broken or risk too high, sell everything\n"
+    "- REDUCE: take partial profits or cut exposure, sell half\n"
+    "- INCREASE: thesis strengthened and price improved, buy more shares\n\n"
     "Respond in this exact format:\n"
-    "VERDICT: HOLD or EXIT\n"
+    "VERDICT: HOLD, EXIT, REDUCE, or INCREASE\n"
     "URGENCY: LOW, MEDIUM, or HIGH\n"
     "REASONING: 1-2 sentences"
 )
@@ -75,7 +81,8 @@ class DebateResult:
 class ReviewResult:
     """Result of an LLM position review."""
 
-    should_exit: bool
+    verdict: str  # "HOLD", "EXIT", "REDUCE", "INCREASE"
+    should_exit: bool  # True if verdict is EXIT
     urgency: str  # "LOW", "MEDIUM", "HIGH"
     reasoning: str
     cost_usd: float
@@ -333,6 +340,7 @@ async def review_position(
         )
 
         return ReviewResult(
+            verdict=verdict,
             should_exit=(verdict == "EXIT"),
             urgency=urgency,
             reasoning=reasoning,
@@ -457,6 +465,10 @@ def _parse_reviewer(text: str) -> tuple[str, str, str]:
             val = upper.split(":", 1)[1].strip()
             if "EXIT" in val:
                 verdict = "EXIT"
+            elif "REDUCE" in val:
+                verdict = "REDUCE"
+            elif "INCREASE" in val:
+                verdict = "INCREASE"
             else:
                 verdict = "HOLD"
         elif upper.startswith("URGENCY:"):

@@ -114,6 +114,12 @@ export default function Settings() {
   const [disabledStrategies, setDisabledStrategies] = useState<Set<string>>(
     new Set(),
   );
+  const [llm, setLlm] = useState({
+    use_llm_sentiment: false,
+    use_llm_debate: false,
+    use_llm_reviewer: false,
+    llm_daily_budget: 3.0,
+  });
 
   // Sync local state when config loads
   useEffect(() => {
@@ -128,6 +134,12 @@ export default function Settings() {
     setQuality(config.quality_params);
     setStrategyParams(config.strategy_params);
     setDisabledStrategies(new Set(config.disabled_strategies ?? []));
+    setLlm({
+      use_llm_sentiment: config.use_llm_sentiment ?? false,
+      use_llm_debate: config.use_llm_debate ?? false,
+      use_llm_reviewer: config.use_llm_reviewer ?? false,
+      llm_daily_budget: config.llm_daily_budget ?? 3.0,
+    });
   }, [config]);
 
   const pauseMut = useMutation({
@@ -442,6 +454,153 @@ export default function Settings() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* AI / LLM Features */}
+      <div
+        className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5"
+        data-testid="llm-toggles"
+      >
+        <h3 className="font-medium text-white mb-1">AI Features (Claude Haiku)</h3>
+        <p className="text-xs text-zinc-500 mb-4">
+          LLM-powered analysis using Claude Haiku 4.5. Each feature uses API credits.
+        </p>
+
+        {/* Cost tracker */}
+        {config && (
+          <div className="flex items-center gap-3 mb-4 p-3 rounded bg-[#0f1117] border border-[#2a2d3e]">
+            <div className="flex-1">
+              <div className="text-xs text-zinc-500">Today&apos;s LLM Cost</div>
+              <div className="text-sm font-mono text-white">
+                ${(config.llm_today_cost ?? 0).toFixed(4)}
+                <span className="text-zinc-500"> / ${llm.llm_daily_budget.toFixed(2)}</span>
+              </div>
+            </div>
+            <div className="flex-1">
+              <div className="text-xs text-zinc-500">Budget Used</div>
+              <div className="w-full bg-zinc-800 rounded-full h-2 mt-1">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    (config.llm_today_cost ?? 0) >= llm.llm_daily_budget
+                      ? "bg-red-500"
+                      : (config.llm_today_cost ?? 0) > llm.llm_daily_budget * 0.7
+                        ? "bg-amber-500"
+                        : "bg-green-500"
+                  }`}
+                  style={{
+                    width: `${Math.min(100, ((config.llm_today_cost ?? 0) / llm.llm_daily_budget) * 100)}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {/* Sentiment toggle */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm text-zinc-300">LLM Sentiment</span>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Replace VADER with Claude for news sentiment analysis
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_llm_sentiment;
+                setLlm((p) => ({ ...p, use_llm_sentiment: next }));
+                configMut.mutate({ use_llm_sentiment: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_llm_sentiment ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-llm-sentiment"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_llm_sentiment ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Debate toggle */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm text-zinc-300">AI Debate Gate</span>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Proposer vs Challenger debate before each trade
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_llm_debate;
+                setLlm((p) => ({ ...p, use_llm_debate: next }));
+                configMut.mutate({ use_llm_debate: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_llm_debate ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-llm-debate"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_llm_debate ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Reviewer toggle */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm text-zinc-300">Position Reviewer</span>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                AI reviews open positions every ~30min (hold/exit)
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_llm_reviewer;
+                setLlm((p) => ({ ...p, use_llm_reviewer: next }));
+                configMut.mutate({ use_llm_reviewer: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_llm_reviewer ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-llm-reviewer"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_llm_reviewer ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Daily budget */}
+          <div className="pt-2 border-t border-[#2a2d3e]">
+            <NumberField
+              label="Daily LLM Budget"
+              suffix="(USD)"
+              tooltip="Maximum daily spend on LLM API calls across all AI features. Calls stop when budget is exhausted."
+              value={llm.llm_daily_budget}
+              onChange={(v) => setLlm((p) => ({ ...p, llm_daily_budget: v }))}
+              step={0.5}
+              min={0.5}
+              max={20}
+              testId="input-llm-budget"
+            />
+            <button
+              onClick={() => configMut.mutate({ llm_daily_budget: llm.llm_daily_budget })}
+              disabled={configMut.isPending}
+              className="mt-3 px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              data-testid="save-llm-budget-btn"
+            >
+              {configMut.isPending ? "Saving..." : "Save Budget"}
+            </button>
+          </div>
         </div>
       </div>
 

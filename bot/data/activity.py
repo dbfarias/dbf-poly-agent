@@ -347,6 +347,86 @@ async def log_daily_target_reached(
     ))
 
 
+async def log_llm_debate(
+    strategy: str,
+    market_id: str,
+    question: str,
+    approved: bool,
+    proposer_verdict: str,
+    proposer_confidence: float,
+    proposer_reasoning: str,
+    challenger_verdict: str,
+    challenger_risk: str,
+    challenger_objections: str,
+    edge: float,
+    price: float,
+    cost_usd: float,
+) -> None:
+    """Log an LLM debate result (both approved and rejected)."""
+    icon = "Approved" if approved else "Rejected"
+    level = "success" if approved else "warning"
+    await _write(BotActivity(
+        event_type="llm_debate",
+        level=level,
+        title=f"AI Debate {icon}: {question[:50]}",
+        detail=(
+            f"Strategy: {strategy} | Price: ${price:.3f} | Edge: {edge:.1%}\n"
+            f"Proposer: {proposer_verdict} (conf {proposer_confidence:.0%}) — {proposer_reasoning}\n"
+            f"Challenger: {challenger_verdict} (risk {challenger_risk}) — {challenger_objections}\n"
+            f"Cost: ${cost_usd:.4f}"
+        ),
+        market_id=market_id,
+        strategy=strategy,
+        metadata_json=_meta({
+            "approved": approved,
+            "proposer_verdict": proposer_verdict,
+            "proposer_confidence": proposer_confidence,
+            "proposer_reasoning": proposer_reasoning,
+            "challenger_verdict": challenger_verdict,
+            "challenger_risk": challenger_risk,
+            "challenger_objections": challenger_objections,
+            "edge": edge, "price": price, "cost_usd": cost_usd,
+        }),
+    ))
+
+
+async def log_llm_review(
+    market_id: str,
+    question: str,
+    strategy: str,
+    verdict: str,
+    urgency: str,
+    reasoning: str,
+    entry_price: float,
+    current_price: float,
+    unrealized_pnl: float,
+    cost_usd: float,
+) -> None:
+    """Log an LLM position review result."""
+    level = "warning" if verdict == "EXIT" else "info"
+    pnl_sign = "+" if unrealized_pnl >= 0 else ""
+    await _write(BotActivity(
+        event_type="llm_review",
+        level=level,
+        title=f"AI Review: {verdict} ({urgency}) — {question[:45]}",
+        detail=(
+            f"Strategy: {strategy}\n"
+            f"Entry: ${entry_price:.3f} → Current: ${current_price:.3f} "
+            f"(PnL: {pnl_sign}${unrealized_pnl:.2f})\n"
+            f"Verdict: {verdict} | Urgency: {urgency}\n"
+            f"Reasoning: {reasoning}\n"
+            f"Cost: ${cost_usd:.4f}"
+        ),
+        market_id=market_id,
+        strategy=strategy,
+        metadata_json=_meta({
+            "verdict": verdict, "urgency": urgency, "reasoning": reasoning,
+            "entry_price": entry_price, "current_price": current_price,
+            "unrealized_pnl": unrealized_pnl, "cost_usd": cost_usd,
+        }),
+    ))
+
+
 async def log_price_adjustment(
     market_id: str,
     strategy: str,

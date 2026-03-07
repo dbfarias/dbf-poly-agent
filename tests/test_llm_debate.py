@@ -65,6 +65,19 @@ class TestParseReviewer:
         assert urgency == "HIGH"
         assert reasoning == "Price collapsed"
 
+    def test_reduce(self):
+        text = "VERDICT: REDUCE\nURGENCY: MEDIUM\nREASONING: Take partial profits"
+        verdict, urgency, reasoning = _parse_reviewer(text)
+        assert verdict == "REDUCE"
+        assert urgency == "MEDIUM"
+        assert reasoning == "Take partial profits"
+
+    def test_increase(self):
+        text = "VERDICT: INCREASE\nURGENCY: LOW\nREASONING: Price dipped, thesis stronger"
+        verdict, urgency, reasoning = _parse_reviewer(text)
+        assert verdict == "INCREASE"
+        assert urgency == "LOW"
+
 
 class TestLlmCostTracker:
     def test_tracks_daily_cost(self):
@@ -241,6 +254,7 @@ class TestReviewPosition:
             )
 
         assert result is not None
+        assert result.verdict == "HOLD"
         assert not result.should_exit
         assert result.urgency == "LOW"
 
@@ -269,5 +283,6 @@ class TestReviewPosition:
             )
 
         assert result is not None
+        assert result.verdict == "EXIT"
         assert result.should_exit
         assert result.urgency == "HIGH"

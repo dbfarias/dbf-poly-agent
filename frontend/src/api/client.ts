@@ -177,11 +177,17 @@ export interface BotConfig {
   max_daily_loss_pct: number;
   max_drawdown_pct: number;
   daily_target_pct: number;
+  use_llm_sentiment: boolean;
+  use_llm_debate: boolean;
+  use_llm_reviewer: boolean;
+  llm_daily_budget: number;
+  llm_today_cost: number;
   current_tier: string;
   tier_config: Record<string, number>;
   strategy_params: Record<string, Record<string, number>>;
   quality_params: Record<string, number>;
   disabled_strategies: string[];
+  blocked_market_types: string[];
 }
 
 export interface ConfigUpdateResponse {

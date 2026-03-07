@@ -17,6 +17,8 @@ from bot.data.activity import (
     log_cycle_summary,
     log_daily_target_reached,
     log_liquidity_rejected,
+    log_llm_debate,
+    log_llm_review,
     log_position_closed,
     log_risk_limit_hit,
     log_signal_found,
@@ -543,17 +545,61 @@ class TradingEngine:
                 hours_to_resolution=hours_res,
                 sentiment_score=sentiment,
             )
-            if result is not None and result.should_exit:
-                logger.info(
-                    "llm_reviewer_exit",
-                    market_id=pos.market_id[:20],
+            if result is not None:
+                await log_llm_review(
+                    market_id=pos.market_id,
+                    question=pos.question,
+                    strategy=pos.strategy,
+                    verdict=result.verdict,
                     urgency=result.urgency,
-                    reasoning=result.reasoning[:80],
+                    reasoning=result.reasoning,
+                    entry_price=pos.avg_price,
+                    current_price=pos.current_price,
+                    unrealized_pnl=pos.unrealized_pnl,
+                    cost_usd=result.cost_usd,
                 )
-                # Only act on HIGH urgency exits (MEDIUM = log only)
-                if result.urgency == "HIGH":
-                    await self.closer.close_position(
-                        pos, exit_reason=f"llm_review ({result.reasoning[:60]})",
+                if result.verdict == "EXIT":
+                    logger.info(
+                        "llm_reviewer_exit",
+                        market_id=pos.market_id[:20],
+                        urgency=result.urgency,
+                        reasoning=result.reasoning[:80],
+                    )
+                    # Only act on HIGH urgency exits (MEDIUM = log only)
+                    if result.urgency == "HIGH":
+                        await self.closer.close_position(
+                            pos, exit_reason=f"llm_review ({result.reasoning[:60]})",
+                        )
+                elif result.verdict == "REDUCE" and result.urgency in ("HIGH", "MEDIUM"):
+                    # Partial exit: sell half the position
+                    half_size = pos.size / 2
+                    if half_size >= 5:  # Min 5 shares for CLOB
+                        logger.info(
+                            "llm_reviewer_reduce",
+                            market_id=pos.market_id[:20],
+                            half_size=round(half_size, 1),
+                            reasoning=result.reasoning[:80],
+                        )
+                        await self.order_manager.close_position(
+                            market_id=pos.market_id,
+                            token_id=pos.token_id,
+                            size=half_size,
+                            current_price=pos.current_price,
+                            question=pos.question,
+                            outcome=pos.outcome,
+                            category=pos.category,
+                            strategy=pos.strategy,
+                            entry_price=pos.avg_price,
+                            exit_reason=f"llm_reduce ({result.reasoning[:60]})",
+                        )
+                elif result.verdict == "INCREASE":
+                    # Log recommendation only — adding to positions
+                    # requires full signal flow (risk checks, Kelly sizing)
+                    logger.info(
+                        "llm_reviewer_increase_recommended",
+                        market_id=pos.market_id[:20],
+                        urgency=result.urgency,
+                        reasoning=result.reasoning[:80],
                     )
 
     async def _evaluate_signals(self, tier) -> tuple[int, int, int]:
@@ -673,6 +719,21 @@ class TradingEngine:
                         "challenger_objections": debate_result.challenger_objections,
                         "cost_usd": debate_result.total_cost_usd,
                     }
+                    await log_llm_debate(
+                        strategy=signal.strategy,
+                        market_id=signal.market_id,
+                        question=signal.question,
+                        approved=debate_result.approved,
+                        proposer_verdict=debate_result.proposer_verdict,
+                        proposer_confidence=debate_result.proposer_confidence,
+                        proposer_reasoning=debate_result.proposer_reasoning,
+                        challenger_verdict=debate_result.challenger_verdict,
+                        challenger_risk=debate_result.challenger_risk,
+                        challenger_objections=debate_result.challenger_objections,
+                        edge=signal.edge,
+                        price=signal.market_price,
+                        cost_usd=debate_result.total_cost_usd,
+                    )
                     if not debate_result.approved:
                         logger.info(
                             "signal_rejected_llm_debate",
