@@ -938,15 +938,15 @@ class TestNewFilters:
 
 
 class TestCategoryEdgeBoost:
-    async def test_sports_market_skipped(self):
-        """Sports markets are skipped by classify_market_type defense-in-depth."""
+    async def test_sports_low_imbalance_skipped(self):
+        """Sports markets with low imbalance are skipped (need 25%+)."""
         strategy = _make_strategy()
+        # imbalance = (300-55)/355 ≈ 69% — but let's make it ~20% (below 25%)
         book = _make_order_book(
-            bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
-            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+            bid_sizes=[120.0, 100.0, 80.0, 60.0, 40.0],
+            ask_sizes=[80.0, 60.0, 50.0, 40.0, 20.0],
         )
         strategy.get_order_book = AsyncMock(return_value=book)
-        # Question contains NBA team name → classified as sports
         market = _make_market(
             hours_to_resolution=48.0,
             yes_price=0.45,
@@ -954,11 +954,32 @@ class TestCategoryEdgeBoost:
         )
 
         result = await strategy._evaluate_market(market, max_hours=168.0)
+        # imbalance ≈ (400-250)/650 ≈ 23% — below sports threshold of 25%
         assert result is None
 
-    async def test_non_sports_market_accepted(self):
-        """Non-sports markets are evaluated normally."""
+    async def test_sports_high_imbalance_accepted(self):
+        """Sports markets with strong imbalance (obvious favorites) are accepted."""
         strategy = _make_strategy()
+        # Very strong imbalance → obvious favorite
+        book = _make_order_book(
+            bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.45,
+            question="Will the Nuggets cover the spread?",
+        )
+
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        # imbalance ≈ (800-30)/830 ≈ 93% — well above sports threshold
+        assert result is not None
+
+    async def test_non_sports_normal_threshold(self):
+        """Non-sports markets use standard 15% imbalance threshold."""
+        strategy = _make_strategy()
+        # imbalance = (800-30)/830 ≈ 93% — well above 15%
         book = _make_order_book(
             bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
             ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
@@ -973,24 +994,6 @@ class TestCategoryEdgeBoost:
         result = await strategy._evaluate_market(market, max_hours=168.0)
         assert result is not None
 
-    async def test_vs_pattern_sports_skipped(self):
-        """'X vs Y' matchup pattern is classified as sports and skipped."""
-        strategy = _make_strategy()
-        book = _make_order_book(
-            bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
-            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
-        )
-        strategy.get_order_book = AsyncMock(return_value=book)
-        market = _make_market(
-            hours_to_resolution=48.0,
-            yes_price=0.45,
-            question="Antalya 2: Smith vs Johnson",
-        )
-
-        result = await strategy._evaluate_market(market, max_hours=168.0)
-        assert result is None
-
-    async def test_category_boost_params_removed_from_mutable(self):
-        """Category boost/penalty params no longer in _MUTABLE_PARAMS."""
-        assert "CATEGORY_EDGE_BOOST" not in ValueBettingStrategy._MUTABLE_PARAMS
-        assert "CATEGORY_EDGE_PENALTY" not in ValueBettingStrategy._MUTABLE_PARAMS
+    async def test_sports_imbalance_threshold_in_mutable(self):
+        """SPORTS_IMBALANCE_THRESHOLD is configurable via admin."""
+        assert "SPORTS_IMBALANCE_THRESHOLD" in ValueBettingStrategy._MUTABLE_PARAMS

@@ -24,6 +24,7 @@ logger = structlog.get_logger()
 
 MIN_EDGE = 0.03  # 3% minimum edge for value bets (was 2% — not enough)
 IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance (was 10% — too noisy)
+SPORTS_IMBALANCE_THRESHOLD = 0.25  # 25% for sports — only obvious favorites
 MAX_PRICE = 0.95  # Skip markets above 95¢ (thin margin, high risk)
 MIN_PRICE = 0.05  # Skip ultra-cheap markets (speculative noise)
 MIN_BOOK_VOLUME = 200.0  # Min total order book volume (was 50 — thin books unreliable)
@@ -45,6 +46,7 @@ class ValueBettingStrategy(BaseStrategy):
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
+        "SPORTS_IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
         "RELATIVE_STOP_LOSS": {"type": float, "min": 0.0, "max": 1.0},
@@ -58,6 +60,7 @@ class ValueBettingStrategy(BaseStrategy):
         super().__init__(*args, **kwargs)
         self.MIN_EDGE = MIN_EDGE
         self.IMBALANCE_THRESHOLD = IMBALANCE_THRESHOLD
+        self.SPORTS_IMBALANCE_THRESHOLD = SPORTS_IMBALANCE_THRESHOLD
         self.RELATIVE_STOP_LOSS = RELATIVE_STOP_LOSS
         self.MIN_PRICE = MIN_PRICE
         self.MAX_PRICE = MAX_PRICE
@@ -93,9 +96,8 @@ class ValueBettingStrategy(BaseStrategy):
         self, market: GammaMarket, max_hours: float
     ) -> TradeSignal | None:
         """Evaluate a market for mispricing using order book analysis."""
-        # Defense-in-depth: skip sports markets even if global blocker missed them
-        if classify_market_type(market.question) == "sports":
-            return None
+        # Classify market type for tiered filtering
+        market_type = classify_market_type(market.question)
 
         # Must resolve within dynamic max hours
         end = market.end_date
@@ -145,8 +147,13 @@ class ValueBettingStrategy(BaseStrategy):
 
         imbalance = (bid_volume - ask_volume) / total_volume
 
-        # Strong buy pressure suggests market might be underpriced
-        if abs(imbalance) < self.IMBALANCE_THRESHOLD:
+        # Tiered imbalance: sports markets need stronger signal (obvious favorites only)
+        threshold = (
+            self.SPORTS_IMBALANCE_THRESHOLD
+            if market_type == "sports"
+            else self.IMBALANCE_THRESHOLD
+        )
+        if abs(imbalance) < threshold:
             return None
 
         # Evaluate BOTH sides and pick the one with the higher edge.
