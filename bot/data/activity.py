@@ -5,8 +5,10 @@ human-readable log of what the bot did and why.
 """
 
 import json
+from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy import func, select
 
 from bot.data.database import async_session
 from bot.data.models import BotActivity, MarketScan
@@ -526,7 +528,7 @@ async def prune_old_activity() -> None:
     Prunes both BotActivity and MarketScan tables.
     """
     try:
-        from sqlalchemy import delete, func, select
+        from sqlalchemy import delete
         async with async_session() as session:
             # Prune BotActivity
             count = await session.scalar(select(func.count(BotActivity.id)))
@@ -559,3 +561,36 @@ async def prune_old_activity() -> None:
             await session.commit()
     except Exception as e:
         logger.debug("activity_prune_failed", error=str(e))
+
+
+async def get_today_llm_cost() -> float:
+    """Sum cost_usd from today's LLM activity rows.
+
+    Used to reconstruct the in-memory cost tracker on startup so the
+    daily budget is respected across container restarts.
+    """
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    )
+    try:
+        async with async_session() as session:
+            # cost_usd is stored in metadata_json as {"cost_usd": 0.001, ...}
+            # SQLite json_extract: $.cost_usd
+            cost_expr = func.json_extract(
+                BotActivity.metadata_json, "$.cost_usd",
+            )
+            stmt = (
+                select(func.coalesce(func.sum(cost_expr), 0.0))
+                .where(
+                    BotActivity.event_type.in_((
+                        "llm_debate", "llm_review", "llm_risk_debate",
+                    )),
+                    BotActivity.timestamp >= today_start,
+                )
+            )
+            result = await session.execute(stmt)
+            total = result.scalar() or 0.0
+            return float(total)
+    except Exception as e:
+        logger.warning("get_today_llm_cost_failed", error=str(e))
+        return 0.0

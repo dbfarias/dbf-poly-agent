@@ -192,6 +192,16 @@ class TradingEngine:
         # Restore ephemeral state (daily PnL, cooldowns, paused strategies)
         await self._restore_state()
 
+        # Reconstruct LLM cost tracker from DB (survives restarts)
+        from bot.data.activity import get_today_llm_cost
+
+        today_cost = await get_today_llm_cost()
+        if today_cost > 0:
+            llm_cost_tracker.add(today_cost)
+            logger.info(
+                "llm_cost_restored", today_cost=round(today_cost, 4),
+            )
+
         # Wire up deferred fill callbacks for live orders
         self.order_manager.set_on_fill_callback(self.closer.handle_order_fill)
         self.order_manager.set_on_sell_fill_callback(self.closer.handle_sell_fill)

@@ -61,6 +61,7 @@ _GLOBAL_ATTRS = (
     "use_llm_sentiment",
     "use_llm_debate",
     "use_llm_reviewer",
+    "use_multi_round_debate",
     "llm_daily_budget",
 )
 
@@ -225,6 +226,7 @@ _GLOBAL_RANGES: dict[str, tuple[type, float, float]] = {
     "use_llm_sentiment": (bool, 0, 1),
     "use_llm_debate": (bool, 0, 1),
     "use_llm_reviewer": (bool, 0, 1),
+    "use_multi_round_debate": (bool, 0, 1),
     "llm_daily_budget": (float, 0.5, 20.0),
 }
 
