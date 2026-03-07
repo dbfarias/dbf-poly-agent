@@ -711,7 +711,7 @@ class TradingEngine:
                     hours_to_resolution=hours_res,
                 )
                 if debate_result is not None:
-                    signal.metadata["llm_debate"] = {
+                    debate_meta = {
                         "proposer": debate_result.proposer_verdict,
                         "proposer_confidence": debate_result.proposer_confidence,
                         "proposer_reasoning": debate_result.proposer_reasoning,
@@ -720,6 +720,15 @@ class TradingEngine:
                         "challenger_objections": debate_result.challenger_objections,
                         "cost_usd": debate_result.total_cost_usd,
                     }
+                    if debate_result.counter_rebuttal:
+                        debate_meta = {
+                            **debate_meta,
+                            "counter_rebuttal": debate_result.counter_rebuttal,
+                            "counter_conviction": debate_result.counter_conviction,
+                            "final_verdict": debate_result.final_verdict,
+                            "final_reasoning": debate_result.final_reasoning,
+                        }
+                    signal.metadata["llm_debate"] = debate_meta
                     await log_llm_debate(
                         strategy=signal.strategy,
                         market_id=signal.market_id,

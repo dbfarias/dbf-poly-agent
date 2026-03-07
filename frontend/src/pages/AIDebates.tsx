@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { fetchActivity, fetchConfig, fetchLlmCosts } from "../api/client";
 import type { ActivityEvent } from "../api/client";
+import { formatDateTime } from "../utils/date";
 
 type TabType = "debates" | "reviews" | "risk_debates";
 
@@ -97,9 +98,7 @@ function DebateCard({ event }: { event: ActivityEvent }) {
   const price = (meta.price as number) ?? 0;
   const costUsd = (meta.cost_usd as number) ?? 0;
 
-  const ts = new Date(event.timestamp);
-  const timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const dateStr = ts.toLocaleDateString([], { month: "short", day: "numeric" });
+  const formattedTs = formatDateTime(event.timestamp);
 
   return (
     <div
@@ -127,8 +126,7 @@ function DebateCard({ event }: { event: ActivityEvent }) {
           </p>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-xs text-zinc-500">{dateStr}</div>
-          <div className="text-xs text-zinc-400">{timeStr}</div>
+          <div className="text-xs text-zinc-500">{formattedTs}</div>
         </div>
       </div>
 
@@ -235,9 +233,7 @@ function ReviewCard({ event }: { event: ActivityEvent }) {
   const pnl = (meta.unrealized_pnl as number) ?? 0;
   const costUsd = (meta.cost_usd as number) ?? 0;
 
-  const ts = new Date(event.timestamp);
-  const timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const dateStr = ts.toLocaleDateString([], { month: "short", day: "numeric" });
+  const formattedTs = formatDateTime(event.timestamp);
 
   const pnlPct = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0;
 
@@ -281,8 +277,7 @@ function ReviewCard({ event }: { event: ActivityEvent }) {
           </p>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-xs text-zinc-500">{dateStr}</div>
-          <div className="text-xs text-zinc-400">{timeStr}</div>
+          <div className="text-xs text-zinc-500">{formattedTs}</div>
         </div>
       </div>
 
@@ -318,9 +313,7 @@ function RiskDebateCard({ event }: { event: ActivityEvent }) {
   const price = (meta.price as number) ?? 0;
   const costUsd = (meta.cost_usd as number) ?? 0;
 
-  const ts = new Date(event.timestamp);
-  const timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const dateStr = ts.toLocaleDateString([], { month: "short", day: "numeric" });
+  const formattedTs = formatDateTime(event.timestamp);
 
   return (
     <div
@@ -353,8 +346,7 @@ function RiskDebateCard({ event }: { event: ActivityEvent }) {
           </p>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-xs text-zinc-500">{dateStr}</div>
-          <div className="text-xs text-zinc-400">{timeStr}</div>
+          <div className="text-xs text-zinc-500">{formattedTs}</div>
         </div>
       </div>
 
@@ -592,7 +584,7 @@ export default function AIDebates() {
       {/* Tabs */}
       <div className="flex gap-1 bg-[#1a1d29] rounded-lg p-1">
         <button
-          onClick={() => setTab("debates")}
+          onClick={() => { setTab("debates"); setDebatePage(0); }}
           className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
             tab === "debates"
               ? "bg-indigo-600 text-white"
@@ -607,7 +599,7 @@ export default function AIDebates() {
           )}
         </button>
         <button
-          onClick={() => setTab("reviews")}
+          onClick={() => { setTab("reviews"); setReviewPage(0); }}
           className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
             tab === "reviews"
               ? "bg-indigo-600 text-white"
@@ -622,7 +614,7 @@ export default function AIDebates() {
           )}
         </button>
         <button
-          onClick={() => setTab("risk_debates")}
+          onClick={() => { setTab("risk_debates"); setRiskPage(0); }}
           className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
             tab === "risk_debates"
               ? "bg-indigo-600 text-white"

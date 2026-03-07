@@ -9,10 +9,13 @@ function fmtDate(iso: string): string {
   return `${d}/${m}`;
 }
 
-/** Format "2026-03-01" → "Sat" weekday abbreviation. */
+/** Format "2026-03-01" → "Sáb" weekday abbreviation in BRT. */
 function weekday(iso: string): string {
   const d = new Date(iso + "T12:00:00Z");
-  return d.toLocaleDateString("en-US", { weekday: "short" });
+  return d.toLocaleDateString("pt-BR", {
+    weekday: "short",
+    timeZone: "America/Sao_Paulo",
+  });
 }
 
 export default function DailyTargetChart() {

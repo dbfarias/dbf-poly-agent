@@ -2,7 +2,7 @@
 
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import structlog
 
@@ -15,6 +15,7 @@ _TIMEOUT = 15.0
 _MAX_TOKENS = 300
 _MAX_PROMPT_INPUT_LEN = 200
 _MIN_CONVICTION_FOR_ANALYST = 0.4
+_DEFAULT_DEBATE_CACHE_TTL = 3600.0 * 3  # 3 hours (matches prod cooldown)
 
 
 def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> str:
@@ -241,6 +242,58 @@ def _today_key() -> str:
 # Global cost tracker (shared across debate + sentiment + reviewer)
 cost_tracker = LlmCostTracker(daily_budget=3.0)
 
+# Debate result cache — avoids re-debating the same market repeatedly.
+# Key: "question|strategy", Value: (DebateResult, timestamp)
+_debate_cache: dict[str, tuple["DebateResult", float]] = {}
+
+
+def _debate_cache_key(
+    question: str, strategy: str, price: float = 0.0, edge: float = 0.0,
+) -> str:
+    """Build a cache key from question + strategy + bucketed price/edge.
+
+    Price is bucketed to 2 decimal places and edge to 1% increments.
+    This means a meaningful price or edge change will trigger a fresh debate,
+    while minor fluctuations reuse the cache.
+    """
+    price_bucket = round(price, 2)
+    edge_bucket = round(edge, 2)  # 1% granularity
+    return f"{question.strip().lower()}|{strategy}|{price_bucket}|{edge_bucket}"
+
+
+def _get_cached_debate(
+    question: str,
+    strategy: str,
+    ttl: float = _DEFAULT_DEBATE_CACHE_TTL,
+    price: float = 0.0,
+    edge: float = 0.0,
+) -> "DebateResult | None":
+    """Return cached DebateResult if still valid, else None."""
+    key = _debate_cache_key(question, strategy, price, edge)
+    entry = _debate_cache.get(key)
+    if entry is None:
+        return None
+    result, ts = entry
+    if time.monotonic() - ts > ttl:
+        _debate_cache.pop(key, None)
+        return None
+    # Return copy with zero cost (no API call was made)
+    return replace(result, total_cost_usd=0.0, elapsed_s=0.0)
+
+
+def _cache_debate(
+    question: str, strategy: str, result: "DebateResult",
+    price: float = 0.0, edge: float = 0.0,
+) -> None:
+    """Store a debate result in the cache."""
+    key = _debate_cache_key(question, strategy, price, edge)
+    _debate_cache[key] = (result, time.monotonic())
+
+
+def clear_debate_cache() -> None:
+    """Clear the debate cache (for testing or manual reset)."""
+    _debate_cache.clear()
+
 
 async def debate_signal(
     question: str,
@@ -260,6 +313,17 @@ async def debate_signal(
     if cost_tracker.is_over_budget:
         logger.info("llm_debate_budget_exhausted", today_cost=cost_tracker.today_cost)
         return None
+
+    # Check cache — avoid re-debating the same market/strategy/price/edge
+    cached = _get_cached_debate(question, strategy, price=price, edge=edge)
+    if cached is not None:
+        logger.info(
+            "llm_debate_cache_hit",
+            question=question[:60],
+            strategy=strategy,
+            cached_approved=cached.approved,
+        )
+        return cached
 
     try:
         from anthropic import AsyncAnthropic
@@ -308,7 +372,7 @@ async def debate_signal(
             approved=False,
             cost_usd=round(total_cost, 5),
         )
-        return DebateResult(
+        result = DebateResult(
             approved=False,
             proposer_verdict="PASS",
             proposer_confidence=prop_confidence,
@@ -319,6 +383,8 @@ async def debate_signal(
             total_cost_usd=total_cost,
             elapsed_s=round(elapsed, 2),
         )
+        _cache_debate(question, strategy, result, price=price, edge=edge)
+        return result
 
     # --- CHALLENGER ---
     challenger_msg = _format_challenger_prompt(
@@ -348,7 +414,7 @@ async def debate_signal(
             proposer_reasoning=prop_reasoning,
             challenger_verdict="error",
             challenger_risk="UNKNOWN",
-            challenger_objections=f"Challenger error: {e}",
+            challenger_objections="Challenger unavailable — proposer's BUY stands",
             total_cost_usd=total_cost,
             elapsed_s=round(elapsed, 2),
         )
@@ -356,83 +422,19 @@ async def debate_signal(
     chal_verdict, chal_risk, chal_objections = _parse_challenger(chal_text)
 
     # --- MULTI-ROUND COUNTER (optional) ---
-    counter_rebuttal = ""
-    counter_conviction = 0.0
-    final_verdict = ""
-    final_reasoning = ""
-
-    if (
-        prop_verdict == "BUY"
-        and chal_verdict == "REJECT"
-        and settings.use_multi_round_debate
-    ):
-        # Proposer counter-argues the challenger's objections
-        safe_q = _sanitize_prompt_input(question)
-        counter_msg = (
-            f"Your trade proposal was REJECTED by the risk analyst.\n"
-            f"Market: {safe_q}\n"
-            f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
-            f"Your original reasoning: {prop_reasoning}\n\n"
-            f"Challenger's objections ({chal_risk} risk): {chal_objections}\n\n"
-            f"Counter-argue these objections."
+    counter_rebuttal, counter_conviction, final_verdict, final_reasoning, counter_cost = (
+        await _run_counter_round(
+            client, question, price, edge, estimated_prob,
+            prop_verdict, prop_reasoning, chal_verdict, chal_risk, chal_objections,
         )
-
-        try:
-            counter_resp = await client.messages.create(
-                model=_MODEL,
-                max_tokens=_MAX_TOKENS,
-                system=_COUNTER_PROPOSER_SYSTEM,
-                messages=[{"role": "user", "content": counter_msg}],
-            )
-            counter_text = counter_resp.content[0].text.strip()
-            counter_cost = _calc_cost(
-                counter_resp.usage.input_tokens, counter_resp.usage.output_tokens,
-            )
-            total_cost += counter_cost
-            counter_rebuttal, counter_conviction = _parse_counter_proposer(counter_text)
-        except Exception as e:
-            logger.warning("llm_counter_proposer_error", error=str(e))
-            # Counter failed — challenger's REJECT stands
-            counter_rebuttal = ""
-            counter_conviction = 0.0
-
-        # If proposer still has conviction, give challenger a final look
-        if counter_rebuttal and counter_conviction >= 0.4:
-            final_msg = (
-                f"SECOND REVIEW — The proposer has counter-argued your rejection.\n"
-                f"Market: {safe_q}\n"
-                f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
-                f"Your original objections: {chal_objections}\n\n"
-                f"Proposer's counter-argument (conviction {counter_conviction:.0%}): "
-                f"{counter_rebuttal}\n\n"
-                f"Make your FINAL decision: APPROVE or REJECT?"
-            )
-
-            try:
-                final_resp = await client.messages.create(
-                    model=_MODEL,
-                    max_tokens=_MAX_TOKENS,
-                    system=_CHALLENGER_SYSTEM,
-                    messages=[{"role": "user", "content": final_msg}],
-                )
-                final_text = final_resp.content[0].text.strip()
-                final_cost = _calc_cost(
-                    final_resp.usage.input_tokens, final_resp.usage.output_tokens,
-                )
-                total_cost += final_cost
-                final_verdict, _, final_reasoning = _parse_challenger(final_text)
-            except Exception as e:
-                logger.warning("llm_final_challenger_error", error=str(e))
-                final_verdict = "REJECT"
-                final_reasoning = "Final review unavailable — rejection stands"
+    )
+    total_cost += counter_cost
 
     # Decision logic
     if final_verdict:
-        # Multi-round: final verdict overrides initial challenger
-        approved = (prop_verdict == "BUY" and final_verdict != "REJECT")
+        approved = (prop_verdict == "BUY" and final_verdict == "APPROVE")
     else:
-        # Single-round: original logic
-        approved = (prop_verdict == "BUY" and chal_verdict != "REJECT")
+        approved = (prop_verdict == "BUY" and chal_verdict == "APPROVE")
 
     elapsed = time.monotonic() - start
     cost_tracker.add(total_cost)
@@ -451,7 +453,7 @@ async def debate_signal(
         elapsed_s=round(elapsed, 2),
     )
 
-    return DebateResult(
+    result = DebateResult(
         approved=approved,
         proposer_verdict=prop_verdict,
         proposer_confidence=prop_confidence,
@@ -466,6 +468,107 @@ async def debate_signal(
         final_verdict=final_verdict,
         final_reasoning=final_reasoning,
     )
+
+    # Cache result — subsequent cycles reuse this instead of re-debating
+    _cache_debate(question, strategy, result, price=price, edge=edge)
+
+    return result
+
+
+async def _run_counter_round(
+    client: object,
+    question: str,
+    price: float,
+    edge: float,
+    estimated_prob: float,
+    prop_verdict: str,
+    prop_reasoning: str,
+    chal_verdict: str,
+    chal_risk: str,
+    chal_objections: str,
+) -> tuple[str, float, str, str, float]:
+    """Run the multi-round counter if enabled and challenger rejected.
+
+    Returns (counter_rebuttal, counter_conviction, final_verdict, final_reasoning, cost).
+    All empty strings / 0.0 if not triggered.
+    """
+    if not (
+        prop_verdict == "BUY"
+        and chal_verdict == "REJECT"
+        and settings.use_multi_round_debate
+    ):
+        return "", 0.0, "", "", 0.0
+
+    safe_q = _sanitize_prompt_input(question)
+    safe_reasoning = _sanitize_prompt_input(prop_reasoning, max_len=300)
+    safe_objections = _sanitize_prompt_input(chal_objections, max_len=300)
+    round_cost = 0.0
+
+    counter_msg = (
+        f"Your trade proposal was REJECTED by the risk analyst.\n"
+        f"Market: {safe_q}\n"
+        f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
+        f"Your original reasoning: {safe_reasoning}\n\n"
+        f"Challenger's objections ({chal_risk} risk): {safe_objections}\n\n"
+        f"Counter-argue these objections."
+    )
+
+    try:
+        counter_resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=_MAX_TOKENS,
+            system=_COUNTER_PROPOSER_SYSTEM,
+            messages=[{"role": "user", "content": counter_msg}],
+        )
+        counter_text = counter_resp.content[0].text.strip()
+        counter_cost = _calc_cost(
+            counter_resp.usage.input_tokens, counter_resp.usage.output_tokens,
+        )
+        cost_tracker.add(counter_cost)
+        round_cost += counter_cost
+        counter_rebuttal, counter_conviction = _parse_counter_proposer(counter_text)
+    except Exception as e:
+        logger.warning("llm_counter_proposer_error", error=str(e))
+        return "", 0.0, "", "", 0.0
+
+    # Low conviction — proposer concedes, no final review
+    if not counter_rebuttal or counter_conviction < 0.4:
+        return counter_rebuttal, counter_conviction, "", "", round_cost
+
+    # Budget re-check before final call
+    if cost_tracker.is_over_budget:
+        logger.info("llm_budget_exhausted_before_final")
+        return counter_rebuttal, counter_conviction, "", "", round_cost
+
+    safe_counter = _sanitize_prompt_input(counter_rebuttal, max_len=400)
+    final_msg = (
+        f"SECOND REVIEW — The proposer has counter-argued your rejection.\n"
+        f"Market: {safe_q}\n"
+        f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
+        f"Your original objections: {safe_objections}\n\n"
+        f"Proposer's counter-argument (conviction {counter_conviction:.0%}): "
+        f"{safe_counter}\n\n"
+        f"Make your FINAL decision: APPROVE or REJECT?"
+    )
+
+    try:
+        final_resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=_MAX_TOKENS,
+            system=_CHALLENGER_SYSTEM,
+            messages=[{"role": "user", "content": final_msg}],
+        )
+        final_text = final_resp.content[0].text.strip()
+        final_cost = _calc_cost(
+            final_resp.usage.input_tokens, final_resp.usage.output_tokens,
+        )
+        cost_tracker.add(final_cost)
+        round_cost += final_cost
+        final_verdict, _, final_reasoning = _parse_challenger(final_text)
+        return counter_rebuttal, counter_conviction, final_verdict, final_reasoning, round_cost
+    except Exception as e:
+        logger.warning("llm_final_challenger_error", error=str(e))
+        return counter_rebuttal, counter_conviction, "REJECT", "Final review unavailable — rejection stands", round_cost
 
 
 async def review_position(
@@ -580,13 +683,14 @@ def _format_challenger_prompt(
     sentiment_score: float | None, hours_to_resolution: float | None,
 ) -> str:
     safe_q = _sanitize_prompt_input(question)
+    safe_reasoning = _sanitize_prompt_input(proposer_reasoning, max_len=300)
     msg = (
         f"Proposed trade to review:\n"
         f"Market: {safe_q}\n"
         f"Strategy: {strategy}\n"
         f"Market price: ${price:.3f}, Estimated prob: {estimated_prob:.1%}\n"
         f"Edge: {edge:.1%}\n"
-        f"Proposer's case: {proposer_reasoning}\n"
+        f"Proposer's case: {safe_reasoning}\n"
     )
     if hours_to_resolution is not None:
         msg += f"Hours until resolution: {hours_to_resolution:.1f}\n"

@@ -33,7 +33,8 @@ export default function Trades() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `trades_${new Date().toISOString().slice(0, 10)}.csv`;
+    const brtDate = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+    a.download = `trades_${brtDate}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

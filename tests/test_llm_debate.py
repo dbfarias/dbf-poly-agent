@@ -1,9 +1,14 @@
 """Tests for LLM debate gate and position reviewer."""
 
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bot.research.llm_debate import (
+    DebateResult,
     LlmCostTracker,
+    _debate_cache,
+    _debate_cache_key,
+    _get_cached_debate,
     _is_debatable_rejection,
     _parse_challenger,
     _parse_counter_proposer,
@@ -11,6 +16,7 @@ from bot.research.llm_debate import (
     _parse_reviewer,
     _parse_risk_analyst,
     _parse_risk_proposer,
+    clear_debate_cache,
     debate_risk_rejection,
     debate_signal,
     review_position,
@@ -101,6 +107,9 @@ class TestLlmCostTracker:
 
 
 class TestDebateSignal:
+    def setup_method(self):
+        clear_debate_cache()
+
     async def test_budget_exhausted_returns_none(self):
         with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
             mock_tracker.is_over_budget = True
@@ -222,6 +231,7 @@ class TestDebateSignal:
         ):
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.03,
                 price=0.5, estimated_prob=0.53, confidence=0.6,
@@ -231,6 +241,8 @@ class TestDebateSignal:
         assert result is not None
         assert not result.approved
         assert result.challenger_verdict == "REJECT"
+        assert result.counter_rebuttal == ""
+        assert result.final_verdict == ""
 
 
 class TestReviewPosition:
@@ -541,6 +553,9 @@ class TestParseCounterProposer:
 
 
 class TestMultiRoundDebate:
+    def setup_method(self):
+        clear_debate_cache()
+
     async def test_single_round_reject_no_counter(self):
         """When multi-round is off, reject stays rejected without counter."""
         prop_resp = MagicMock()
@@ -781,4 +796,248 @@ class TestMultiRoundDebate:
         assert result is not None
         assert result.approved
         assert result.counter_rebuttal == ""
+        assert mock_client.messages.create.call_count == 2
+
+    async def test_multi_round_counter_api_error_fallback(self):
+        """When counter-proposer API fails, challenger's REJECT stands."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.7\nREASONING: Good edge"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Too risky"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp, Exception("API timeout")]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = True
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.7,
+                reasoning="test",
+            )
+
+        assert result is not None
+        assert not result.approved
+        assert result.counter_rebuttal == ""
+        assert result.final_verdict == ""
+        assert mock_client.messages.create.call_count == 3
+
+    async def test_multi_round_final_challenger_api_error(self):
+        """When final challenger API fails, REJECT is the default."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong signal"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: MEDIUM\nOBJECTIONS: Thin edge"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        counter_resp = MagicMock()
+        counter_resp.content = [MagicMock(
+            text="COUNTER: Short resolution mitigates risk\nCONVICTION: 0.8"
+        )]
+        counter_resp.usage.input_tokens = 250
+        counter_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp, counter_resp, Exception("API error")]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = True
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.8,
+                reasoning="test",
+            )
+
+        assert result is not None
+        assert not result.approved
+        assert result.counter_rebuttal == "Short resolution mitigates risk"
+        assert result.final_verdict == "REJECT"
+        assert "rejection stands" in result.final_reasoning
+        assert mock_client.messages.create.call_count == 4
+
+
+class TestDebateCache:
+    """Tests for the debate result cache."""
+
+    def setup_method(self):
+        clear_debate_cache()
+
+    def teardown_method(self):
+        clear_debate_cache()
+
+    def test_cache_key_normalizes(self):
+        k1 = _debate_cache_key("Will BTC hit $1M?", "value_betting", 0.5, 0.05)
+        k2 = _debate_cache_key("  Will BTC hit $1M?  ", "value_betting", 0.5, 0.05)
+        assert k1 == k2
+
+    def test_cache_key_differs_by_strategy(self):
+        k1 = _debate_cache_key("Q?", "value_betting", 0.5, 0.05)
+        k2 = _debate_cache_key("Q?", "time_decay", 0.5, 0.05)
+        assert k1 != k2
+
+    def test_cache_key_differs_by_price(self):
+        """Different prices produce different cache keys (re-debate on price change)."""
+        k1 = _debate_cache_key("Q?", "test", 0.50, 0.05)
+        k2 = _debate_cache_key("Q?", "test", 0.55, 0.05)
+        assert k1 != k2
+
+    def test_cache_key_same_within_bucket(self):
+        """Tiny price changes within bucket share the same key."""
+        k1 = _debate_cache_key("Q?", "test", 0.501, 0.05)
+        k2 = _debate_cache_key("Q?", "test", 0.504, 0.05)
+        assert k1 == k2
+
+    def test_get_cached_returns_none_when_empty(self):
+        assert _get_cached_debate("Q?", "test") is None
+
+    def test_cache_stores_and_retrieves(self):
+        result = DebateResult(
+            approved=True,
+            proposer_verdict="BUY",
+            proposer_confidence=0.8,
+            proposer_reasoning="Good edge",
+            challenger_verdict="APPROVE",
+            challenger_risk="LOW",
+            challenger_objections="None",
+            total_cost_usd=0.001,
+            elapsed_s=1.5,
+        )
+        key = _debate_cache_key("Q?", "test", 0.5, 0.05)
+        _debate_cache[key] = (result, time.monotonic())
+
+        cached = _get_cached_debate("Q?", "test", price=0.5, edge=0.05)
+        assert cached is not None
+        assert cached.approved is True
+        assert cached.total_cost_usd == 0.0  # Cost zeroed on cache hit
+        assert cached.elapsed_s == 0.0
+
+    def test_cache_expires_after_ttl(self):
+        result = DebateResult(
+            approved=False,
+            proposer_verdict="PASS",
+            proposer_confidence=0.3,
+            proposer_reasoning="Weak",
+            challenger_verdict="skipped",
+            challenger_risk="N/A",
+            challenger_objections="",
+            total_cost_usd=0.001,
+            elapsed_s=0.5,
+        )
+        key = _debate_cache_key("Q?", "test", 0.5, 0.05)
+        # Backdate the timestamp so it's expired
+        _debate_cache[key] = (result, time.monotonic() - 99999)
+
+        assert _get_cached_debate("Q?", "test", price=0.5, edge=0.05) is None
+        # Expired entry should be cleaned up
+        assert key not in _debate_cache
+
+    def test_clear_debate_cache(self):
+        result = DebateResult(
+            approved=True,
+            proposer_verdict="BUY",
+            proposer_confidence=0.8,
+            proposer_reasoning="Good",
+            challenger_verdict="APPROVE",
+            challenger_risk="LOW",
+            challenger_objections="None",
+            total_cost_usd=0.001,
+            elapsed_s=1.0,
+        )
+        key = _debate_cache_key("Q?", "test", 0.5, 0.05)
+        _debate_cache[key] = (result, time.monotonic())
+        assert len(_debate_cache) == 1
+
+        clear_debate_cache()
+        assert len(_debate_cache) == 0
+
+    async def test_debate_signal_uses_cache(self):
+        """Second call to debate_signal for same market returns cached result."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.85\nREASONING: Strong signal",
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK: LOW\nOBJECTIONS: Looks fine",
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 40
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp],
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = False
+
+            # First call — should hit the API
+            result1 = await debate_signal(
+                question="Will BTC hit $1M?",
+                strategy="value_betting",
+                edge=0.05, price=0.5, estimated_prob=0.55,
+                confidence=0.7, reasoning="test",
+            )
+
+        assert result1 is not None
+        assert result1.approved is True
+        assert result1.total_cost_usd > 0
+        assert mock_client.messages.create.call_count == 2
+
+        # Second call — should return cached result (no API calls)
+        with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
+            mock_tracker.is_over_budget = False
+            result2 = await debate_signal(
+                question="Will BTC hit $1M?",
+                strategy="value_betting",
+                edge=0.05, price=0.5, estimated_prob=0.55,
+                confidence=0.7, reasoning="test",
+            )
+
+        assert result2 is not None
+        assert result2.approved is True
+        assert result2.total_cost_usd == 0.0  # No cost — cached
+        # API was NOT called again
         assert mock_client.messages.create.call_count == 2

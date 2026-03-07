@@ -377,10 +377,9 @@ async def log_llm_debate(
         f" — {challenger_objections}\n"
     )
     if counter_rebuttal:
-        detail += (
-            f"Counter: {counter_rebuttal} (conviction {counter_conviction:.0%})\n"
-            f"Final: {final_verdict} — {final_reasoning}\n"
-        )
+        detail += f"Counter: {counter_rebuttal} (conviction {counter_conviction:.0%})\n"
+        if final_verdict:
+            detail += f"Final: {final_verdict} — {final_reasoning}\n"
     detail += f"Cost: ${cost_usd:.4f}"
 
     meta = {
@@ -392,12 +391,17 @@ async def log_llm_debate(
         "challenger_risk": challenger_risk,
         "challenger_objections": challenger_objections,
         "edge": edge, "price": price, "cost_usd": cost_usd,
+        **(
+            {
+                "counter_rebuttal": counter_rebuttal,
+                "counter_conviction": counter_conviction,
+                "final_verdict": final_verdict,
+                "final_reasoning": final_reasoning,
+            }
+            if counter_rebuttal
+            else {}
+        ),
     }
-    if counter_rebuttal:
-        meta["counter_rebuttal"] = counter_rebuttal
-        meta["counter_conviction"] = counter_conviction
-        meta["final_verdict"] = final_verdict
-        meta["final_reasoning"] = final_reasoning
 
     await _write(BotActivity(
         event_type="llm_debate",
