@@ -178,6 +178,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # LLM Sentiment
+    use_llm_sentiment: bool = False
+    anthropic_api_key: str = ""
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"

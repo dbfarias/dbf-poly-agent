@@ -96,6 +96,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         max_daily_loss_pct=settings.max_daily_loss_pct,
         max_drawdown_pct=settings.max_drawdown_pct,
         daily_target_pct=settings.daily_target_pct,
+        use_llm_sentiment=settings.use_llm_sentiment,
         current_tier=tier.value,
         tier_config=TierConfig.get(tier),
         strategy_params=strategy_params,
@@ -122,6 +123,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
     if update.daily_target_pct is not None:
         settings.daily_target_pct = update.daily_target_pct
         changes.append(f"daily_target={update.daily_target_pct:.1%}")
+    if update.use_llm_sentiment is not None:
+        settings.use_llm_sentiment = update.use_llm_sentiment
+        changes.append(f"use_llm_sentiment={update.use_llm_sentiment}")
 
     # Tier config updates
     if update.tier_config:

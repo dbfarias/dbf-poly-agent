@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 
 import structlog
 
+from bot.config import settings
 from bot.data.market_cache import MarketCache
 from bot.research.cache import ResearchCache
 from bot.research.crypto_fetcher import CryptoFetcher
 from bot.research.keyword_extractor import extract_keywords
+from bot.research.llm_sentiment import analyze_sentiment_llm
 from bot.research.news_fetcher import NewsFetcher
 from bot.research.sentiment import analyze_sentiment, compute_research_multiplier
 from bot.research.types import ResearchResult
@@ -143,7 +145,10 @@ class ResearchEngine:
 
         # Compute headline sentiment
         headlines = [item.title for item in news_items]
-        sentiment_score = analyze_sentiment(headlines)
+        if settings.use_llm_sentiment and headlines:
+            sentiment_score = await analyze_sentiment_llm(question, headlines)
+        else:
+            sentiment_score = analyze_sentiment(headlines)
 
         # Confidence based on article count (0-1)
         confidence = min(len(news_items) / 10.0, 1.0)

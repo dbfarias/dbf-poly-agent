@@ -21,6 +21,7 @@ dependencies = [
     "bcrypt>=4.0.0",
     "vadersentiment>=3.3.2",
     "feedparser>=6.0.12",
+    "anthropic>=0.42.0",
 ]
 
 [project.optional-dependencies]

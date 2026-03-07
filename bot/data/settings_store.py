@@ -58,6 +58,7 @@ _GLOBAL_ATTRS = (
     "max_daily_loss_pct",
     "max_drawdown_pct",
     "daily_target_pct",
+    "use_llm_sentiment",
 )
 
 
@@ -218,6 +219,7 @@ _GLOBAL_RANGES: dict[str, tuple[type, float, float]] = {
     "max_daily_loss_pct": (float, 0.01, 1.0),
     "max_drawdown_pct": (float, 0.01, 1.0),
     "daily_target_pct": (float, 0.001, 0.5),
+    "use_llm_sentiment": (bool, 0, 1),
 }
 
 
