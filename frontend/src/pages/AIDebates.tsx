@@ -14,7 +14,7 @@ import { fetchActivity, fetchConfig, fetchLlmCosts } from "../api/client";
 import type { ActivityEvent } from "../api/client";
 import { formatDateTime } from "../utils/date";
 
-type TabType = "debates" | "reviews" | "risk_debates";
+type TabType = "debates" | "reviews" | "risk_debates" | "post_mortems";
 
 function CostVsPnlChart() {
   const { data: costs } = useQuery({
@@ -389,6 +389,89 @@ function RiskDebateCard({ event }: { event: ActivityEvent }) {
   );
 }
 
+function PostMortemCard({ event }: { event: ActivityEvent }) {
+  const meta = event.metadata as Record<string, unknown>;
+  const pnl = (meta.pnl as number) ?? 0;
+  const outcomeQuality = (meta.outcome_quality as string) ?? "?";
+  const keyLesson = (meta.key_lesson as string) ?? "";
+  const strategyFit = (meta.strategy_fit as string) ?? "?";
+  const analysis = (meta.analysis as string) ?? "";
+  const exitReason = (meta.exit_reason as string) ?? "";
+  const costUsd = (meta.cost_usd as number) ?? 0;
+
+  const formattedTs = formatDateTime(event.timestamp);
+
+  return (
+    <div
+      className={`bg-[#1e2130] rounded-lg border p-4 ${
+        pnl >= 0 ? "border-green-800/50" : "border-red-800/50"
+      }`}
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                outcomeQuality === "GOOD"
+                  ? "bg-green-900/40 text-green-400"
+                  : outcomeQuality === "BAD"
+                    ? "bg-red-900/40 text-red-400"
+                    : "bg-zinc-700 text-zinc-400"
+              }`}
+            >
+              {outcomeQuality}
+            </span>
+            <span className="text-xs text-zinc-500">{event.strategy}</span>
+            <span
+              className={`text-xs font-mono ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}
+            >
+              {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+            </span>
+          </div>
+          <p className="text-sm text-zinc-200 mt-1 line-clamp-2">
+            {event.title.replace(/^Post-Mortem \((?:GOOD|BAD|NEUTRAL)\): /, "")}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xs text-zinc-500">{formattedTs}</div>
+        </div>
+      </div>
+
+      {/* Meta row */}
+      <div className="flex gap-4 text-xs text-zinc-400 mb-3">
+        <span>Exit: {exitReason}</span>
+        <span
+          className={`${
+            strategyFit === "GOOD_FIT"
+              ? "text-green-400"
+              : strategyFit === "POOR_FIT"
+                ? "text-red-400"
+                : "text-zinc-400"
+          }`}
+        >
+          Fit: {strategyFit.replace("_", " ")}
+        </span>
+        <span>Cost: ${costUsd.toFixed(4)}</span>
+      </div>
+
+      {/* Lesson */}
+      {keyLesson && (
+        <div className="rounded bg-amber-950/20 border border-amber-900/30 p-3 mb-2">
+          <span className="text-xs font-medium text-amber-400">KEY LESSON</span>
+          <p className="text-xs text-zinc-300 mt-1">{keyLesson}</p>
+        </div>
+      )}
+
+      {/* Analysis */}
+      <div className="rounded bg-[#0f1117] p-3">
+        <span className="text-xs font-medium text-purple-400">ANALYSIS</span>
+        <p className="text-xs text-zinc-300 mt-1">{analysis}</p>
+      </div>
+    </div>
+  );
+}
+
 const PAGE_SIZE = 20;
 
 function Pagination({
@@ -435,13 +518,19 @@ export default function AIDebates() {
   const [debatePage, setDebatePage] = useState(0);
   const [reviewPage, setReviewPage] = useState(0);
   const [riskPage, setRiskPage] = useState(0);
+  const [postMortemPage, setPostMortemPage] = useState(0);
 
-  const currentPage = tab === "debates" ? debatePage : tab === "reviews" ? reviewPage : riskPage;
+  const currentPage =
+    tab === "debates" ? debatePage
+    : tab === "reviews" ? reviewPage
+    : tab === "risk_debates" ? riskPage
+    : postMortemPage;
   const setCurrentPage = useCallback(
     (p: number) => {
       if (tab === "debates") setDebatePage(p);
       else if (tab === "reviews") setReviewPage(p);
-      else setRiskPage(p);
+      else if (tab === "risk_debates") setRiskPage(p);
+      else setPostMortemPage(p);
     },
     [tab],
   );
@@ -484,21 +573,42 @@ export default function AIDebates() {
     refetchInterval: 15000,
   });
 
+  const { data: postMortemData, isLoading: postMortemsLoading } = useQuery({
+    queryKey: ["activity", "llm_post_mortem", postMortemPage],
+    queryFn: () =>
+      fetchActivity({
+        event_type: "llm_post_mortem",
+        limit: PAGE_SIZE,
+        offset: postMortemPage * PAGE_SIZE,
+      }),
+    refetchInterval: 15000,
+  });
+
   const debates = debateData?.events ?? [];
   const reviews = reviewData?.events ?? [];
   const riskDebates = riskDebateData?.events ?? [];
+  const postMortems = postMortemData?.events ?? [];
 
   const isLoading =
     tab === "debates"
       ? debatesLoading
       : tab === "reviews"
         ? reviewsLoading
-        : riskDebatesLoading;
+        : tab === "risk_debates"
+          ? riskDebatesLoading
+          : postMortemsLoading;
 
   const events =
-    tab === "debates" ? debates : tab === "reviews" ? reviews : riskDebates;
+    tab === "debates" ? debates
+    : tab === "reviews" ? reviews
+    : tab === "risk_debates" ? riskDebates
+    : postMortems;
 
-  const currentData = tab === "debates" ? debateData : tab === "reviews" ? reviewData : riskDebateData;
+  const currentData =
+    tab === "debates" ? debateData
+    : tab === "reviews" ? reviewData
+    : tab === "risk_debates" ? riskDebateData
+    : postMortemData;
 
   // Stats
   const approvedCount = debates.filter(
@@ -628,6 +738,21 @@ export default function AIDebates() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => { setTab("post_mortems"); setPostMortemPage(0); }}
+          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+            tab === "post_mortems"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Post-Mortems
+          {postMortems.length > 0 && (
+            <span className="ml-1 text-xs opacity-70">
+              {postMortems.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Stats summary */}
@@ -674,7 +799,7 @@ export default function AIDebates() {
       ) : events.length === 0 ? (
         <div className="text-center text-zinc-500 py-12">
           <p className="text-lg mb-2">
-            No {tab === "debates" ? "debates" : tab === "reviews" ? "reviews" : "risk debates"} yet
+            No {tab === "debates" ? "debates" : tab === "reviews" ? "reviews" : tab === "risk_debates" ? "risk debates" : "post-mortems"} yet
           </p>
           <p className="text-sm">
             {tab === "debates"
@@ -685,9 +810,13 @@ export default function AIDebates() {
                 ? config?.use_llm_reviewer
                   ? "Reviews will appear as the AI checks open positions."
                   : "Enable the Position Reviewer in Settings to start."
-                : config?.use_llm_debate
-                  ? "Risk debates will appear when AI challenges risk rejections."
-                  : "Enable the AI Debate Gate in Settings to start."}
+                : tab === "post_mortems"
+                  ? config?.use_llm_post_mortem
+                    ? "Post-mortems will appear as trades close."
+                    : "Enable Post-Mortem Analysis in Settings to start."
+                  : config?.use_llm_debate
+                    ? "Risk debates will appear when AI challenges risk rejections."
+                    : "Enable the AI Debate Gate in Settings to start."}
           </p>
         </div>
       ) : (
@@ -698,8 +827,10 @@ export default function AIDebates() {
                 <DebateCard key={event.id} event={event} />
               ) : tab === "reviews" ? (
                 <ReviewCard key={event.id} event={event} />
-              ) : (
+              ) : tab === "risk_debates" ? (
                 <RiskDebateCard key={event.id} event={event} />
+              ) : (
+                <PostMortemCard key={event.id} event={event} />
               ),
             )}
           </div>

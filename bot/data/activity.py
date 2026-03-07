@@ -495,6 +495,46 @@ async def log_risk_debate(
     ))
 
 
+async def log_llm_post_mortem(
+    strategy: str,
+    market_id: str,
+    question: str,
+    pnl: float,
+    outcome_quality: str,
+    key_lesson: str,
+    strategy_fit: str,
+    analysis: str,
+    exit_reason: str,
+    cost_usd: float,
+) -> None:
+    """Log an LLM post-mortem analysis of a closed trade."""
+    sign = "+" if pnl >= 0 else ""
+    level = "success" if pnl >= 0 else "warning"
+    await _write(BotActivity(
+        event_type="llm_post_mortem",
+        level=level,
+        title=f"Post-Mortem ({outcome_quality}): {question[:45]}",
+        detail=(
+            f"Strategy: {strategy} | PnL: {sign}${pnl:.2f}\n"
+            f"Outcome: {outcome_quality} | Fit: {strategy_fit}\n"
+            f"Lesson: {key_lesson}\n"
+            f"Analysis: {analysis}\n"
+            f"Exit: {exit_reason} | Cost: ${cost_usd:.4f}"
+        ),
+        market_id=market_id,
+        strategy=strategy,
+        metadata_json=_meta({
+            "pnl": pnl,
+            "outcome_quality": outcome_quality,
+            "key_lesson": key_lesson,
+            "strategy_fit": strategy_fit,
+            "analysis": analysis,
+            "exit_reason": exit_reason,
+            "cost_usd": cost_usd,
+        }),
+    ))
+
+
 async def log_price_adjustment(
     market_id: str,
     strategy: str,
@@ -584,6 +624,7 @@ async def get_today_llm_cost() -> float:
                 .where(
                     BotActivity.event_type.in_((
                         "llm_debate", "llm_review", "llm_risk_debate",
+                        "llm_post_mortem",
                     )),
                     BotActivity.timestamp >= today_start,
                 )

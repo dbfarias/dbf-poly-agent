@@ -34,6 +34,8 @@ class TestGetConfig:
             "use_llm_debate",
             "use_llm_reviewer",
             "use_multi_round_debate",
+            "use_llm_keywords",
+            "use_llm_post_mortem",
             "llm_daily_budget",
             "llm_today_cost",
         }

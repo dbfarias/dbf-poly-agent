@@ -1,12 +1,18 @@
 """Extracted position closing logic — handles exits, sell fills, and rebalancing."""
 
+import asyncio
 from datetime import datetime, timezone
 
 import structlog
 
 from bot.agent.events import event_bus
 from bot.config import settings
-from bot.data.activity import log_exit_triggered, log_position_closed, log_rebalance
+from bot.data.activity import (
+    log_exit_triggered,
+    log_llm_post_mortem,
+    log_position_closed,
+    log_rebalance,
+)
 from bot.data.database import async_session
 from bot.data.market_cache import MarketCache
 
@@ -36,6 +42,74 @@ class PositionCloser:
         # within this many hours (unless loss is severe)
         self.rebalance_resolution_shield_hours = 24.0
         self.rebalance_resolution_max_loss_pct = 0.15  # 15% loss overrides shield
+
+    async def _fire_post_mortem(
+        self,
+        question: str,
+        strategy: str,
+        market_id: str,
+        entry_price: float,
+        exit_price: float,
+        pnl: float,
+        exit_reason: str,
+        hold_hours: float,
+    ) -> None:
+        """Fire-and-forget LLM post-mortem on a closed trade."""
+        try:
+            from bot.research.llm_debate import post_mortem_analysis
+
+            result = await post_mortem_analysis(
+                question=question,
+                strategy=strategy,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                pnl=pnl,
+                exit_reason=exit_reason,
+                hold_hours=hold_hours,
+            )
+            if result is not None:
+                await log_llm_post_mortem(
+                    strategy=strategy,
+                    market_id=market_id,
+                    question=question,
+                    pnl=pnl,
+                    outcome_quality=result.outcome_quality,
+                    key_lesson=result.key_lesson,
+                    strategy_fit=result.strategy_fit,
+                    analysis=result.analysis,
+                    exit_reason=exit_reason,
+                    cost_usd=result.cost_usd,
+                )
+        except Exception as e:
+            logger.debug("post_mortem_failed", error=str(e))
+
+    def _maybe_post_mortem(
+        self,
+        question: str,
+        strategy: str,
+        market_id: str,
+        entry_price: float,
+        exit_price: float,
+        pnl: float,
+        exit_reason: str,
+        hold_hours: float,
+    ) -> None:
+        """Schedule a post-mortem if the toggle is enabled (fire-and-forget)."""
+        if not settings.use_llm_post_mortem:
+            return
+        task = asyncio.create_task(
+            self._fire_post_mortem(
+                question=question,
+                strategy=strategy,
+                market_id=market_id,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                pnl=pnl,
+                exit_reason=exit_reason,
+                hold_hours=hold_hours,
+            ),
+        )
+        task.add_done_callback(lambda t: None)  # Suppress unhandled exception warning
 
     async def close_position(self, pos, *, exit_reason: str = "strategy_exit") -> None:
         """Close a position and record PnL if immediately filled.
@@ -102,6 +176,26 @@ class PositionCloser:
                 pnl=pnl,
                 exit_reason=exit_reason,
             )
+
+            # Fire-and-forget post-mortem analysis
+            created = getattr(pos, "created_at", None)
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            hold_hours = (
+                (datetime.now(timezone.utc) - created).total_seconds() / 3600
+                if created is not None else 0.0
+            )
+            self._maybe_post_mortem(
+                question=pos.question,
+                strategy=pos.strategy,
+                market_id=pos.market_id,
+                entry_price=pos.avg_price,
+                exit_price=pos.current_price,
+                pnl=pnl,
+                exit_reason=exit_reason,
+                hold_hours=hold_hours,
+            )
+
             await event_bus.emit(
                 "trade_filled",
                 trade_event="sell_filled",
@@ -159,6 +253,19 @@ class PositionCloser:
             pnl=pnl,
             exit_reason="deferred_sell_fill",
         )
+
+        # Fire-and-forget post-mortem (no entry_price available in deferred path)
+        self._maybe_post_mortem(
+            question=question,
+            strategy=strategy,
+            market_id=market_id,
+            entry_price=0.0,
+            exit_price=sell_price,
+            pnl=pnl,
+            exit_reason="deferred_sell_fill",
+            hold_hours=0.0,
+        )
+
         await event_bus.emit(
             "trade_filled",
             trade_event="sell_filled",

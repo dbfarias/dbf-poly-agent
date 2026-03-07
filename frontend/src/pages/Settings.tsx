@@ -119,6 +119,8 @@ export default function Settings() {
     use_llm_debate: false,
     use_llm_reviewer: false,
     use_multi_round_debate: false,
+    use_llm_keywords: false,
+    use_llm_post_mortem: false,
     llm_daily_budget: 3.0,
   });
 
@@ -140,6 +142,8 @@ export default function Settings() {
       use_llm_debate: config.use_llm_debate ?? false,
       use_llm_reviewer: config.use_llm_reviewer ?? false,
       use_multi_round_debate: config.use_multi_round_debate ?? false,
+      use_llm_keywords: config.use_llm_keywords ?? false,
+      use_llm_post_mortem: config.use_llm_post_mortem ?? false,
       llm_daily_budget: config.llm_daily_budget ?? 3.0,
     });
   }, [config]);
@@ -603,6 +607,60 @@ export default function Settings() {
               <span
                 className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                   llm.use_multi_round_debate ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* LLM Keywords */}
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm text-zinc-200">LLM Keywords</h4>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Use Claude to extract smarter news search keywords (~$0.03/day)
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_llm_keywords;
+                setLlm((p) => ({ ...p, use_llm_keywords: next }));
+                configMut.mutate({ use_llm_keywords: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_llm_keywords ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-llm-keywords"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_llm_keywords ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Post-Mortem Analysis */}
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm text-zinc-200">Post-Mortem Analysis</h4>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                AI analyzes closed trades for lessons (~$0.002/day)
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_llm_post_mortem;
+                setLlm((p) => ({ ...p, use_llm_post_mortem: next }));
+                configMut.mutate({ use_llm_post_mortem: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_llm_post_mortem ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-llm-post-mortem"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_llm_post_mortem ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>

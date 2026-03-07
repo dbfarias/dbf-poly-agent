@@ -725,6 +725,7 @@ class TradingEngine:
                         "proposer": debate_result.proposer_verdict,
                         "proposer_confidence": debate_result.proposer_confidence,
                         "proposer_reasoning": debate_result.proposer_reasoning,
+                        "edge_valid": debate_result.edge_valid,
                         "challenger": debate_result.challenger_verdict,
                         "challenger_risk": debate_result.challenger_risk,
                         "challenger_objections": debate_result.challenger_objections,

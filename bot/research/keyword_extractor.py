@@ -1,6 +1,11 @@
 """Extract search keywords from Polymarket questions."""
 
 import re
+import time
+
+import structlog
+
+logger = structlog.get_logger()
 
 # Common stop words to filter out
 _STOP_WORDS = frozenset({
@@ -102,3 +107,77 @@ def extract_keywords(question: str) -> list[str]:
 
     # Cap at 5 keywords
     return keywords[:5]
+
+
+# --- LLM keyword extraction ---
+
+_KEYWORDS_MODEL = "claude-haiku-4-5-20251001"
+_KEYWORDS_TIMEOUT = 10.0
+_KEYWORDS_MAX_TOKENS = 100
+
+_KEYWORDS_SYSTEM = (
+    "Extract 2-5 concise Google News search terms for the given prediction "
+    "market question. Focus on proper nouns, key entities, and specific events. "
+    "Output ONLY a comma-separated list of search terms, nothing else.\n\n"
+    "Example:\n"
+    "Question: Will Bitcoin reach $100k before March 2026?\n"
+    "Output: Bitcoin price, BTC $100k, cryptocurrency market"
+)
+
+
+async def extract_keywords_llm(question: str) -> list[str]:
+    """Extract search keywords using Claude Haiku.
+
+    Falls back to heuristic extract_keywords() on error or missing API key.
+    Cost: ~$0.00016 per call.
+    """
+    from bot.config import settings
+    from bot.research.llm_debate import cost_tracker
+
+    if cost_tracker.is_over_budget:
+        return extract_keywords(question)
+
+    api_key = settings.anthropic_api_key
+    if not api_key:
+        return extract_keywords(question)
+
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError:
+        return extract_keywords(question)
+
+    # Sanitize input
+    safe_q = re.sub(r"[\x00-\x1f\x7f]", " ", question)[:200].strip()
+
+    try:
+        client = AsyncAnthropic(api_key=api_key, timeout=_KEYWORDS_TIMEOUT)
+        start = time.monotonic()
+        resp = await client.messages.create(
+            model=_KEYWORDS_MODEL,
+            max_tokens=_KEYWORDS_MAX_TOKENS,
+            system=_KEYWORDS_SYSTEM,
+            messages=[{"role": "user", "content": safe_q}],
+        )
+        text = resp.content[0].text.strip()
+        cost = (
+            resp.usage.input_tokens * 0.80
+            + resp.usage.output_tokens * 4.00
+        ) / 1_000_000
+        cost_tracker.add(cost)
+        elapsed = time.monotonic() - start
+
+        # Parse comma-separated keywords
+        keywords = [k.strip() for k in text.split(",") if k.strip()][:5]
+
+        logger.debug(
+            "llm_keywords_extracted",
+            question=question[:60],
+            keywords=keywords,
+            cost_usd=round(cost, 6),
+            elapsed_s=round(elapsed, 2),
+        )
+
+        return keywords if len(keywords) >= 2 else extract_keywords(question)
+    except Exception as e:
+        logger.warning("llm_keywords_error", error=str(e))
+        return extract_keywords(question)

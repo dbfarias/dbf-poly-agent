@@ -12,6 +12,7 @@ from bot.research.llm_debate import (
     _is_debatable_rejection,
     _parse_challenger,
     _parse_counter_proposer,
+    _parse_post_mortem,
     _parse_proposer,
     _parse_reviewer,
     _parse_risk_analyst,
@@ -27,23 +28,39 @@ _ANTHROPIC_PATCH = "anthropic.AsyncAnthropic"
 
 class TestParseProposer:
     def test_buy_verdict(self):
-        text = "VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong edge"
-        verdict, conf, reasoning = _parse_proposer(text)
+        text = "VERDICT: BUY\nCONFIDENCE: 0.8\nEDGE_VALID: YES\nREASONING: Strong edge"
+        verdict, conf, reasoning, edge_valid = _parse_proposer(text)
         assert verdict == "BUY"
         assert conf == 0.8
         assert reasoning == "Strong edge"
+        assert edge_valid is True
 
     def test_pass_verdict(self):
-        text = "VERDICT: PASS\nCONFIDENCE: 0.3\nREASONING: Too risky"
-        verdict, conf, reasoning = _parse_proposer(text)
+        text = "VERDICT: PASS\nCONFIDENCE: 0.3\nEDGE_VALID: YES\nREASONING: Too risky"
+        verdict, conf, reasoning, edge_valid = _parse_proposer(text)
         assert verdict == "PASS"
         assert conf == 0.3
+        assert edge_valid is True
 
     def test_malformed_defaults_to_pass(self):
         text = "I think we should buy"
-        verdict, conf, reasoning = _parse_proposer(text)
+        verdict, conf, reasoning, edge_valid = _parse_proposer(text)
         assert verdict == "PASS"
         assert conf == 0.5
+        assert edge_valid is True
+
+    def test_edge_invalid(self):
+        text = "VERDICT: BUY\nCONFIDENCE: 0.7\nEDGE_VALID: NO\nREASONING: Edge seems fabricated"
+        verdict, conf, reasoning, edge_valid = _parse_proposer(text)
+        assert verdict == "BUY"
+        assert conf == 0.7
+        assert edge_valid is False
+
+    def test_edge_valid_missing_defaults_true(self):
+        text = "VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Good signal"
+        verdict, conf, reasoning, edge_valid = _parse_proposer(text)
+        assert verdict == "BUY"
+        assert edge_valid is True
 
 
 class TestParseChallenger:
@@ -88,6 +105,39 @@ class TestParseReviewer:
         verdict, urgency, reasoning = _parse_reviewer(text)
         assert verdict == "INCREASE"
         assert urgency == "LOW"
+
+
+class TestParsePostMortem:
+    def test_good_outcome(self):
+        text = (
+            "OUTCOME_QUALITY: GOOD\n"
+            "KEY_LESSON: Timing was right\n"
+            "STRATEGY_FIT: GOOD_FIT\n"
+            "ANALYSIS: Entry was well-timed and thesis played out"
+        )
+        quality, lesson, fit, analysis = _parse_post_mortem(text)
+        assert quality == "GOOD"
+        assert lesson == "Timing was right"
+        assert fit == "GOOD_FIT"
+        assert "Entry was well-timed" in analysis
+
+    def test_bad_outcome(self):
+        text = (
+            "OUTCOME_QUALITY: BAD\n"
+            "KEY_LESSON: Should have exited earlier\n"
+            "STRATEGY_FIT: POOR_FIT\n"
+            "ANALYSIS: Sports market was a coin flip"
+        )
+        quality, lesson, fit, analysis = _parse_post_mortem(text)
+        assert quality == "BAD"
+        assert fit == "POOR_FIT"
+
+    def test_malformed_defaults(self):
+        text = "Some analysis without proper format"
+        quality, lesson, fit, analysis = _parse_post_mortem(text)
+        assert quality == "NEUTRAL"
+        assert lesson == ""
+        assert fit == "NEUTRAL"
 
 
 class TestLlmCostTracker:

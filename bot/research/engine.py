@@ -9,7 +9,7 @@ from bot.config import settings
 from bot.data.market_cache import MarketCache
 from bot.research.cache import ResearchCache
 from bot.research.crypto_fetcher import CryptoFetcher
-from bot.research.keyword_extractor import extract_keywords
+from bot.research.keyword_extractor import extract_keywords, extract_keywords_llm
 from bot.research.llm_sentiment import analyze_sentiment_llm
 from bot.research.news_fetcher import NewsFetcher
 from bot.research.sentiment import analyze_sentiment, compute_research_multiplier
@@ -136,7 +136,10 @@ class ResearchEngine:
         crypto_prices: dict[str, float] | None = None,
     ) -> ResearchResult | None:
         """Research a single market: keywords -> news -> sentiment -> multiplier."""
-        keywords = extract_keywords(question)
+        if settings.use_llm_keywords:
+            keywords = await extract_keywords_llm(question)
+        else:
+            keywords = extract_keywords(question)
         if not keywords:
             return None
 

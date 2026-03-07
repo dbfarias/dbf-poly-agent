@@ -42,9 +42,16 @@ _PROPOSER_SYSTEM = (
     "For edges of 2%+ with reasonable probability, you should BUY. "
     "Short-resolution markets (<72h) are especially attractive — less time for "
     "things to go wrong. Higher confidence = stronger BUY.\n\n"
+    "EDGE VALIDATION: Before deciding, verify the reported edge is plausible.\n"
+    "- Does the edge make sense given the market question and current price?\n"
+    "- Could the edge be an artifact of stale data or orderbook noise?\n"
+    "- Is the estimated probability reasonable for this type of market?\n"
+    "If the edge seems fabricated, implausible, or based on nonsensical data, "
+    "set EDGE_VALID to NO regardless of your verdict.\n\n"
     "Respond in this exact format:\n"
     "VERDICT: BUY or PASS\n"
     "CONFIDENCE: 0.0 to 1.0\n"
+    "EDGE_VALID: YES or NO\n"
     "REASONING: 1-2 sentences explaining your decision"
 )
 
@@ -195,10 +202,22 @@ class DebateResult:
     total_cost_usd: float
     elapsed_s: float
     # Multi-round counter fields (empty string = single-round or not triggered)
+    edge_valid: bool = True
     counter_rebuttal: str = ""
     counter_conviction: float = 0.0
     final_verdict: str = ""  # "APPROVE" or "REJECT" — challenger's second look
     final_reasoning: str = ""
+
+
+@dataclass(frozen=True)
+class PostMortemResult:
+    """Result of a post-trade LLM analysis."""
+
+    outcome_quality: str  # "GOOD", "BAD", "NEUTRAL"
+    key_lesson: str
+    strategy_fit: str  # "GOOD_FIT", "POOR_FIT", "NEUTRAL"
+    analysis: str
+    cost_usd: float
 
 
 @dataclass(frozen=True)
@@ -370,7 +389,33 @@ async def debate_signal(
         logger.warning("llm_proposer_error", error=str(e))
         return None
 
-    prop_verdict, prop_confidence, prop_reasoning = _parse_proposer(prop_text)
+    prop_verdict, prop_confidence, prop_reasoning, prop_edge_valid = _parse_proposer(prop_text)
+
+    # If edge is invalid, force PASS and skip challenger (save cost)
+    if not prop_edge_valid:
+        elapsed = time.monotonic() - start
+        cost_tracker.add(total_cost)
+        logger.info(
+            "llm_debate_edge_invalid",
+            question=question[:60],
+            proposer=prop_verdict,
+            edge_valid=False,
+            cost_usd=round(total_cost, 5),
+        )
+        result = DebateResult(
+            approved=False,
+            proposer_verdict=prop_verdict,
+            proposer_confidence=prop_confidence,
+            proposer_reasoning=prop_reasoning,
+            edge_valid=False,
+            challenger_verdict="skipped",
+            challenger_risk="N/A",
+            challenger_objections="Edge invalid — challenger skipped",
+            total_cost_usd=total_cost,
+            elapsed_s=round(elapsed, 2),
+        )
+        _cache_debate(question, strategy, result, price=price, edge=edge)
+        return result
 
     # If proposer says PASS, skip challenger (save cost)
     if prop_verdict == "PASS":
@@ -717,11 +762,12 @@ def _calc_cost(input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * 0.80 + output_tokens * 4.00) / 1_000_000
 
 
-def _parse_proposer(text: str) -> tuple[str, float, str]:
-    """Parse proposer response. Returns (verdict, confidence, reasoning)."""
+def _parse_proposer(text: str) -> tuple[str, float, str, bool]:
+    """Parse proposer response. Returns (verdict, confidence, reasoning, edge_valid)."""
     verdict = "PASS"
     confidence = 0.5
     reasoning = text
+    edge_valid = True
 
     for line in text.split("\n"):
         upper = line.upper().strip()
@@ -737,10 +783,13 @@ def _parse_proposer(text: str) -> tuple[str, float, str]:
                 confidence = max(0.0, min(1.0, confidence))
             except ValueError:
                 pass
+        elif upper.startswith("EDGE_VALID:"):
+            val = upper.split(":", 1)[1].strip()
+            edge_valid = "NO" not in val
         elif upper.startswith("REASONING:"):
             reasoning = line.split(":", 1)[1].strip()
 
-    return verdict, confidence, reasoning
+    return verdict, confidence, reasoning, edge_valid
 
 
 def _parse_challenger(text: str) -> tuple[str, str, str]:
@@ -868,6 +917,136 @@ def _parse_risk_analyst(text: str) -> tuple[str, float, str]:
             reasoning = line.split(":", 1)[1].strip()
 
     return verdict, size_adjustment, reasoning
+
+
+_POST_MORTEM_SYSTEM = (
+    "You are a trading performance analyst reviewing a closed prediction market trade. "
+    "Analyze what went right or wrong and extract a lesson for future trades.\n\n"
+    "Consider:\n"
+    "- Was the entry thesis correct? Did the edge materialize?\n"
+    "- Was the exit timing good? Too early? Too late?\n"
+    "- Was this strategy a good fit for this type of market?\n"
+    "- What should the bot do differently next time?\n\n"
+    "Respond in this exact format:\n"
+    "OUTCOME_QUALITY: GOOD, BAD, or NEUTRAL\n"
+    "KEY_LESSON: One sentence — the most important takeaway\n"
+    "STRATEGY_FIT: GOOD_FIT, POOR_FIT, or NEUTRAL\n"
+    "ANALYSIS: 2-3 sentences analyzing the trade"
+)
+
+
+def _parse_post_mortem(text: str) -> tuple[str, str, str, str]:
+    """Parse post-mortem response.
+
+    Returns (outcome_quality, key_lesson, strategy_fit, analysis).
+    """
+    outcome_quality = "NEUTRAL"
+    key_lesson = ""
+    strategy_fit = "NEUTRAL"
+    analysis = text
+
+    for line in text.split("\n"):
+        upper = line.upper().strip()
+        if upper.startswith("OUTCOME_QUALITY:") or upper.startswith("OUTCOME QUALITY:"):
+            val = upper.split(":", 1)[1].strip()
+            if "GOOD" in val:
+                outcome_quality = "GOOD"
+            elif "BAD" in val:
+                outcome_quality = "BAD"
+            else:
+                outcome_quality = "NEUTRAL"
+        elif upper.startswith("KEY_LESSON:") or upper.startswith("KEY LESSON:"):
+            key_lesson = line.split(":", 1)[1].strip()
+        elif upper.startswith("STRATEGY_FIT:") or upper.startswith("STRATEGY FIT:"):
+            val = upper.split(":", 1)[1].strip()
+            if "GOOD" in val:
+                strategy_fit = "GOOD_FIT"
+            elif "POOR" in val:
+                strategy_fit = "POOR_FIT"
+            else:
+                strategy_fit = "NEUTRAL"
+        elif upper.startswith("ANALYSIS:"):
+            analysis = line.split(":", 1)[1].strip()
+
+    return outcome_quality, key_lesson, strategy_fit, analysis
+
+
+async def post_mortem_analysis(
+    question: str,
+    strategy: str,
+    entry_price: float,
+    exit_price: float,
+    pnl: float,
+    exit_reason: str,
+    hold_hours: float,
+) -> PostMortemResult | None:
+    """Analyze a closed trade for lessons. Fire-and-forget safe.
+
+    Returns PostMortemResult, or None if analysis couldn't run.
+    """
+    if cost_tracker.is_over_budget:
+        return None
+
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError:
+        return None
+
+    api_key = settings.anthropic_api_key
+    if not api_key:
+        return None
+
+    safe_q = _sanitize_prompt_input(question)
+    pnl_pct = (
+        ((exit_price - entry_price) / entry_price * 100)
+        if entry_price > 0 else 0.0
+    )
+    outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAKEVEN"
+
+    user_msg = (
+        f"Closed trade analysis:\n"
+        f"Market: {safe_q}\n"
+        f"Strategy: {strategy}\n"
+        f"Entry: ${entry_price:.3f} → Exit: ${exit_price:.3f} ({pnl_pct:+.1f}%)\n"
+        f"PnL: ${pnl:+.2f} ({outcome})\n"
+        f"Hold time: {hold_hours:.1f} hours\n"
+        f"Exit reason: {exit_reason}\n\n"
+        f"What went right or wrong?"
+    )
+
+    try:
+        client = AsyncAnthropic(api_key=api_key, timeout=_TIMEOUT)
+        resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=200,
+            system=_POST_MORTEM_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        text = resp.content[0].text.strip()
+        cost = _calc_cost(resp.usage.input_tokens, resp.usage.output_tokens)
+        cost_tracker.add(cost)
+
+        outcome_quality, key_lesson, strategy_fit, analysis = _parse_post_mortem(text)
+
+        logger.info(
+            "llm_post_mortem",
+            question=question[:60],
+            strategy=strategy,
+            outcome=outcome,
+            outcome_quality=outcome_quality,
+            cost_usd=round(cost, 5),
+        )
+
+        return PostMortemResult(
+            outcome_quality=outcome_quality,
+            key_lesson=key_lesson,
+            strategy_fit=strategy_fit,
+            analysis=analysis,
+            cost_usd=cost,
+        )
+    except Exception as e:
+        logger.warning("llm_post_mortem_error", error=str(e))
+        return None
 
 
 async def debate_risk_rejection(
