@@ -938,52 +938,59 @@ class TestNewFilters:
 
 
 class TestCategoryEdgeBoost:
-    async def test_sports_category_boosts_edge(self):
-        """Sports markets get +20% edge boost."""
+    async def test_sports_market_skipped(self):
+        """Sports markets are skipped by classify_market_type defense-in-depth."""
         strategy = _make_strategy()
-        # High imbalance → edge = 0.1 * imbalance ≈ large enough
         book = _make_order_book(
             bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
             ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
         )
         strategy.get_order_book = AsyncMock(return_value=book)
-        market = _make_market(hours_to_resolution=48.0, yes_price=0.45)
-        market.category = "Sports"
+        # Question contains NBA team name → classified as sports
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.45,
+            question="Will the Nuggets cover the spread?",
+        )
+
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    async def test_non_sports_market_accepted(self):
+        """Non-sports markets are evaluated normally."""
+        strategy = _make_strategy()
+        book = _make_order_book(
+            bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
+            ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
+        )
+        strategy.get_order_book = AsyncMock(return_value=book)
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.45,
+            question="Will inflation exceed 5%?",
+        )
 
         result = await strategy._evaluate_market(market, max_hours=168.0)
         assert result is not None
-        # base edge = abs((800-30)/830) * 0.1 ≈ 0.093
-        # boosted = 0.093 * 1.2 ≈ 0.111
-        assert result.edge > 0.10
 
-    async def test_non_sports_category_penalizes_edge(self):
-        """Non-sports markets get -15% edge penalty."""
+    async def test_vs_pattern_sports_skipped(self):
+        """'X vs Y' matchup pattern is classified as sports and skipped."""
         strategy = _make_strategy()
         book = _make_order_book(
             bid_sizes=[300.0, 200.0, 150.0, 100.0, 50.0],
             ask_sizes=[10.0, 8.0, 6.0, 4.0, 2.0],
         )
         strategy.get_order_book = AsyncMock(return_value=book)
-        market = _make_market(hours_to_resolution=48.0, yes_price=0.45)
-        market.category = "Politics"
+        market = _make_market(
+            hours_to_resolution=48.0,
+            yes_price=0.45,
+            question="Antalya 2: Smith vs Johnson",
+        )
 
-        result_penalized = await strategy._evaluate_market(market, max_hours=168.0)
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
 
-        # Same market but with Sports category
-        strategy2 = _make_strategy()
-        strategy2.get_order_book = AsyncMock(return_value=book)
-        market2 = _make_market(hours_to_resolution=48.0, yes_price=0.45)
-        market2.category = "Sports"
-
-        result_boosted = await strategy2._evaluate_market(market2, max_hours=168.0)
-
-        # Both should produce signals (imbalance is very strong)
-        assert result_penalized is not None
-        assert result_boosted is not None
-        # Sports edge should be larger than penalized
-        assert result_boosted.edge > result_penalized.edge
-
-    async def test_category_boost_params_in_mutable(self):
-        """CATEGORY_EDGE_BOOST and CATEGORY_EDGE_PENALTY are in _MUTABLE_PARAMS."""
-        assert "CATEGORY_EDGE_BOOST" in ValueBettingStrategy._MUTABLE_PARAMS
-        assert "CATEGORY_EDGE_PENALTY" in ValueBettingStrategy._MUTABLE_PARAMS
+    async def test_category_boost_params_removed_from_mutable(self):
+        """Category boost/penalty params no longer in _MUTABLE_PARAMS."""
+        assert "CATEGORY_EDGE_BOOST" not in ValueBettingStrategy._MUTABLE_PARAMS
+        assert "CATEGORY_EDGE_PENALTY" not in ValueBettingStrategy._MUTABLE_PARAMS

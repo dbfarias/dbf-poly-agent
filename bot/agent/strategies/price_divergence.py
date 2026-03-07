@@ -199,14 +199,11 @@ class PriceDivergenceStrategy(BaseStrategy):
         else:
             return None
 
-        # Try crypto divergence first (higher confidence)
-        if self._is_crypto_market(market.question):
-            signal = self._detect_crypto_divergence(market)
-            if signal is not None:
-                return signal
+        # Crypto-only: sentiment divergence was too noisy (23.5% WR on non-crypto)
+        if not self._is_crypto_market(market.question):
+            return None
 
-        # Fall back to sentiment divergence
-        return self._detect_sentiment_divergence(market)
+        return self._detect_crypto_divergence(market)
 
     # ── Crypto divergence ──────────────────────────────────────────────────
 

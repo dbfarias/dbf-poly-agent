@@ -442,3 +442,54 @@ class TestShouldExit:
             question="Will event X happen?",
         )
         assert result is True
+
+
+class TestCryptoOnlyEvaluation:
+    """_evaluate_market only produces signals for crypto markets (no sentiment fallback)."""
+
+    def test_non_crypto_returns_none(self):
+        """Non-crypto markets return None (no sentiment divergence fallback)."""
+        rc = ResearchCache()
+        research = _make_research(sentiment=0.90, confidence=0.80)
+        rc.set("m1", research)
+
+        strategy = _make_strategy(research_cache=rc)
+        # Seed price history for sentiment divergence (would have triggered before)
+        strategy._price_history["m1"] = deque(
+            [0.65, 0.60, 0.55, 0.50, 0.45], maxlen=PRICE_HISTORY_MAXLEN,
+        )
+
+        market = _make_market(
+            question="Will event X happen?",
+            yes_price=0.45,
+            no_price=0.55,
+        )
+        now = datetime.now(timezone.utc)
+
+        result = strategy._evaluate_market(market, now)
+        assert result is None
+
+    def test_crypto_market_evaluated(self):
+        """Crypto markets are still evaluated normally."""
+        rc = ResearchCache()
+        research = _make_research(
+            sentiment=0.65,
+            confidence=0.80,
+            crypto_prices=(("bitcoin", 105000.0),),
+        )
+        rc.set("m1", research)
+
+        strategy = _make_strategy(research_cache=rc)
+        market = _make_market(
+            question="Will BTC be above $100,000?",
+            yes_price=0.60,
+            no_price=0.40,
+            best_bid=0.595,
+            best_ask=0.605,
+        )
+        now = datetime.now(timezone.utc)
+
+        result = strategy._evaluate_market(market, now)
+        # Should produce a signal (crypto divergence: actual $105k vs threshold $100k)
+        assert result is not None
+        assert result.metadata["divergence_type"] == "crypto"

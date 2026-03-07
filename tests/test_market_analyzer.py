@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from bot.agent.market_analyzer import MarketAnalyzer, normalize_category
+from bot.agent.market_analyzer import MarketAnalyzer, classify_market_type, normalize_category
 from bot.data.market_cache import MarketCache
 from bot.polymarket.types import GammaMarket, OrderBook, OrderBookEntry, OrderSide, TradeSignal
 
@@ -767,3 +767,109 @@ class TestScanMarketsNewSources:
         from bot.config import CapitalTier
         signals = await analyzer.scan_markets(CapitalTier.TIER1)
         assert isinstance(signals, list)
+
+
+class TestClassifyMarketType:
+    """Tests for classify_market_type — sports, crypto, other detection."""
+
+    def test_crypto_market(self):
+        assert classify_market_type("Will Bitcoin be above $100k?") == "crypto"
+
+    def test_crypto_eth(self):
+        assert classify_market_type("Will ETH exceed $5,000?") == "crypto"
+
+    def test_other_market(self):
+        assert classify_market_type("Will Congress pass the budget?") == "other"
+
+    # --- Expanded sports keyword coverage ---
+
+    def test_nba_team_raptors(self):
+        assert classify_market_type("Raptors O/U 220.5?") == "sports"
+
+    def test_nba_team_nuggets(self):
+        assert classify_market_type("Nuggets Spread -3.5?") == "sports"
+
+    def test_nba_team_pelicans(self):
+        assert classify_market_type("Pelicans Spread +5.5?") == "sports"
+
+    def test_college_big_east(self):
+        assert classify_market_type("UConn Big East tournament winner?") == "sports"
+
+    def test_college_ncaa(self):
+        assert classify_market_type("Who wins the NCAA championship?") == "sports"
+
+    def test_college_march_madness(self):
+        assert classify_market_type("March Madness Final Four winner?") == "sports"
+
+    def test_college_uconn(self):
+        assert classify_market_type("Will UConn win the national title?") == "sports"
+
+    def test_tennis_antalya(self):
+        assert classify_market_type("Antalya 2: Djokovic vs Nadal") == "sports"
+
+    def test_tennis_wimbledon(self):
+        assert classify_market_type("Who wins Wimbledon 2026?") == "sports"
+
+    def test_tennis_atp(self):
+        assert classify_market_type("ATP finals winner?") == "sports"
+
+    def test_soccer_pumas_unam(self):
+        assert classify_market_type("Pumas UNAM win on 2026-03-07?") == "sports"
+
+    def test_mls_inter_miami(self):
+        assert classify_market_type("Inter Miami win MLS Cup?") == "sports"
+
+    def test_mls_la_galaxy(self):
+        assert classify_market_type("Will LA Galaxy make playoffs?") == "sports"
+
+    def test_betting_term_handicap(self):
+        assert classify_market_type("Asian handicap Chelsea +1.5?") == "sports"
+
+    def test_betting_term_point_spread(self):
+        assert classify_market_type("Point spread for game?") == "sports"
+
+    def test_championship_pattern(self):
+        assert classify_market_type("Who wins the 2026 championship?") == "sports"
+
+    def test_playoff_pattern(self):
+        assert classify_market_type("Will they make the playoff?") == "sports"
+
+    def test_semifinals_pattern(self):
+        assert classify_market_type("Semifinals matchup predictions?") == "sports"
+
+    def test_win_on_date_pattern(self):
+        assert classify_market_type("Will Real Madrid win on 2026-03-10?") == "sports"
+
+    def test_vs_pattern_catches_matchup(self):
+        """'X vs Y' pattern catches sports matchups."""
+        assert classify_market_type("Antalya 2: Player A vs Player B") == "sports"
+
+    def test_vs_dot_pattern(self):
+        assert classify_market_type("ATP: Federer vs. Nadal") == "sports"
+
+    def test_vs_pattern_not_false_positive_crypto(self):
+        """Crypto question should still classify as crypto first."""
+        result = classify_market_type("Will Bitcoin beat $100k?")
+        assert result == "crypto"
+
+    def test_quarterback_pattern(self):
+        assert classify_market_type("Most passing yards by a quarterback?") == "sports"
+
+    def test_slam_dunk(self):
+        assert classify_market_type("Most slam dunk contest wins?") == "sports"
+
+    def test_college_duke(self):
+        assert classify_market_type("Will Duke win March Madness?") == "sports"
+
+    def test_santos_laguna(self):
+        assert classify_market_type("Santos Laguna vs Toluca") == "sports"
+
+    def test_grand_slam(self):
+        assert classify_market_type("Grand Slam winner 2026?") == "sports"
+
+    def test_politics_not_sports(self):
+        """Political markets should not be classified as sports."""
+        assert classify_market_type("Will Biden win the 2026 midterms?") == "other"
+
+    def test_economics_not_sports(self):
+        assert classify_market_type("Will inflation exceed 5%?") == "other"

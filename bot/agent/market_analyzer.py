@@ -23,27 +23,55 @@ logger = structlog.get_logger()
 # so we detect market type by matching keywords in the question text.
 _SPORTS_KEYWORDS = re.compile(
     r"\b("
+    # Leagues and governing bodies
     r"nba|nfl|nhl|mlb|mls|ufc|afl|epl|serie a|la liga|bundesliga|ligue 1"
     r"|premier league|champions league|europa league|copa libertadores"
-    r"|world cup|super bowl|stanley cup|march madness"
-    r"|spread[:\s]|o/u\s|over/under|moneyline"
+    r"|world cup|super bowl|stanley cup"
+    # College sports
+    r"|march madness|final four|ncaa|big east|big ten|big 12|sec championship"
+    r"|acc tournament|pac-12|college basketball|college football"
+    # Tennis
+    r"|antalya|roland garros|wimbledon|us open tennis|australian open tennis"
+    r"|atp |wta |grand slam"
+    # Sports betting terms
+    r"|spread[:\s]|o/u\s|over/under|moneyline|handicap|point spread"
+    r"|total points|total goals|first half|second half|first quarter"
+    # Game actions
     r"|touchdown|field goal|three-pointer|home run|penalty kick"
+    r"|slam dunk|free throw|rushing yards|passing yards|quarterback|wide receiver"
+    # General sports patterns
+    r"|championship|playoff|semifinals|quarterfinals|round of 16|group stage"
+    # NBA teams
     r"|raptors|nuggets|pelicans|panthers|islanders|lightning|jets|kings"
     r"|lakers|celtics|warriors|bucks|heat|knicks|nets|bulls|suns|76ers"
     r"|cavaliers|mavericks|rockets|pacers|hawks|pistons|spurs|grizzlies"
     r"|timberwolves|clippers|blazers|wizards|hornets|magic"
+    # NFL teams
     r"|chiefs|eagles|cowboys|49ers|ravens|bills|lions|bengals|dolphins"
     r"|steelers|texans|vikings|packers|broncos|chargers|rams|seahawks"
     r"|commanders|bears|saints|falcons|cardinals|colts|jaguars|titans"
     r"|patriots|giants|raiders|browns|buccaneers"
+    # MLB teams
     r"|yankees|dodgers|mets|braves|astros|padres|phillies|orioles"
     r"|red sox|cubs|brewers|guardians|royals|rangers|twins|tigers|marlins"
-    r"|maple leafs|bruins|oilers|hurricanes|avalanche|rangers|capitals"
+    # NHL teams
+    r"|maple leafs|bruins|oilers|hurricanes|avalanche|capitals"
     r"|penguins|blue jackets|predators|wild|sabres|red wings|senators"
     r"|canucks|flames|blackhawks|kraken|sharks|ducks|coyotes|flyers"
+    # European soccer
     r"|real madrid|barcelona|bayern|juventus|psg|manchester"
     r"|chelsea|arsenal|liverpool|tottenham|atletico"
-    r"|pumas|unam|santos|tigres|monterrey|america|chivas|cruz azul"
+    # Liga MX / MLS
+    r"|pumas|unam|santos laguna|necaxa|toluca|leon|puebla|queretaro|mazatlan"
+    r"|tigres|monterrey|america|chivas|cruz azul"
+    r"|inter miami|la galaxy|atlanta united|seattle sounders|portland timbers"
+    r"|nashville sc|orlando city|charlotte fc|st\. louis city|austin fc"
+    r"|fc cincinnati|columbus crew|new york red bulls|new york city fc"
+    r"|sporting kc|minnesota united|vancouver whitecaps|cf montreal"
+    r"|dc united|chicago fire"
+    # College teams (commonly traded)
+    r"|uconn|gonzaga|duke|kentucky|north carolina|villanova|kansas|baylor"
+    # Esports
     r"|valorant|counter-strike|dota|league of legends|overwatch"
     r"|esports|bo3|bo5"
     r")\b",
@@ -55,10 +83,20 @@ _SPORTS_WIN_ON_PATTERN = re.compile(
     r"will .+ win on \d{4}-\d{2}-\d{2}", re.IGNORECASE,
 )
 
+# Second-pass heuristic: "X vs. Y" or "X vs Y" patterns are almost always sports
+# Catches formats like "Antalya 2: Player A vs Player B"
+_SPORTS_VS_PATTERN = re.compile(
+    r"(?:^|\:\s*).+\bvs\.?\s+.+", re.IGNORECASE,
+)
+
 
 def classify_market_type(question: str) -> str:
     """Classify market type by question text. Returns 'sports', 'crypto', or 'other'."""
-    if _SPORTS_KEYWORDS.search(question) or _SPORTS_WIN_ON_PATTERN.search(question):
+    if (
+        _SPORTS_KEYWORDS.search(question)
+        or _SPORTS_WIN_ON_PATTERN.search(question)
+        or _SPORTS_VS_PATTERN.search(question)
+    ):
         return "sports"
     # Crypto detection (from price_divergence)
     crypto_pattern = re.compile(
