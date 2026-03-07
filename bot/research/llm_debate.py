@@ -15,7 +15,8 @@ _TIMEOUT = 15.0
 _MAX_TOKENS = 300
 _MAX_PROMPT_INPUT_LEN = 200
 _MIN_CONVICTION_FOR_ANALYST = 0.4
-_DEFAULT_DEBATE_CACHE_TTL = 3600.0 * 3  # 3 hours (matches prod cooldown)
+_CACHE_TTL_APPROVED = 3600.0 * 3   # 3h for approved trades (no need to re-debate)
+_CACHE_TTL_REJECTED = 1800.0       # 30min for rejections (allow re-try sooner)
 
 
 def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> str:
@@ -48,13 +49,20 @@ _PROPOSER_SYSTEM = (
 )
 
 _CHALLENGER_SYSTEM = (
-    "You are a skeptical risk analyst reviewing a proposed prediction market trade. "
-    "Your job is to find weaknesses in the proposal. Challenge the reasoning:\n"
-    "- Is the edge calculation reliable or based on flawed assumptions?\n"
-    "- Are there risks the proposer missed (event timing, market manipulation, "
-    "information asymmetry)?\n"
-    "- Could the market price already reflect the news?\n"
-    "- Is the position size appropriate for the risk?\n\n"
+    "You are a fair but thorough risk analyst reviewing a prediction market trade. "
+    "Your job is to evaluate whether this trade has reasonable risk/reward.\n\n"
+    "APPROVE the trade if:\n"
+    "- Edge is 2%+ and the reasoning is sound\n"
+    "- Short resolution time (<72h) reduces risk significantly\n"
+    "- The proposer's thesis is logical even if not perfect\n"
+    "- Risk is manageable with the small position sizes we use ($1-5)\n\n"
+    "REJECT only if:\n"
+    "- Edge is clearly fabricated or based on stale data\n"
+    "- There's a fundamental flaw the proposer missed entirely\n"
+    "- The market is a pure coin flip with no information edge\n"
+    "- Resolution is very far away (>30 days) with thin edge\n\n"
+    "Remember: we trade small sizes ($1-5). The cost of missing a good trade "
+    "is worse than taking a slightly marginal one.\n\n"
     "Respond in this exact format:\n"
     "VERDICT: APPROVE or REJECT\n"
     "RISK_LEVEL: LOW, MEDIUM, or HIGH\n"
@@ -264,16 +272,20 @@ def _debate_cache_key(
 def _get_cached_debate(
     question: str,
     strategy: str,
-    ttl: float = _DEFAULT_DEBATE_CACHE_TTL,
     price: float = 0.0,
     edge: float = 0.0,
 ) -> "DebateResult | None":
-    """Return cached DebateResult if still valid, else None."""
+    """Return cached DebateResult if still valid, else None.
+
+    Approved trades are cached for 3h (no need to re-debate).
+    Rejected trades are cached for only 30min (allow re-try sooner).
+    """
     key = _debate_cache_key(question, strategy, price, edge)
     entry = _debate_cache.get(key)
     if entry is None:
         return None
     result, ts = entry
+    ttl = _CACHE_TTL_APPROVED if result.approved else _CACHE_TTL_REJECTED
     if time.monotonic() - ts > ttl:
         _debate_cache.pop(key, None)
         return None
