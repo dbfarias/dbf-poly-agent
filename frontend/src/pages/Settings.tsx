@@ -118,6 +118,7 @@ export default function Settings() {
     use_llm_sentiment: false,
     use_llm_debate: false,
     use_llm_reviewer: false,
+    use_multi_round_debate: false,
     llm_daily_budget: 3.0,
   });
 
@@ -138,6 +139,7 @@ export default function Settings() {
       use_llm_sentiment: config.use_llm_sentiment ?? false,
       use_llm_debate: config.use_llm_debate ?? false,
       use_llm_reviewer: config.use_llm_reviewer ?? false,
+      use_multi_round_debate: config.use_multi_round_debate ?? false,
       llm_daily_budget: config.llm_daily_budget ?? 3.0,
     });
   }, [config]);
@@ -574,6 +576,33 @@ export default function Settings() {
               <span
                 className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                   llm.use_llm_reviewer ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Multi-round debate */}
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm text-zinc-200">Multi-Round Debate</h4>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                When challenger rejects, proposer counter-argues (+2 API calls)
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_multi_round_debate;
+                setLlm((p) => ({ ...p, use_multi_round_debate: next }));
+                configMut.mutate({ use_multi_round_debate: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_multi_round_debate ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-multi-round-debate"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_multi_round_debate ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>

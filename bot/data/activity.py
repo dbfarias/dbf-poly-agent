@@ -361,34 +361,52 @@ async def log_llm_debate(
     edge: float,
     price: float,
     cost_usd: float,
+    counter_rebuttal: str = "",
+    counter_conviction: float = 0.0,
+    final_verdict: str = "",
+    final_reasoning: str = "",
 ) -> None:
     """Log an LLM debate result (both approved and rejected)."""
     icon = "Approved" if approved else "Rejected"
     level = "success" if approved else "warning"
+    detail = (
+        f"Strategy: {strategy} | Price: ${price:.3f} | Edge: {edge:.1%}\n"
+        f"Proposer: {proposer_verdict} (conf {proposer_confidence:.0%})"
+        f" — {proposer_reasoning}\n"
+        f"Challenger: {challenger_verdict} (risk {challenger_risk})"
+        f" — {challenger_objections}\n"
+    )
+    if counter_rebuttal:
+        detail += (
+            f"Counter: {counter_rebuttal} (conviction {counter_conviction:.0%})\n"
+            f"Final: {final_verdict} — {final_reasoning}\n"
+        )
+    detail += f"Cost: ${cost_usd:.4f}"
+
+    meta = {
+        "approved": approved,
+        "proposer_verdict": proposer_verdict,
+        "proposer_confidence": proposer_confidence,
+        "proposer_reasoning": proposer_reasoning,
+        "challenger_verdict": challenger_verdict,
+        "challenger_risk": challenger_risk,
+        "challenger_objections": challenger_objections,
+        "edge": edge, "price": price, "cost_usd": cost_usd,
+    }
+    if counter_rebuttal:
+        meta["counter_rebuttal"] = counter_rebuttal
+        meta["counter_conviction"] = counter_conviction
+        meta["final_verdict"] = final_verdict
+        meta["final_reasoning"] = final_reasoning
+
     await _write(BotActivity(
         event_type="llm_debate",
         level=level,
         title=f"AI Debate {icon}: {question[:50]}",
-        detail=(
-            f"Strategy: {strategy} | Price: ${price:.3f} | Edge: {edge:.1%}\n"
-            f"Proposer: {proposer_verdict} (conf {proposer_confidence:.0%})"
-            f" — {proposer_reasoning}\n"
-            f"Challenger: {challenger_verdict} (risk {challenger_risk})"
-            f" — {challenger_objections}\n"
-            f"Cost: ${cost_usd:.4f}"
-        ),
+        detail=detail,
         market_id=market_id,
         strategy=strategy,
-        metadata_json=_meta({
-            "approved": approved,
-            "proposer_verdict": proposer_verdict,
-            "proposer_confidence": proposer_confidence,
-            "proposer_reasoning": proposer_reasoning,
-            "challenger_verdict": challenger_verdict,
-            "challenger_risk": challenger_risk,
-            "challenger_objections": challenger_objections,
-            "edge": edge, "price": price, "cost_usd": cost_usd,
-        }),
+        metadata_json=_meta(meta),
     ))
 
 

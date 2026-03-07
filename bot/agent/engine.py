@@ -734,6 +734,10 @@ class TradingEngine:
                         edge=signal.edge,
                         price=signal.market_price,
                         cost_usd=debate_result.total_cost_usd,
+                        counter_rebuttal=debate_result.counter_rebuttal,
+                        counter_conviction=debate_result.counter_conviction,
+                        final_verdict=debate_result.final_verdict,
+                        final_reasoning=debate_result.final_reasoning,
                     )
                     if not debate_result.approved:
                         logger.info(

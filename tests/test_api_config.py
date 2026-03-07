@@ -33,6 +33,7 @@ class TestGetConfig:
             "use_llm_sentiment",
             "use_llm_debate",
             "use_llm_reviewer",
+            "use_multi_round_debate",
             "llm_daily_budget",
             "llm_today_cost",
         }

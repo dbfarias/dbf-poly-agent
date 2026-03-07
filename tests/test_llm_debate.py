@@ -6,6 +6,7 @@ from bot.research.llm_debate import (
     LlmCostTracker,
     _is_debatable_rejection,
     _parse_challenger,
+    _parse_counter_proposer,
     _parse_proposer,
     _parse_reviewer,
     _parse_risk_analyst,
@@ -513,3 +514,271 @@ class TestDebateRiskRejection:
         assert not result.override
         assert result.analyst_verdict == "MAINTAIN"
         assert result.adjusted_size_pct == 0.0
+
+
+class TestParseCounterProposer:
+    def test_full_parse(self):
+        text = "COUNTER: The edge is sufficient because resolution is in 12h\nCONVICTION: 0.85"
+        counter, conviction = _parse_counter_proposer(text)
+        assert counter == "The edge is sufficient because resolution is in 12h"
+        assert conviction == 0.85
+
+    def test_low_conviction(self):
+        text = "COUNTER: Maybe not worth it\nCONVICTION: 0.2"
+        counter, conviction = _parse_counter_proposer(text)
+        assert conviction == 0.2
+
+    def test_malformed_defaults(self):
+        text = "Some random response without format"
+        counter, conviction = _parse_counter_proposer(text)
+        assert counter == text
+        assert conviction == 0.5
+
+    def test_conviction_clamped(self):
+        text = "COUNTER: Strong case\nCONVICTION: 1.5"
+        _, conviction = _parse_counter_proposer(text)
+        assert conviction == 1.0
+
+
+class TestMultiRoundDebate:
+    async def test_single_round_reject_no_counter(self):
+        """When multi-round is off, reject stays rejected without counter."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.7\nREASONING: Good edge"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Too risky"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = False
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.7,
+                reasoning="test",
+            )
+
+        assert result is not None
+        assert not result.approved
+        assert result.counter_rebuttal == ""
+        assert result.final_verdict == ""
+        assert mock_client.messages.create.call_count == 2
+
+    async def test_multi_round_counter_approve(self):
+        """Multi-round: challenger rejects, proposer counters, challenger approves."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong signal"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: MEDIUM\nOBJECTIONS: Edge seems thin"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        counter_resp = MagicMock()
+        counter_resp.content = [MagicMock(
+            text="COUNTER: Resolution in 6h, reduced exposure\nCONVICTION: 0.75"
+        )]
+        counter_resp.usage.input_tokens = 250
+        counter_resp.usage.output_tokens = 30
+
+        final_resp = MagicMock()
+        final_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK_LEVEL: LOW\nOBJECTIONS: Counter is valid"
+        )]
+        final_resp.usage.input_tokens = 350
+        final_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp, counter_resp, final_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = True
+            result = await debate_signal(
+                question="Will BTC reach $100k?", strategy="value_betting",
+                edge=0.05, price=0.5, estimated_prob=0.55, confidence=0.8,
+                reasoning="Strong edge",
+            )
+
+        assert result is not None
+        assert result.approved
+        assert result.counter_rebuttal == "Resolution in 6h, reduced exposure"
+        assert result.counter_conviction == 0.75
+        assert result.final_verdict == "APPROVE"
+        assert mock_client.messages.create.call_count == 4
+
+    async def test_multi_round_counter_still_rejected(self):
+        """Multi-round: challenger rejects, proposer counters, challenger still rejects."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.6\nREASONING: Moderate edge"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Fundamentally flawed"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        counter_resp = MagicMock()
+        counter_resp.content = [MagicMock(
+            text="COUNTER: Data supports the thesis\nCONVICTION: 0.6"
+        )]
+        counter_resp.usage.input_tokens = 250
+        counter_resp.usage.output_tokens = 30
+
+        final_resp = MagicMock()
+        final_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Still too risky"
+        )]
+        final_resp.usage.input_tokens = 350
+        final_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp, counter_resp, final_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = True
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.03,
+                price=0.5, estimated_prob=0.53, confidence=0.6,
+                reasoning="Weak signal",
+            )
+
+        assert result is not None
+        assert not result.approved
+        assert result.final_verdict == "REJECT"
+        assert mock_client.messages.create.call_count == 4
+
+    async def test_multi_round_low_conviction_skips_final(self):
+        """Multi-round: counter has low conviction, skips final challenger call."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.7\nREASONING: Some edge"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Bad trade"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        counter_resp = MagicMock()
+        counter_resp.content = [MagicMock(
+            text="COUNTER: Maybe they're right\nCONVICTION: 0.2"
+        )]
+        counter_resp.usage.input_tokens = 250
+        counter_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp, counter_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = True
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.03,
+                price=0.5, estimated_prob=0.53, confidence=0.6,
+                reasoning="Weak signal",
+            )
+
+        assert result is not None
+        assert not result.approved
+        assert result.counter_rebuttal == "Maybe they're right"
+        assert result.counter_conviction == 0.2
+        # Final verdict empty = low conviction skipped final call
+        assert result.final_verdict == ""
+        # Only 3 calls: proposer, challenger, counter (no final)
+        assert mock_client.messages.create.call_count == 3
+
+    async def test_multi_round_not_triggered_on_approve(self):
+        """Multi-round doesn't trigger if challenger approves (no need to counter)."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.9\nREASONING: Great trade"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK_LEVEL: LOW\nOBJECTIONS: None"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_multi_round_debate = True
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.08,
+                price=0.5, estimated_prob=0.58, confidence=0.9,
+                reasoning="Strong",
+            )
+
+        assert result is not None
+        assert result.approved
+        assert result.counter_rebuttal == ""
+        assert mock_client.messages.create.call_count == 2

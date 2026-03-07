@@ -100,6 +100,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         use_llm_sentiment=settings.use_llm_sentiment,
         use_llm_debate=settings.use_llm_debate,
         use_llm_reviewer=settings.use_llm_reviewer,
+        use_multi_round_debate=settings.use_multi_round_debate,
         llm_daily_budget=settings.llm_daily_budget,
         llm_today_cost=round(llm_cost_tracker.today_cost, 4),
         current_tier=tier.value,
@@ -137,6 +138,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
     if update.use_llm_reviewer is not None:
         settings.use_llm_reviewer = update.use_llm_reviewer
         changes.append(f"use_llm_reviewer={update.use_llm_reviewer}")
+    if update.use_multi_round_debate is not None:
+        settings.use_multi_round_debate = update.use_multi_round_debate
+        changes.append(f"use_multi_round_debate={update.use_multi_round_debate}")
     if update.llm_daily_budget is not None:
         settings.llm_daily_budget = update.llm_daily_budget
         llm_cost_tracker.daily_budget = update.llm_daily_budget

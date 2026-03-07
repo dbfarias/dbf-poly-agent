@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -89,6 +89,10 @@ function DebateCard({ event }: { event: ActivityEvent }) {
   const challengerVerdict = (meta.challenger_verdict as string) ?? "?";
   const challengerRisk = (meta.challenger_risk as string) ?? "?";
   const challengerObjections = (meta.challenger_objections as string) ?? "";
+  const counterRebuttal = (meta.counter_rebuttal as string) ?? "";
+  const counterConviction = (meta.counter_conviction as number) ?? 0;
+  const finalVerdict = (meta.final_verdict as string) ?? "";
+  const finalReasoning = (meta.final_reasoning as string) ?? "";
   const edge = (meta.edge as number) ?? 0;
   const price = (meta.price as number) ?? 0;
   const costUsd = (meta.cost_usd as number) ?? 0;
@@ -184,6 +188,39 @@ function DebateCard({ event }: { event: ActivityEvent }) {
         </div>
         <p className="text-xs text-zinc-300">{challengerObjections}</p>
       </div>
+
+      {/* Multi-round counter (only if present) */}
+      {counterRebuttal && (
+        <>
+          <div className="rounded bg-indigo-950/20 border border-indigo-900/30 p-3 mt-2">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium text-indigo-400">COUNTER-ARGUMENT</span>
+              <span className="text-[10px] text-zinc-500">
+                Conviction: {(counterConviction * 100).toFixed(0)}%
+              </span>
+            </div>
+            <p className="text-xs text-zinc-300">{counterRebuttal}</p>
+          </div>
+
+          {finalVerdict && (
+            <div className="rounded bg-[#0f1117] p-3 mt-2">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-medium text-amber-400">FINAL VERDICT</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    finalVerdict === "APPROVE"
+                      ? "bg-green-900/40 text-green-400"
+                      : "bg-red-900/40 text-red-400"
+                  }`}
+                >
+                  {finalVerdict}
+                </span>
+              </div>
+              <p className="text-xs text-zinc-300">{finalReasoning}</p>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -360,8 +397,62 @@ function RiskDebateCard({ event }: { event: ActivityEvent }) {
   );
 }
 
+const PAGE_SIZE = 20;
+
+function Pagination({
+  page,
+  hasMore,
+  total,
+  onPrev,
+  onNext,
+}: {
+  page: number;
+  hasMore: boolean;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  if (total === 0) return null;
+  return (
+    <div className="flex items-center justify-between pt-2">
+      <span className="text-xs text-zinc-500">
+        {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+      </span>
+      <div className="flex gap-2">
+        <button
+          onClick={onPrev}
+          disabled={page === 0}
+          className="px-3 py-1 rounded text-xs font-medium bg-[#1a1d29] text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Prev
+        </button>
+        <button
+          onClick={onNext}
+          disabled={!hasMore}
+          className="px-3 py-1 rounded text-xs font-medium bg-[#1a1d29] text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AIDebates() {
   const [tab, setTab] = useState<TabType>("debates");
+  const [debatePage, setDebatePage] = useState(0);
+  const [reviewPage, setReviewPage] = useState(0);
+  const [riskPage, setRiskPage] = useState(0);
+
+  const currentPage = tab === "debates" ? debatePage : tab === "reviews" ? reviewPage : riskPage;
+  const setCurrentPage = useCallback(
+    (p: number) => {
+      if (tab === "debates") setDebatePage(p);
+      else if (tab === "reviews") setReviewPage(p);
+      else setRiskPage(p);
+    },
+    [tab],
+  );
 
   const { data: config } = useQuery({
     queryKey: ["config"],
@@ -369,20 +460,35 @@ export default function AIDebates() {
   });
 
   const { data: debateData, isLoading: debatesLoading } = useQuery({
-    queryKey: ["activity", "llm_debate"],
-    queryFn: () => fetchActivity({ event_type: "llm_debate", limit: 50 }),
+    queryKey: ["activity", "llm_debate", debatePage],
+    queryFn: () =>
+      fetchActivity({
+        event_type: "llm_debate",
+        limit: PAGE_SIZE,
+        offset: debatePage * PAGE_SIZE,
+      }),
     refetchInterval: 15000,
   });
 
   const { data: reviewData, isLoading: reviewsLoading } = useQuery({
-    queryKey: ["activity", "llm_review"],
-    queryFn: () => fetchActivity({ event_type: "llm_review", limit: 50 }),
+    queryKey: ["activity", "llm_review", reviewPage],
+    queryFn: () =>
+      fetchActivity({
+        event_type: "llm_review",
+        limit: PAGE_SIZE,
+        offset: reviewPage * PAGE_SIZE,
+      }),
     refetchInterval: 15000,
   });
 
   const { data: riskDebateData, isLoading: riskDebatesLoading } = useQuery({
-    queryKey: ["activity", "llm_risk_debate"],
-    queryFn: () => fetchActivity({ event_type: "llm_risk_debate", limit: 50 }),
+    queryKey: ["activity", "llm_risk_debate", riskPage],
+    queryFn: () =>
+      fetchActivity({
+        event_type: "llm_risk_debate",
+        limit: PAGE_SIZE,
+        offset: riskPage * PAGE_SIZE,
+      }),
     refetchInterval: 15000,
   });
 
@@ -399,6 +505,8 @@ export default function AIDebates() {
 
   const events =
     tab === "debates" ? debates : tab === "reviews" ? reviews : riskDebates;
+
+  const currentData = tab === "debates" ? debateData : tab === "reviews" ? reviewData : riskDebateData;
 
   // Stats
   const approvedCount = debates.filter(
@@ -591,17 +699,26 @@ export default function AIDebates() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {events.map((event) =>
-            tab === "debates" ? (
-              <DebateCard key={event.id} event={event} />
-            ) : tab === "reviews" ? (
-              <ReviewCard key={event.id} event={event} />
-            ) : (
-              <RiskDebateCard key={event.id} event={event} />
-            ),
-          )}
-        </div>
+        <>
+          <div className="space-y-3">
+            {events.map((event) =>
+              tab === "debates" ? (
+                <DebateCard key={event.id} event={event} />
+              ) : tab === "reviews" ? (
+                <ReviewCard key={event.id} event={event} />
+              ) : (
+                <RiskDebateCard key={event.id} event={event} />
+              ),
+            )}
+          </div>
+          <Pagination
+            page={currentPage}
+            hasMore={currentData?.has_more ?? false}
+            total={currentData?.total ?? 0}
+            onPrev={() => setCurrentPage(Math.max(0, currentPage - 1))}
+            onNext={() => setCurrentPage(currentPage + 1)}
+          />
+        </>
       )}
     </div>
   );

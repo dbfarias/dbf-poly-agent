@@ -30,13 +30,16 @@ def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> s
     return cleaned[:max_len]
 
 _PROPOSER_SYSTEM = (
-    "You are a prediction market trading analyst. You evaluate trade opportunities "
-    "on Polymarket. Given market data and a trading signal, decide if this is a "
-    "good trade. Consider:\n"
-    "- Is the edge real or noise?\n"
-    "- Does the news/sentiment support the direction?\n"
-    "- Is the timing right (resolution date, current events)?\n"
-    "- What could go wrong?\n\n"
+    "You are an aggressive prediction market trader on Polymarket. You look for "
+    "any reasonable edge and push to take it. You WANT to trade — that's how you "
+    "make money. A 2-5% edge is worth taking, especially on short-resolution markets.\n\n"
+    "Your bias is BUY. Only say PASS if the signal is clearly garbage:\n"
+    "- Edge < 1% (too thin to overcome fees)\n"
+    "- Market is clearly mispriced against you (no information edge)\n"
+    "- Resolution is years away with no catalyst\n\n"
+    "For edges of 2%+ with reasonable probability, you should BUY. "
+    "Short-resolution markets (<72h) are especially attractive — less time for "
+    "things to go wrong. Higher confidence = stronger BUY.\n\n"
     "Respond in this exact format:\n"
     "VERDICT: BUY or PASS\n"
     "CONFIDENCE: 0.0 to 1.0\n"
@@ -55,6 +58,20 @@ _CHALLENGER_SYSTEM = (
     "VERDICT: APPROVE or REJECT\n"
     "RISK_LEVEL: LOW, MEDIUM, or HIGH\n"
     "OBJECTIONS: 1-2 sentences with specific concerns (or 'None' if truly solid)"
+)
+
+_COUNTER_PROPOSER_SYSTEM = (
+    "You are the same aggressive prediction market trader. Your trade was challenged "
+    "by a risk analyst. You must counter-argue their objections with hard data.\n\n"
+    "Address each objection directly:\n"
+    "- If they say edge is too thin, explain why it's sufficient for this market\n"
+    "- If they cite risk, explain why the risk is mitigated (short resolution, "
+    "diversification, small size)\n"
+    "- If they question the thesis, strengthen it with additional reasoning\n\n"
+    "Be specific and data-driven. Don't just repeat yourself.\n\n"
+    "Respond in this exact format:\n"
+    "COUNTER: 2-3 sentences directly addressing the challenger's objections\n"
+    "CONVICTION: 0.0 to 1.0 (has your conviction changed after hearing objections?)"
 )
 
 _POSITION_REVIEWER_SYSTEM = (
@@ -168,6 +185,11 @@ class DebateResult:
     challenger_objections: str
     total_cost_usd: float
     elapsed_s: float
+    # Multi-round counter fields (empty string = single-round or not triggered)
+    counter_rebuttal: str = ""
+    counter_conviction: float = 0.0
+    final_verdict: str = ""  # "APPROVE" or "REJECT" — challenger's second look
+    final_reasoning: str = ""
 
 
 @dataclass(frozen=True)
@@ -333,8 +355,84 @@ async def debate_signal(
 
     chal_verdict, chal_risk, chal_objections = _parse_challenger(chal_text)
 
-    # Decision: approved only if proposer says BUY AND challenger doesn't REJECT
-    approved = (prop_verdict == "BUY" and chal_verdict != "REJECT")
+    # --- MULTI-ROUND COUNTER (optional) ---
+    counter_rebuttal = ""
+    counter_conviction = 0.0
+    final_verdict = ""
+    final_reasoning = ""
+
+    if (
+        prop_verdict == "BUY"
+        and chal_verdict == "REJECT"
+        and settings.use_multi_round_debate
+    ):
+        # Proposer counter-argues the challenger's objections
+        safe_q = _sanitize_prompt_input(question)
+        counter_msg = (
+            f"Your trade proposal was REJECTED by the risk analyst.\n"
+            f"Market: {safe_q}\n"
+            f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
+            f"Your original reasoning: {prop_reasoning}\n\n"
+            f"Challenger's objections ({chal_risk} risk): {chal_objections}\n\n"
+            f"Counter-argue these objections."
+        )
+
+        try:
+            counter_resp = await client.messages.create(
+                model=_MODEL,
+                max_tokens=_MAX_TOKENS,
+                system=_COUNTER_PROPOSER_SYSTEM,
+                messages=[{"role": "user", "content": counter_msg}],
+            )
+            counter_text = counter_resp.content[0].text.strip()
+            counter_cost = _calc_cost(
+                counter_resp.usage.input_tokens, counter_resp.usage.output_tokens,
+            )
+            total_cost += counter_cost
+            counter_rebuttal, counter_conviction = _parse_counter_proposer(counter_text)
+        except Exception as e:
+            logger.warning("llm_counter_proposer_error", error=str(e))
+            # Counter failed — challenger's REJECT stands
+            counter_rebuttal = ""
+            counter_conviction = 0.0
+
+        # If proposer still has conviction, give challenger a final look
+        if counter_rebuttal and counter_conviction >= 0.4:
+            final_msg = (
+                f"SECOND REVIEW — The proposer has counter-argued your rejection.\n"
+                f"Market: {safe_q}\n"
+                f"Price: ${price:.3f} | Edge: {edge:.1%} | Prob: {estimated_prob:.1%}\n"
+                f"Your original objections: {chal_objections}\n\n"
+                f"Proposer's counter-argument (conviction {counter_conviction:.0%}): "
+                f"{counter_rebuttal}\n\n"
+                f"Make your FINAL decision: APPROVE or REJECT?"
+            )
+
+            try:
+                final_resp = await client.messages.create(
+                    model=_MODEL,
+                    max_tokens=_MAX_TOKENS,
+                    system=_CHALLENGER_SYSTEM,
+                    messages=[{"role": "user", "content": final_msg}],
+                )
+                final_text = final_resp.content[0].text.strip()
+                final_cost = _calc_cost(
+                    final_resp.usage.input_tokens, final_resp.usage.output_tokens,
+                )
+                total_cost += final_cost
+                final_verdict, _, final_reasoning = _parse_challenger(final_text)
+            except Exception as e:
+                logger.warning("llm_final_challenger_error", error=str(e))
+                final_verdict = "REJECT"
+                final_reasoning = "Final review unavailable — rejection stands"
+
+    # Decision logic
+    if final_verdict:
+        # Multi-round: final verdict overrides initial challenger
+        approved = (prop_verdict == "BUY" and final_verdict != "REJECT")
+    else:
+        # Single-round: original logic
+        approved = (prop_verdict == "BUY" and chal_verdict != "REJECT")
 
     elapsed = time.monotonic() - start
     cost_tracker.add(total_cost)
@@ -347,6 +445,8 @@ async def debate_signal(
         challenger=chal_verdict,
         challenger_risk=chal_risk,
         approved=approved,
+        multi_round=bool(final_verdict),
+        final_verdict=final_verdict or "N/A",
         cost_usd=round(total_cost, 5),
         elapsed_s=round(elapsed, 2),
     )
@@ -361,6 +461,10 @@ async def debate_signal(
         challenger_objections=chal_objections,
         total_cost_usd=total_cost,
         elapsed_s=round(elapsed, 2),
+        counter_rebuttal=counter_rebuttal,
+        counter_conviction=counter_conviction,
+        final_verdict=final_verdict,
+        final_reasoning=final_reasoning,
     )
 
 
@@ -580,6 +684,25 @@ def _parse_reviewer(text: str) -> tuple[str, str, str]:
             reasoning = line.split(":", 1)[1].strip()
 
     return verdict, urgency, reasoning
+
+
+def _parse_counter_proposer(text: str) -> tuple[str, float]:
+    """Parse counter-argument response. Returns (counter, conviction)."""
+    counter = text
+    conviction = 0.5
+
+    for line in text.split("\n"):
+        upper = line.upper().strip()
+        if upper.startswith("COUNTER:"):
+            counter = line.split(":", 1)[1].strip()
+        elif upper.startswith("CONVICTION:"):
+            try:
+                conviction = float(line.split(":", 1)[1].strip())
+                conviction = max(0.0, min(1.0, conviction))
+            except ValueError:
+                pass
+
+    return counter, conviction
 
 
 def _parse_risk_proposer(text: str) -> tuple[str, str, float]:

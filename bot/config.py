@@ -182,6 +182,7 @@ class Settings(BaseSettings):
     use_llm_sentiment: bool = False
     use_llm_debate: bool = False
     use_llm_reviewer: bool = False
+    use_multi_round_debate: bool = False
     llm_daily_budget: float = 3.0
     anthropic_api_key: str = ""
 

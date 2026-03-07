@@ -180,6 +180,7 @@ export interface BotConfig {
   use_llm_sentiment: boolean;
   use_llm_debate: boolean;
   use_llm_reviewer: boolean;
+  use_multi_round_debate: boolean;
   llm_daily_budget: number;
   llm_today_cost: number;
   current_tier: string;
