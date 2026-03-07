@@ -31,6 +31,10 @@ class TestGetConfig:
             "disabled_strategies",
             "blocked_market_types",
             "use_llm_sentiment",
+            "use_llm_debate",
+            "use_llm_reviewer",
+            "llm_daily_budget",
+            "llm_today_cost",
         }
         assert set(data.keys()) == expected_keys
 

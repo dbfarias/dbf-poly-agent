@@ -8,6 +8,7 @@ from api.middleware import verify_api_key
 from api.schemas import BotConfig, BotConfigUpdate
 from bot.config import CapitalTier, TierConfig, settings
 from bot.data.settings_store import SettingsStore
+from bot.research.llm_debate import cost_tracker as llm_cost_tracker
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -97,6 +98,10 @@ async def get_config(_: str = Depends(verify_api_key)):
         max_drawdown_pct=settings.max_drawdown_pct,
         daily_target_pct=settings.daily_target_pct,
         use_llm_sentiment=settings.use_llm_sentiment,
+        use_llm_debate=settings.use_llm_debate,
+        use_llm_reviewer=settings.use_llm_reviewer,
+        llm_daily_budget=settings.llm_daily_budget,
+        llm_today_cost=round(llm_cost_tracker.today_cost, 4),
         current_tier=tier.value,
         tier_config=TierConfig.get(tier),
         strategy_params=strategy_params,
@@ -126,6 +131,16 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
     if update.use_llm_sentiment is not None:
         settings.use_llm_sentiment = update.use_llm_sentiment
         changes.append(f"use_llm_sentiment={update.use_llm_sentiment}")
+    if update.use_llm_debate is not None:
+        settings.use_llm_debate = update.use_llm_debate
+        changes.append(f"use_llm_debate={update.use_llm_debate}")
+    if update.use_llm_reviewer is not None:
+        settings.use_llm_reviewer = update.use_llm_reviewer
+        changes.append(f"use_llm_reviewer={update.use_llm_reviewer}")
+    if update.llm_daily_budget is not None:
+        settings.llm_daily_budget = update.llm_daily_budget
+        llm_cost_tracker.daily_budget = update.llm_daily_budget
+        changes.append(f"llm_daily_budget=${update.llm_daily_budget:.2f}")
 
     # Tier config updates
     if update.tier_config:

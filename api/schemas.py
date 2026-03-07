@@ -167,6 +167,10 @@ class BotConfig(BaseModel):
     max_drawdown_pct: float
     daily_target_pct: float
     use_llm_sentiment: bool = False
+    use_llm_debate: bool = False
+    use_llm_reviewer: bool = False
+    llm_daily_budget: float = 3.0
+    llm_today_cost: float = 0.0
     # Current tier parameters
     current_tier: str
     tier_config: dict
@@ -186,6 +190,9 @@ class BotConfigUpdate(BaseModel):
     max_drawdown_pct: float | None = Field(default=None, gt=0.0, le=0.5)
     daily_target_pct: float | None = Field(default=None, gt=0.0, le=0.2)
     use_llm_sentiment: bool | None = None
+    use_llm_debate: bool | None = None
+    use_llm_reviewer: bool | None = None
+    llm_daily_budget: float | None = Field(default=None, gt=0.0, le=20.0)
     # Tier config overrides
     tier_config: dict | None = None
     # Strategy parameter overrides

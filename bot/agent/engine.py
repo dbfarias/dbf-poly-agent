@@ -35,6 +35,8 @@ from bot.polymarket.heartbeat import HeartbeatManager
 from bot.polymarket.websocket_manager import WebSocketManager
 from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
+from bot.research.llm_debate import cost_tracker as llm_cost_tracker
+from bot.research.llm_debate import debate_signal, review_position
 from bot.utils.notifications import (
     close_telegram_client,
     notify_daily_summary,
@@ -135,6 +137,9 @@ class TradingEngine:
             hold = getattr(strat, "MIN_HOLD_SECONDS", None)
             if hold is not None:
                 self.closer.strategy_min_hold[strat.name] = hold
+
+        # LLM cost tracker budget sync
+        llm_cost_tracker.daily_budget = settings.llm_daily_budget
 
         # State
         self._running = False
@@ -475,6 +480,7 @@ class TradingEngine:
     async def _process_exits(self, tier) -> None:
         """Check and close positions that meet exit criteria."""
         exits = await self.analyzer.check_exits(self.portfolio.positions, tier)
+        exited_ids = set()
         for market_id, exit_reason in exits:
             pos = next(
                 (p for p in self.portfolio.positions if p.market_id == market_id),
@@ -482,6 +488,73 @@ class TradingEngine:
             )
             if pos:
                 await self.closer.close_position(pos, exit_reason=exit_reason)
+                exited_ids.add(market_id)
+
+        # LLM position reviewer (runs on positions not already exiting)
+        if settings.use_llm_reviewer:
+            await self._llm_review_positions(exited_ids)
+
+    async def _llm_review_positions(self, already_exiting: set[str]) -> None:
+        """Ask LLM to review open positions and recommend exits."""
+        now = datetime.now(timezone.utc)
+        for pos in self.portfolio.positions:
+            if pos.market_id in already_exiting:
+                continue
+
+            created = getattr(pos, "created_at", None)
+            if created is not None and created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age_hours = (
+                (now - created).total_seconds() / 3600
+                if created is not None else 0.0
+            )
+
+            # Only review positions older than 2 hours (save API calls)
+            if age_hours < 2.0:
+                continue
+
+            # Only review every ~30 min (use cycle count as rough timer)
+            # Position hash + cycle modulo to stagger reviews across cycles
+            pos_hash = hash(pos.market_id) % 30
+            if self._cycle_count % 30 != pos_hash:
+                continue
+
+            hours_res = None
+            market = self.cache.get_market(pos.market_id)
+            if market and market.end_date:
+                end = market.end_date
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
+                hours_res = max(0, (end - now).total_seconds() / 3600)
+
+            research = self.research_cache.get(pos.market_id)
+            sentiment = (
+                research.sentiment_score if research is not None else None
+            )
+
+            result = await review_position(
+                question=pos.question,
+                strategy=pos.strategy,
+                entry_price=pos.avg_price,
+                current_price=pos.current_price,
+                size=pos.size,
+                age_hours=age_hours,
+                unrealized_pnl=pos.unrealized_pnl,
+                hours_to_resolution=hours_res,
+                sentiment_score=sentiment,
+            )
+            if result is not None and result.should_exit:
+                logger.info(
+                    "llm_reviewer_exit",
+                    market_id=pos.market_id[:20],
+                    urgency=result.urgency,
+                    reasoning=result.reasoning[:80],
+                )
+                # Only act on HIGH urgency exits (MEDIUM = log only)
+                if result.urgency == "HIGH":
+                    await self.closer.close_position(
+                        pos, exit_reason=f"llm_review ({result.reasoning[:60]})",
+                    )
 
     async def _evaluate_signals(self, tier) -> tuple[int, int, int]:
         """Scan markets, evaluate signals, and execute approved trades.
@@ -570,6 +643,58 @@ class TradingEngine:
                     price=signal.market_price,
                 )
                 continue
+
+            # LLM debate gate: Proposer vs Challenger
+            if settings.use_llm_debate:
+                research = self.research_cache.get(signal.market_id)
+                sentiment = (
+                    research.sentiment_score if research is not None else None
+                )
+                hours_res = signal.metadata.get("hours_to_resolution")
+
+                debate_result = await debate_signal(
+                    question=signal.question,
+                    strategy=signal.strategy,
+                    edge=signal.edge,
+                    price=signal.market_price,
+                    estimated_prob=signal.estimated_prob,
+                    confidence=signal.confidence,
+                    reasoning=signal.reasoning,
+                    sentiment_score=sentiment,
+                    hours_to_resolution=hours_res,
+                )
+                if debate_result is not None:
+                    signal.metadata["llm_debate"] = {
+                        "proposer": debate_result.proposer_verdict,
+                        "proposer_confidence": debate_result.proposer_confidence,
+                        "proposer_reasoning": debate_result.proposer_reasoning,
+                        "challenger": debate_result.challenger_verdict,
+                        "challenger_risk": debate_result.challenger_risk,
+                        "challenger_objections": debate_result.challenger_objections,
+                        "cost_usd": debate_result.total_cost_usd,
+                    }
+                    if not debate_result.approved:
+                        logger.info(
+                            "signal_rejected_llm_debate",
+                            strategy=signal.strategy,
+                            market_id=signal.market_id[:20],
+                            proposer=debate_result.proposer_verdict,
+                            challenger=debate_result.challenger_verdict,
+                        )
+                        await log_signal_rejected(
+                            strategy=signal.strategy,
+                            market_id=signal.market_id,
+                            question=signal.question,
+                            reason=(
+                                f"LLM debate rejected: "
+                                f"P={debate_result.proposer_verdict}, "
+                                f"C={debate_result.challenger_verdict} "
+                                f"({debate_result.challenger_objections[:80]})"
+                            ),
+                            edge=signal.edge,
+                            price=signal.market_price,
+                        )
+                        continue
 
             effective_bankroll = self.portfolio.total_equity - cycle_committed
 

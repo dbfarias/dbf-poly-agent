@@ -59,6 +59,9 @@ _GLOBAL_ATTRS = (
     "max_drawdown_pct",
     "daily_target_pct",
     "use_llm_sentiment",
+    "use_llm_debate",
+    "use_llm_reviewer",
+    "llm_daily_budget",
 )
 
 
@@ -220,6 +223,9 @@ _GLOBAL_RANGES: dict[str, tuple[type, float, float]] = {
     "max_drawdown_pct": (float, 0.01, 1.0),
     "daily_target_pct": (float, 0.001, 0.5),
     "use_llm_sentiment": (bool, 0, 1),
+    "use_llm_debate": (bool, 0, 1),
+    "use_llm_reviewer": (bool, 0, 1),
+    "llm_daily_budget": (float, 0.5, 20.0),
 }
 
 
