@@ -53,43 +53,43 @@ export default function Strategies() {
               </div>
 
               {s && s.total_trades > 0 ? (
-                <div className="grid grid-cols-3 gap-4 text-center" data-testid={`strategy-metrics-${name}`}>
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center" data-testid={`strategy-metrics-${name}`}>
                   <div>
-                    <div className="text-lg font-bold text-white">{s.total_trades}</div>
-                    <div className="text-xs text-zinc-500 flex items-center justify-center">Trades <HelpTooltip text="Total trades executed by this strategy." size={11} /></div>
+                    <div className="text-base sm:text-lg font-bold text-white">{s.total_trades}</div>
+                    <div className="text-[10px] sm:text-xs text-zinc-500 flex items-center justify-center">Trades <HelpTooltip text="Total trades executed by this strategy." size={11} /></div>
                   </div>
                   <div>
-                    <div className="text-lg font-bold text-white">
+                    <div className="text-base sm:text-lg font-bold text-white">
                       {(s.win_rate * 100).toFixed(0)}%
                     </div>
-                    <div className="text-xs text-zinc-500 flex items-center justify-center">Win Rate <HelpTooltip text="Percentage of this strategy's trades that were profitable." size={11} /></div>
+                    <div className="text-[10px] sm:text-xs text-zinc-500 flex items-center justify-center">Win Rate <HelpTooltip text="Percentage of this strategy's trades that were profitable." size={11} /></div>
                   </div>
                   <div>
                     <div
                       className={clsx(
-                        "text-lg font-bold",
+                        "text-base sm:text-lg font-bold",
                         s.total_pnl >= 0 ? "text-green-400" : "text-red-400",
                       )}
                     >
                       ${s.total_pnl.toFixed(2)}
                     </div>
-                    <div className="text-xs text-zinc-500 flex items-center justify-center">PnL <HelpTooltip text="Total profit or loss from this strategy's trades." size={11} /></div>
+                    <div className="text-[10px] sm:text-xs text-zinc-500 flex items-center justify-center">PnL <HelpTooltip text="Total profit or loss from this strategy's trades." size={11} /></div>
                   </div>
                   <div>
-                    <div className="text-lg font-bold text-white">
+                    <div className="text-base sm:text-lg font-bold text-white">
                       {(s.avg_edge * 100).toFixed(1)}%
                     </div>
-                    <div className="text-xs text-zinc-500 flex items-center justify-center">Avg Edge <HelpTooltip text="Average expected profit margin across trades. Higher edge means the strategy finds better opportunities." size={11} /></div>
+                    <div className="text-[10px] sm:text-xs text-zinc-500 flex items-center justify-center">Edge <HelpTooltip text="Average expected profit margin across trades. Higher edge means the strategy finds better opportunities." size={11} /></div>
                   </div>
                   <div>
-                    <div className="text-lg font-bold text-white">{s.sharpe_ratio.toFixed(2)}</div>
-                    <div className="text-xs text-zinc-500 flex items-center justify-center">Sharpe <HelpTooltip text="Sharpe Ratio measures risk-adjusted returns. Above 1.0 is good, above 2.0 is excellent. It shows return per unit of risk taken." size={11} /></div>
+                    <div className="text-base sm:text-lg font-bold text-white">{s.sharpe_ratio.toFixed(2)}</div>
+                    <div className="text-[10px] sm:text-xs text-zinc-500 flex items-center justify-center">Sharpe <HelpTooltip text="Sharpe Ratio measures risk-adjusted returns. Above 1.0 is good, above 2.0 is excellent. It shows return per unit of risk taken." size={11} /></div>
                   </div>
                   <div>
-                    <div className="text-lg font-bold text-white">
+                    <div className="text-base sm:text-lg font-bold text-white">
                       {s.avg_hold_time_hours.toFixed(1)}h
                     </div>
-                    <div className="text-xs text-zinc-500 flex items-center justify-center">Avg Hold <HelpTooltip text="Average time a position is held before closing. Shorter hold times mean faster capital turnover." size={11} /></div>
+                    <div className="text-[10px] sm:text-xs text-zinc-500 flex items-center justify-center">Hold <HelpTooltip text="Average time a position is held before closing. Shorter hold times mean faster capital turnover." size={11} /></div>
                   </div>
                 </div>
               ) : (

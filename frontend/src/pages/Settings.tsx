@@ -343,7 +343,7 @@ export default function Settings() {
             {risk?.is_paused ? (
               <button
                 onClick={() => resumeMut.mutate()}
-                className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700"
+                className="flex-1 sm:flex-initial px-4 py-2 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700"
                 data-testid="resume-btn"
               >
                 Resume
@@ -351,7 +351,7 @@ export default function Settings() {
             ) : (
               <button
                 onClick={() => pauseMut.mutate()}
-                className="px-4 py-2 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700"
+                className="flex-1 sm:flex-initial px-4 py-2 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700"
                 data-testid="pause-btn"
               >
                 Pause
@@ -367,7 +367,7 @@ export default function Settings() {
                   resetMut.mutate();
                 }
               }}
-              className="px-4 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
+              className="flex-1 sm:flex-initial px-4 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
               data-testid="reset-risk-btn"
             >
               Reset PnL

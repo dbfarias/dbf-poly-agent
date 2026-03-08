@@ -209,12 +209,12 @@ export default function Dashboard() {
                 data-testid={`position-row-${p.id}`}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">{p.question}</div>
-                  <div className="text-xs text-zinc-500">
+                  <div className="text-sm truncate max-w-[200px] sm:max-w-none">{p.question}</div>
+                  <div className="text-xs text-zinc-500 truncate">
                     {p.outcome} · {p.strategy} · ${p.avg_price.toFixed(3)}
                   </div>
                 </div>
-                <div className="text-right ml-4">
+                <div className="text-right ml-3 shrink-0">
                   <div className="text-sm">${p.current_price.toFixed(3)}</div>
                   <div
                     className={`text-xs font-medium ${

@@ -317,6 +317,7 @@ export interface StrategyPauseInfo {
 export interface StrategyPauseStatus {
   strategy: string;
   is_paused: boolean;
+  is_admin_disabled: boolean;
   pause_info: StrategyPauseInfo | null;
 }
 

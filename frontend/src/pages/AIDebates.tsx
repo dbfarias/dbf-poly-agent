@@ -33,14 +33,14 @@ function CostVsPnlChart() {
 
   return (
     <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-medium text-zinc-300">LLM Cost vs Trading PnL</h3>
-        <div className="flex gap-4 text-xs">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <span className="text-zinc-400">
-            Total Cost: <span className="text-red-400">${totalCost.toFixed(4)}</span>
+            Cost: <span className="text-red-400">${totalCost.toFixed(4)}</span>
           </span>
           <span className="text-zinc-400">
-            Total PnL: <span className={totalPnl >= 0 ? "text-green-400" : "text-red-400"}>
+            PnL: <span className={totalPnl >= 0 ? "text-green-400" : "text-red-400"}>
               {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(4)}
             </span>
           </span>
@@ -131,7 +131,7 @@ function DebateCard({ event }: { event: ActivityEvent }) {
       </div>
 
       {/* Market data */}
-      <div className="flex gap-4 text-xs text-zinc-400 mb-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400 mb-3">
         <span>Price: ${price.toFixed(3)}</span>
         <span>Edge: {(edge * 100).toFixed(1)}%</span>
         <span>Cost: ${costUsd.toFixed(4)}</span>
@@ -282,7 +282,7 @@ function ReviewCard({ event }: { event: ActivityEvent }) {
       </div>
 
       {/* Position data */}
-      <div className="flex gap-4 text-xs text-zinc-400 mb-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400 mb-3">
         <span>Entry: ${entryPrice.toFixed(3)}</span>
         <span>Now: ${currentPrice.toFixed(3)}</span>
         <span className={pnl >= 0 ? "text-green-400" : "text-red-400"}>
@@ -351,7 +351,7 @@ function RiskDebateCard({ event }: { event: ActivityEvent }) {
       </div>
 
       {/* Market data */}
-      <div className="flex gap-4 text-xs text-zinc-400 mb-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400 mb-3">
         <span>Price: ${price.toFixed(3)}</span>
         <span>Edge: {(edge * 100).toFixed(1)}%</span>
         <span>Cost: ${costUsd.toFixed(4)}</span>
@@ -439,7 +439,7 @@ function PostMortemCard({ event }: { event: ActivityEvent }) {
       </div>
 
       {/* Meta row */}
-      <div className="flex gap-4 text-xs text-zinc-400 mb-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400 mb-3">
         <span>Exit: {exitReason}</span>
         <span
           className={`${
@@ -656,7 +656,7 @@ export default function AIDebates() {
       <CostVsPnlChart />
 
       {/* Status banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-3">
           <div className="text-xs text-zinc-500">Debate Gate</div>
           <div
@@ -692,16 +692,16 @@ export default function AIDebates() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#1a1d29] rounded-lg p-1">
+      <div className="grid grid-cols-2 sm:flex gap-1 bg-[#1a1d29] rounded-lg p-1">
         <button
           onClick={() => { setTab("debates"); setDebatePage(0); }}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+          className={`sm:flex-1 px-2 sm:px-3 py-2 rounded text-xs sm:text-sm font-medium transition-colors ${
             tab === "debates"
               ? "bg-indigo-600 text-white"
               : "text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Trade Debates
+          Debates
           {debates.length > 0 && (
             <span className="ml-1 text-xs opacity-70">
               {approvedCount}/{rejectedCount}
@@ -710,7 +710,7 @@ export default function AIDebates() {
         </button>
         <button
           onClick={() => { setTab("reviews"); setReviewPage(0); }}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+          className={`sm:flex-1 px-2 sm:px-3 py-2 rounded text-xs sm:text-sm font-medium transition-colors ${
             tab === "reviews"
               ? "bg-indigo-600 text-white"
               : "text-zinc-400 hover:text-zinc-200"
@@ -718,20 +718,20 @@ export default function AIDebates() {
         >
           Reviews
           {reviews.length > 0 && (
-            <span className="ml-1 text-xs opacity-70">
-              {holdReviews}H/{reduceReviews}R/{exitReviews}E/{increaseReviews}I
+            <span className="ml-1 text-xs opacity-70 hidden sm:inline">
+              {holdReviews}H/{exitReviews}E
             </span>
           )}
         </button>
         <button
           onClick={() => { setTab("risk_debates"); setRiskPage(0); }}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+          className={`sm:flex-1 px-2 sm:px-3 py-2 rounded text-xs sm:text-sm font-medium transition-colors ${
             tab === "risk_debates"
               ? "bg-indigo-600 text-white"
               : "text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Risk Debates
+          Risk
           {riskDebates.length > 0 && (
             <span className="ml-1 text-xs opacity-70">
               {riskOverrideCount}/{riskUpheldCount}
@@ -740,13 +740,13 @@ export default function AIDebates() {
         </button>
         <button
           onClick={() => { setTab("post_mortems"); setPostMortemPage(0); }}
-          className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+          className={`sm:flex-1 px-2 sm:px-3 py-2 rounded text-xs sm:text-sm font-medium transition-colors ${
             tab === "post_mortems"
               ? "bg-indigo-600 text-white"
               : "text-zinc-400 hover:text-zinc-200"
           }`}
         >
-          Post-Mortems
+          Post-Mortem
           {postMortems.length > 0 && (
             <span className="ml-1 text-xs opacity-70">
               {postMortems.length}

@@ -206,6 +206,7 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
 
     # All strategies status (from live engine, not hardcoded)
     all_strategies = [s.name for s in engine.analyzer.strategies]
+    disabled = engine.disabled_strategies
     strategy_status = []
     for s in all_strategies:
         is_paused = (
@@ -215,6 +216,7 @@ async def get_pause_history(_: str = Depends(verify_api_key)):
         strategy_status.append({
             "strategy": s,
             "is_paused": is_paused,
+            "is_admin_disabled": s in disabled,
             "pause_info": pause_info,
         })
 

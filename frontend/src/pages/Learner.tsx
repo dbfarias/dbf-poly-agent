@@ -110,21 +110,27 @@ function PausePanel({ pauses }: { pauses: ReturnType<typeof fetchLearnerPauses> 
         Strategy Status
         <HelpTooltip text="Shows if any strategy has been auto-paused by the learner. A strategy is paused when its last 10 trades have less than 30% win rate and total PnL below -$1. It resumes after 24h cooldown." />
       </h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {pauses.strategies.map((s) => (
           <div
             key={s.strategy}
             className={clsx(
               "rounded-lg border p-3 text-center",
-              s.is_paused
-                ? "border-red-500/30 bg-red-500/5"
-                : "border-[#2a2d3e] bg-[#0f1117]",
+              s.is_admin_disabled
+                ? "border-zinc-600/30 bg-zinc-800/30"
+                : s.is_paused
+                  ? "border-red-500/30 bg-red-500/5"
+                  : "border-[#2a2d3e] bg-[#0f1117]",
             )}
           >
-            <div className="text-sm font-medium text-white">
+            <div className="text-sm font-medium text-white truncate">
               {STRATEGY_LABELS[s.strategy] || s.strategy}
             </div>
-            {s.is_paused ? (
+            {s.is_admin_disabled ? (
+              <div className="text-xs text-zinc-500 mt-1 font-medium">
+                DISABLED
+              </div>
+            ) : s.is_paused ? (
               <>
                 <div className="text-xs text-red-400 mt-1 font-medium">
                   PAUSED
@@ -177,10 +183,10 @@ function MultipliersPanel({ multipliers }: { multipliers: ReturnType<typeof fetc
           <thead>
             <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
               <th className="text-left py-2 pr-3">Strategy</th>
-              <th className="text-left py-2 pr-3">Category</th>
-              <th className="text-center py-2 pr-3">Multiplier</th>
-              <th className="text-center py-2 pr-3">Win Rate</th>
-              <th className="text-center py-2 pr-3">Trades</th>
+              <th className="text-left py-2 pr-3 hidden sm:table-cell">Category</th>
+              <th className="text-center py-2 pr-3">Mult.</th>
+              <th className="text-center py-2 pr-3 hidden sm:table-cell">Win Rate</th>
+              <th className="text-center py-2 pr-3 hidden md:table-cell">Trades</th>
               <th className="text-right py-2 pr-3">PnL</th>
               <th className="text-center py-2">Status</th>
             </tr>
@@ -188,10 +194,10 @@ function MultipliersPanel({ multipliers }: { multipliers: ReturnType<typeof fetc
           <tbody>
             {edgeList.map((em, i) => (
               <tr key={i} className="border-b border-[#2a2d3e]/50">
-                <td className="py-2 pr-3 text-white">
+                <td className="py-2 pr-3 text-white text-xs sm:text-sm">
                   {STRATEGY_LABELS[em.strategy] || em.strategy}
                 </td>
-                <td className="py-2 pr-3 text-zinc-400 capitalize">
+                <td className="py-2 pr-3 text-zinc-400 capitalize hidden sm:table-cell">
                   {em.category}
                 </td>
                 <td className="py-2 pr-3 text-center">
@@ -210,12 +216,12 @@ function MultipliersPanel({ multipliers }: { multipliers: ReturnType<typeof fetc
                     {em.multiplier.toFixed(2)}x
                   </span>
                 </td>
-                <td className="py-2 pr-3 text-center text-white">
+                <td className="py-2 pr-3 text-center text-white hidden sm:table-cell">
                   {em.win_rate !== null
                     ? `${(em.win_rate * 100).toFixed(0)}%`
                     : "—"}
                 </td>
-                <td className="py-2 pr-3 text-center text-zinc-400">
+                <td className="py-2 pr-3 text-center text-zinc-400 hidden md:table-cell">
                   {em.total_trades}
                 </td>
                 <td
@@ -291,34 +297,34 @@ function CategoryPanel({ multipliers }: { multipliers: ReturnType<typeof fetchLe
                 {cat.status}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-3 gap-1 sm:gap-2 text-center">
               <div>
                 <div
                   className={clsx(
-                    "text-lg font-bold font-mono",
+                    "text-base sm:text-lg font-bold font-mono",
                     cat.confidence >= 1.0 ? "text-green-400" : "text-yellow-400",
                   )}
                 >
                   {cat.confidence.toFixed(1)}x
                 </div>
-                <div className="text-xs text-zinc-500">Confidence</div>
+                <div className="text-[10px] sm:text-xs text-zinc-500">Conf</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-white">
+                <div className="text-base sm:text-lg font-bold text-white">
                   {(cat.win_rate * 100).toFixed(0)}%
                 </div>
-                <div className="text-xs text-zinc-500">Win Rate</div>
+                <div className="text-[10px] sm:text-xs text-zinc-500">Win</div>
               </div>
               <div>
                 <div
                   className={clsx(
-                    "text-lg font-bold",
+                    "text-base sm:text-lg font-bold",
                     cat.total_pnl >= 0 ? "text-green-400" : "text-red-400",
                   )}
                 >
                   ${cat.total_pnl.toFixed(2)}
                 </div>
-                <div className="text-xs text-zinc-500">PnL</div>
+                <div className="text-[10px] sm:text-xs text-zinc-500">PnL</div>
               </div>
             </div>
             <div className="mt-2 text-xs text-zinc-500 text-center">
@@ -416,11 +422,11 @@ function CalibrationPanel({ calibration }: { calibration: ReturnType<typeof fetc
               <thead>
                 <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
                   <th className="text-left py-2">Bucket</th>
-                  <th className="text-center py-2">Estimated</th>
+                  <th className="text-center py-2">Est.</th>
                   <th className="text-center py-2">Actual</th>
-                  <th className="text-center py-2">Trades</th>
-                  <th className="text-center py-2">W/L</th>
-                  <th className="text-center py-2">Calibrated?</th>
+                  <th className="text-center py-2 hidden sm:table-cell">Trades</th>
+                  <th className="text-center py-2 hidden sm:table-cell">W/L</th>
+                  <th className="text-center py-2">Cal.?</th>
                 </tr>
               </thead>
               <tbody>
@@ -440,10 +446,10 @@ function CalibrationPanel({ calibration }: { calibration: ReturnType<typeof fetc
                     >
                       {b.actual_win_rate.toFixed(1)}%
                     </td>
-                    <td className="py-2 text-center text-zinc-400">
+                    <td className="py-2 text-center text-zinc-400 hidden sm:table-cell">
                       {b.total_trades}
                     </td>
-                    <td className="py-2 text-center">
+                    <td className="py-2 text-center hidden sm:table-cell">
                       <span className="text-green-400">{b.wins}</span>
                       <span className="text-zinc-600"> / </span>
                       <span className="text-red-400">{b.losses}</span>

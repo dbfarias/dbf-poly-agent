@@ -700,7 +700,7 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (1490+ tests, ~30s) + ruff lint + frontend build
+1. **Test** — pytest (1491+ tests, ~30s) + ruff lint + frontend build
 2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
 3. **Deploy** — SSH to server, pull image, restart containers
 
@@ -764,7 +764,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1490+ tests** across **38+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
+**1491+ tests** across **38+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -885,7 +885,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 1490+ pytest tests (38+ files)
+|-- tests/                            # 1491+ pytest tests (38+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -946,7 +946,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 1490+ tests
+- **pytest** — 1491+ tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`

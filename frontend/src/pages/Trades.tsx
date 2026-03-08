@@ -67,11 +67,11 @@ export default function Trades() {
           help="Percentage of completed trades that were profitable. A win rate above 50% with positive edge means the strategy is working."
         />
         <StatCard
-          title="Total PnL"
+          title="Realized PnL"
           value={`$${stats?.total_pnl.toFixed(2) ?? "0"}`}
           trend={stats?.total_pnl ? (stats.total_pnl > 0 ? "up" : "down") : "neutral"}
           testId="total-pnl"
-          help="Total profit or loss across all completed trades. This is your cumulative realized return."
+          help="Cumulative realized PnL from all closed trades (all-time). Unlike the Dashboard's daily P&L, this does NOT include unrealized gains from open positions."
         />
         <StatCard
           title="Winning"

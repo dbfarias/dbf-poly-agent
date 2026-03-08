@@ -81,6 +81,7 @@ def mock_engine_learner():
         s.name = name
         stubs.append(s)
     engine.analyzer.strategies = stubs
+    engine.disabled_strategies = set()
     return engine
 
 
@@ -329,6 +330,7 @@ class TestGetPauses:
 
         for s in data["strategies"]:
             assert s["is_paused"] is False
+            assert s["is_admin_disabled"] is False
             assert s["pause_info"] is None
 
     async def test_returns_active_pause_with_elapsed_remaining(
