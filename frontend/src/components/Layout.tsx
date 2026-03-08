@@ -78,7 +78,9 @@ export default function Layout({ onLogout }: LayoutProps) {
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await queryClient.refetchQueries({ type: "active" });
+    // invalidateQueries marks all queries as stale AND triggers refetch
+    // for mounted queries — more reliable than refetchQueries alone
+    await queryClient.invalidateQueries();
     setIsRefreshing(false);
     addToast(createToast("Data refreshed", "success", undefined, 2000));
   }, [queryClient, addToast]);
