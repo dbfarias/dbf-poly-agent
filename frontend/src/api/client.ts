@@ -442,3 +442,65 @@ export interface LlmDailyCost {
 
 export const fetchLlmCosts = () =>
   api.get<LlmDailyCost[]>("/api/activity/llm-costs").then((r) => r.data);
+
+// Daily Report types
+export interface ReportMarket {
+  market_id: string;
+  question: string;
+  sentiment_score: number;
+  confidence: number;
+  research_multiplier: number;
+  category: string;
+  article_count: number;
+  end_date: string | null;
+  is_volume_anomaly: boolean;
+  whale_activity: boolean;
+  updated_at: string;
+}
+
+export interface ReportStrategy {
+  name: string;
+  win_rate: number;
+  total_pnl: number;
+  total_trades: number;
+  is_paused: boolean;
+}
+
+export interface ReportAlert {
+  type: string;
+  severity: "warning" | "danger";
+  message: string;
+}
+
+export interface ReportSentiment {
+  avg_sentiment: number;
+  total_markets: number;
+  positive: number;
+  negative: number;
+  neutral: number;
+}
+
+export interface ReportPortfolioSummary {
+  total_equity: number;
+  cash_balance: number;
+  positions_value: number;
+  day_start_equity: number;
+  daily_pnl: number;
+  daily_return_pct: number;
+  open_positions: number;
+  tier: string;
+  daily_target_pct: number;
+  daily_progress_pct: number;
+}
+
+export interface DailyReport {
+  generated_at: string;
+  portfolio_summary: ReportPortfolioSummary;
+  top_markets: ReportMarket[];
+  strategy_health: ReportStrategy[];
+  risk_alerts: ReportAlert[];
+  sentiment_overview: ReportSentiment;
+}
+
+export const fetchDailyReport = () =>
+  api.get<DailyReport>("/api/report/daily").then((r) => r.data);

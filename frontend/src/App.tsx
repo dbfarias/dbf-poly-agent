@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Learner from "./pages/Learner";
 import Login from "./pages/Login";
 import Markets from "./pages/Markets";
+import Report from "./pages/Report";
 import Research from "./pages/Research";
 import Risk from "./pages/Risk";
 import Settings from "./pages/Settings";
@@ -34,6 +35,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           <Route path="markets" element={<Markets />} />
           <Route path="risk" element={<Risk />} />
           <Route path="research" element={<Research />} />
+          <Route path="report" element={<Report />} />
           <Route path="learner" element={<Learner />} />
           <Route path="ai-debates" element={<AIDebates />} />
           <Route path="activity" element={<Activity />} />
