@@ -1,5 +1,11 @@
 /* Service Worker for PolyBot push notifications. */
 
+// Activate immediately, replacing any previous SW
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("push", (event) => {
   if (!event.data) return;
 
