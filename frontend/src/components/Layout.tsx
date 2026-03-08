@@ -76,14 +76,10 @@ export default function Layout({ onLogout }: LayoutProps) {
     });
   }, [addToast, queryClient]);
 
-  const handleRefresh = useCallback(async () => {
+  const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    // invalidateQueries marks all queries as stale AND triggers refetch
-    // for mounted queries — more reliable than refetchQueries alone
-    await queryClient.invalidateQueries();
-    setIsRefreshing(false);
-    addToast(createToast("Data refreshed", "success", undefined, 2000));
-  }, [queryClient, addToast]);
+    window.location.reload();
+  }, []);
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
