@@ -90,14 +90,13 @@ export function usePushNotifications() {
   const subscribe = useCallback(async () => {
     setState("loading");
     try {
-      // SW should already be registered and active from useEffect
-      let reg = swReg.current;
-      if (!reg) {
-        reg = await navigator.serviceWorker.register("/sw.js");
-        await ensureSwActive(reg);
-        await navigator.serviceWorker.ready;
-        swReg.current = reg;
+      // Ensure SW is registered
+      if (!swReg.current) {
+        await navigator.serviceWorker.register("/sw.js");
       }
+      // Always use .ready — it returns the registration with .active set
+      const reg = await navigator.serviceWorker.ready;
+      swReg.current = reg;
 
       // Get VAPID key from server
       const { data } = await api.get<{ public_key: string }>("/api/push/vapid-key");
