@@ -147,6 +147,7 @@ class TradingEngine:
         self.analyzer = MarketAnalyzer(
             self.gamma_client, self.cache, strategies, self.clob_client,
             price_tracker=self.price_tracker,
+            correlation_detector=self.research_engine.correlation_detector,
         )
 
         # Populate per-strategy hold times on closer
@@ -715,6 +716,32 @@ class TradingEngine:
                 )
                 continue
 
+            # Cross-market correlation check: skip if correlated with open position
+            corr_detector = self.research_engine.correlation_detector
+            corr_group = corr_detector.get_group(signal.market_id)
+            if corr_group is not None:
+                correlated_skip = False
+                for pos in self.portfolio.positions:
+                    if corr_detector.are_correlated(signal.market_id, pos.market_id):
+                        logger.info(
+                            "signal_skipped_correlated",
+                            market_id=signal.market_id[:20],
+                            correlated_with=pos.market_id[:16],
+                            strategy=signal.strategy,
+                        )
+                        await log_signal_rejected(
+                            strategy=signal.strategy,
+                            market_id=signal.market_id,
+                            question=signal.question,
+                            reason=f"Correlated with open position {pos.market_id[:16]}",
+                            edge=signal.edge,
+                            price=signal.market_price,
+                        )
+                        correlated_skip = True
+                        break
+                if correlated_skip:
+                    continue
+
             # LLM debate gate: Proposer vs Challenger
             if settings.use_llm_debate:
                 research = self.research_cache.get(signal.market_id)
@@ -722,6 +749,16 @@ class TradingEngine:
                     research.sentiment_score if research is not None else None
                 )
                 hours_res = signal.metadata.get("hours_to_resolution")
+                res_condition = (
+                    research.resolution_condition if research is not None else ""
+                )
+                res_source = (
+                    research.resolution_source if research is not None else ""
+                )
+
+                # Add volume anomaly flag to signal metadata
+                if research is not None and research.is_volume_anomaly:
+                    signal.metadata["is_volume_anomaly"] = True
 
                 debate_result = await debate_signal(
                     question=signal.question,
@@ -733,6 +770,8 @@ class TradingEngine:
                     reasoning=signal.reasoning,
                     sentiment_score=sentiment,
                     hours_to_resolution=hours_res,
+                    resolution_condition=res_condition,
+                    resolution_source=res_source,
                 )
                 if debate_result is not None:
                     debate_meta = {

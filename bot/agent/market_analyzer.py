@@ -155,12 +155,14 @@ class MarketAnalyzer:
         strategies: list[BaseStrategy],
         clob_client: PolymarketClient | None = None,
         price_tracker=None,
+        correlation_detector=None,
     ):
         self.gamma = gamma_client
         self.cache = cache
         self.strategies = strategies
         self.clob = clob_client
         self._price_tracker = price_tracker
+        self._correlation_detector = correlation_detector
         self.disabled_strategies: set[str] = set()
         # Market type blocklist: skip markets classified as these types
         # Types: "sports", "crypto", "other" (from classify_market_type)
@@ -606,6 +608,9 @@ class MarketAnalyzer:
         decides which is viable.  Within a single strategy, only the best
         signal per correlated group is kept (e.g. two candidates for the
         same race).
+
+        Also uses CorrelationDetector (Jaccard word-overlap) when available
+        for broader cross-question dedup beyond the question_group_key heuristic.
         """
         if not signals:
             return signals
@@ -614,6 +619,14 @@ class MarketAnalyzer:
         groups: dict[tuple[str, str], TradeSignal] = {}
         for signal in signals:
             question_key = self._question_group_key(signal.question)
+
+            # Also check correlation detector for broader grouping
+            if getattr(self, "_correlation_detector", None) is not None:
+                corr_group = self._correlation_detector.get_group(signal.market_id)
+                if corr_group is not None:
+                    # Use correlation group as the dedup key when available
+                    question_key = f"corr:{corr_group}"
+
             key = (signal.strategy, question_key)
             existing = groups.get(key)
             if existing is None or (signal.edge * signal.confidence) > (

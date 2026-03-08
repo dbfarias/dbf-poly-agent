@@ -5,15 +5,20 @@ from datetime import datetime, timezone
 
 import structlog
 
+from bot.agent.market_analyzer import classify_market_type
 from bot.config import settings
 from bot.data.market_cache import MarketCache
 from bot.research.cache import ResearchCache
+from bot.research.correlation_detector import CorrelationDetector
 from bot.research.crypto_fetcher import CryptoFetcher
 from bot.research.keyword_extractor import extract_keywords, extract_keywords_llm
 from bot.research.llm_sentiment import analyze_sentiment_llm
 from bot.research.news_fetcher import NewsFetcher
+from bot.research.reddit_fetcher import RedditFetcher
+from bot.research.resolution_parser import parse_resolution_criteria
 from bot.research.sentiment import analyze_sentiment, compute_research_multiplier
 from bot.research.types import ResearchResult
+from bot.research.volume_detector import VolumeAnomalyDetector
 
 logger = structlog.get_logger()
 
@@ -38,6 +43,9 @@ class ResearchEngine:
         self.market_cache = market_cache
         self.news_fetcher = NewsFetcher()
         self.crypto_fetcher = CryptoFetcher()
+        self.reddit_fetcher = RedditFetcher()
+        self.volume_detector = VolumeAnomalyDetector()
+        self.correlation_detector = CorrelationDetector()
         self._running = False
         self._priority_market_ids: set[str] = set()
 
@@ -80,6 +88,7 @@ class ResearchEngine:
         self._running = False
         await self.news_fetcher.close()
         await self.crypto_fetcher.close()
+        await self.reddit_fetcher.close()
         logger.info("research_engine_stopped")
 
     async def _scan_all_markets(self) -> None:
@@ -98,6 +107,17 @@ class ResearchEngine:
             self.research_cache.record_scan(0)
             return
 
+        # Update volume anomaly detector and correlation groups
+        anomaly_ids = self.volume_detector.update(scan_markets)
+        self.correlation_detector.update(scan_markets)
+
+        # Prioritize anomaly markets (move to front)
+        if anomaly_ids:
+            anomaly_set = set(anomaly_ids)
+            anomaly_markets = [m for m in scan_markets if m.id in anomaly_set]
+            non_anomaly = [m for m in scan_markets if m.id not in anomaly_set]
+            scan_markets = anomaly_markets + non_anomaly
+
         # Fetch crypto sentiment and prices once per scan (shared across all markets)
         crypto_sentiment = await self.crypto_fetcher.get_market_sentiment()
         crypto_prices = await self.crypto_fetcher.get_prices()
@@ -108,8 +128,10 @@ class ResearchEngine:
                 result = await self._research_market(
                     market_id=market.id,
                     question=market.question,
+                    description=getattr(market, "description", ""),
                     crypto_sentiment=crypto_sentiment,
                     crypto_prices=crypto_prices,
+                    is_volume_anomaly=self.volume_detector.is_anomaly(market.id),
                 )
                 if result is not None:
                     self.research_cache.set(market.id, result)
@@ -132,10 +154,15 @@ class ResearchEngine:
         self,
         market_id: str,
         question: str,
-        crypto_sentiment: dict[str, float],
+        description: str = "",
+        crypto_sentiment: dict[str, float] | None = None,
         crypto_prices: dict[str, float] | None = None,
+        is_volume_anomaly: bool = False,
     ) -> ResearchResult | None:
-        """Research a single market: keywords -> news -> sentiment -> multiplier."""
+        """Research a single market: keywords -> news + reddit -> sentiment -> multiplier."""
+        if crypto_sentiment is None:
+            crypto_sentiment = {}
+
         if settings.use_llm_keywords:
             keywords = await extract_keywords_llm(question)
         else:
@@ -143,23 +170,66 @@ class ResearchEngine:
         if not keywords:
             return None
 
-        # Fetch news for this market's keywords
+        # Parse resolution criteria from description (cached per market)
+        resolution_condition = ""
+        resolution_source = ""
+        description_context = ""
+        if description:
+            criteria = await parse_resolution_criteria(
+                market_id, question, description,
+            )
+            if criteria is not None:
+                resolution_condition = criteria.condition
+                resolution_source = criteria.data_source
+                # Enrich keywords with data source
+                if (
+                    criteria.data_source != "Unknown"
+                    and criteria.data_source.lower() not in " ".join(keywords).lower()
+                ):
+                    keywords = keywords + [criteria.data_source]
+            # Truncate description for context
+            description_context = description[:300]
+
+        # Fetch news from Google News
         news_items = await self.news_fetcher.fetch_news(keywords, max_results=10)
 
+        # Fetch Reddit posts (supplementary)
+        category = classify_market_type(question)
+        reddit_items = await self.reddit_fetcher.fetch_posts(
+            keywords, category=category, max_results=5,
+        )
+
+        # Merge and deduplicate (Jaccard > 0.6 on titles = duplicate)
+        merged_items = list(news_items)
+        for reddit_item in reddit_items:
+            reddit_words = set(reddit_item.title.lower().split())
+            is_dup = False
+            for existing in merged_items:
+                existing_words = set(existing.title.lower().split())
+                if reddit_words and existing_words:
+                    jaccard = len(reddit_words & existing_words) / len(
+                        reddit_words | existing_words
+                    )
+                    if jaccard > 0.6:
+                        is_dup = True
+                        break
+            if not is_dup:
+                merged_items.append(reddit_item)
+
         # Compute headline sentiment
-        headlines = [item.title for item in news_items]
+        headlines = [item.title for item in merged_items]
         if settings.use_llm_sentiment and headlines:
             sentiment_score = await analyze_sentiment_llm(question, headlines)
         else:
             sentiment_score = analyze_sentiment(headlines)
 
         # Confidence based on article count (0-1)
-        confidence = min(len(news_items) / 10.0, 1.0)
+        confidence = min(len(merged_items) / 10.0, 1.0)
 
         # Compute research multiplier
         research_multiplier = compute_research_multiplier(
             sentiment=sentiment_score,
-            article_count=len(news_items),
+            article_count=len(merged_items),
         )
 
         # Include crypto market trend for crypto-related markets
@@ -177,11 +247,15 @@ class ResearchEngine:
         return ResearchResult(
             market_id=market_id,
             keywords=tuple(keywords),
-            news_items=tuple(news_items),
+            news_items=tuple(merged_items),
             sentiment_score=sentiment_score,
             confidence=confidence,
             research_multiplier=research_multiplier,
             updated_at=datetime.now(timezone.utc),
             crypto_sentiment=crypto_score,
             crypto_prices=prices_tuple,
+            description_context=description_context,
+            resolution_condition=resolution_condition,
+            resolution_source=resolution_source,
+            is_volume_anomaly=is_volume_anomaly,
         )

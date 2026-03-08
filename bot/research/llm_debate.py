@@ -359,6 +359,8 @@ async def debate_signal(
     reasoning: str,
     sentiment_score: float | None = None,
     hours_to_resolution: float | None = None,
+    resolution_condition: str = "",
+    resolution_source: str = "",
 ) -> DebateResult | None:
     """Run a Proposer vs Challenger debate on a trade signal.
 
@@ -396,6 +398,8 @@ async def debate_signal(
     proposer_msg = _format_proposer_prompt(
         question, strategy, edge, price, estimated_prob,
         confidence, reasoning, sentiment_score, hours_to_resolution,
+        resolution_condition=resolution_condition,
+        resolution_source=resolution_source,
     )
 
     try:
@@ -737,6 +741,7 @@ def _format_proposer_prompt(
     question: str, strategy: str, edge: float, price: float,
     estimated_prob: float, confidence: float, reasoning: str,
     sentiment_score: float | None, hours_to_resolution: float | None,
+    resolution_condition: str = "", resolution_source: str = "",
 ) -> str:
     safe_q = _sanitize_prompt_input(question)
     safe_r = _sanitize_prompt_input(reasoning)
@@ -754,6 +759,15 @@ def _format_proposer_prompt(
         msg += f"Hours until resolution: {hours_to_resolution:.1f}\n"
     if sentiment_score is not None:
         msg += f"News sentiment: {sentiment_score:+.2f} (-1=bearish, +1=bullish)\n"
+
+    # Include resolution criteria if available
+    if resolution_condition:
+        safe_cond = _sanitize_prompt_input(resolution_condition)
+        msg += f"Resolution: This market resolves YES if {safe_cond}"
+        if resolution_source and resolution_source != "Unknown":
+            safe_src = _sanitize_prompt_input(resolution_source, max_len=100)
+            msg += f" (source: {safe_src})"
+        msg += "\n"
 
     # Enrich with extracted crypto threshold (if applicable)
     crypto = extract_crypto_threshold(question)

@@ -28,3 +28,7 @@ class ResearchResult:
     updated_at: datetime
     crypto_sentiment: float = 0.0  # BTC/ETH market sentiment
     crypto_prices: tuple[tuple[str, float], ...] = ()  # (("bitcoin", 102000.0), ...)
+    description_context: str = ""  # Extracted from market description
+    resolution_condition: str = ""  # HOW market resolves (from description)
+    resolution_source: str = ""  # Data source for resolution
+    is_volume_anomaly: bool = False  # Volume/price spike detected
