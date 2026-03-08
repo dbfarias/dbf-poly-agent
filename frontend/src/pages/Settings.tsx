@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
+import { usePushNotifications } from "../hooks/usePushNotifications";
 import {
   fetchConfig,
   fetchHealth,
@@ -65,8 +66,18 @@ function NumberField({
   );
 }
 
+const PUSH_STATE_TEXT: Record<string, string> = {
+  unsupported: "Not supported in this browser",
+  denied: "Blocked by browser — enable in settings",
+  prompt: "Click to enable push notifications",
+  subscribed: "Push notifications active",
+  unsubscribed: "Push notifications disabled",
+  loading: "Loading...",
+};
+
 export default function Settings() {
   const queryClient = useQueryClient();
+  const push = usePushNotifications();
 
   const { data: config } = useQuery({
     queryKey: ["config"],
@@ -373,6 +384,49 @@ export default function Settings() {
               Reset PnL
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Push Notifications */}
+      <div
+        className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5"
+        data-testid="push-notifications"
+      >
+        <h3 className="font-medium text-white mb-4">Push Notifications</h3>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-zinc-300">
+              {PUSH_STATE_TEXT[push.state]}
+            </p>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Receive trade fills, errors, and daily summaries on your device
+            </p>
+            {push.state === "subscribed" && (
+              <p className="text-xs text-green-400/70 mt-1">
+                Install as PWA (Add to Home Screen) for notifications even when the browser is closed
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() =>
+              push.state === "subscribed" ? push.unsubscribe() : push.subscribe()
+            }
+            disabled={push.state === "unsupported" || push.state === "denied" || push.state === "loading"}
+            className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+              push.state === "unsupported" || push.state === "denied"
+                ? "bg-zinc-800 cursor-not-allowed opacity-50"
+                : push.state === "subscribed"
+                  ? "bg-green-600"
+                  : "bg-zinc-700"
+            }`}
+            data-testid="toggle-push"
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                push.state === "subscribed" ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
         </div>
       </div>
 

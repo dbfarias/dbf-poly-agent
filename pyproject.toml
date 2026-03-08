@@ -23,6 +23,7 @@ dependencies = [
     "feedparser>=6.0.12",
     "anthropic>=0.42.0",
     "web3>=7.0.0",
+    "pywebpush>=2.0.0",
 ]
 
 [project.optional-dependencies]

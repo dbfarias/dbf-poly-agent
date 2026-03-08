@@ -13,7 +13,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 
 ---
 
-**$5 to $500** | **6 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Tier-Based Risk** | **Adaptive Learning** | **Real-Time Dashboard**
+**$5 to $500** | **6 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Tier-Based Risk** | **Adaptive Learning** | **PWA Push Notifications** | **Real-Time Dashboard**
 
 </div>
 
@@ -644,7 +644,9 @@ JWT-authenticated React dashboard with **11 pages** for full visibility into the
 | **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, Brier scores per strategy, probability calibration chart, strategy pause status and cooldown timers |
 | **AI Debates** | Trade debate history with decision filter (All/Approved/Rejected), position reviews (HOLD/EXIT/REDUCE/INCREASE), risk debates, post-mortems. Tabbed view with approval rates and cost tracking |
 | **Activity** | Bot decision log — every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
-| **Settings** | AI feature toggles (sentiment/debate/reviewer + daily budget), strategy toggles, risk parameters, strategy parameters, quality filters, system info. All persisted across restarts |
+| **Settings** | Push notification toggle, AI feature toggles (sentiment/debate/reviewer + daily budget), strategy toggles, risk parameters, strategy parameters, quality filters, system info. All persisted across restarts |
+
+**PWA Push Notifications:** Install as a PWA (Add to Home Screen) to receive push notifications on mobile/desktop even when the browser is closed. Notifies on trade fills, errors, strategy pauses, risk limits, and daily summaries. Uses Web Push (VAPID) — configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_EMAIL` in `.env`.
 
 Features: real-time WebSocket updates (JWT-authenticated), auto-refreshing queries, global refresh button, auto-logout on token expiry.
 
@@ -779,7 +781,7 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (1728+ tests, ~2min) + ruff lint + frontend build
+1. **Test** — pytest (1768+ tests, ~2min) + ruff lint + frontend build
 2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
 3. **Deploy** — SSH to server, pull image, restart containers
 
@@ -843,7 +845,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1728+ tests** across **45+ test files** covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
+**1768+ tests** across **45+ test files** covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -952,7 +954,8 @@ dbf-poly-agent/
 |       |-- logging_config.py         # structlog JSON logging
 |       |-- math_utils.py             # Kelly, Sharpe, drawdown
 |       |-- retry.py                  # Exponential backoff
-|       +-- notifications.py          # Telegram alerts
+|       |-- notifications.py          # Telegram alerts
+|       +-- push_notifications.py    # Web Push (VAPID) notifications
 |-- api/                              # FastAPI (same process as bot)
 |   |-- main.py                       # App + bot as background task
 |   |-- auth.py                       # JWT login + /me + /logout
@@ -964,6 +967,7 @@ dbf-poly-agent/
 |       |-- trades.py                 # GET /api/trades/*
 |       |-- strategies.py             # GET /api/strategies/*
 |       |-- markets.py                # GET /api/markets/*
+|       |-- push.py                   # Push notification subscriptions
 |       |-- risk.py                   # GET /api/risk/*
 |       |-- config.py                 # GET/PUT /api/config/ + pause/resume/reset
 |       |-- activity.py               # GET /api/activity/ + event types
@@ -983,7 +987,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 1728+ pytest tests (45+ files)
+|-- tests/                            # 1768+ pytest tests (45+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -1044,7 +1048,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 1728+ tests
+- **pytest** — 1768+ tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`
@@ -1093,6 +1097,9 @@ All endpoints except `/api/health` and `/api/auth/login` require authentication 
 | `POST` | `/api/trading/pause` | Pause trading |
 | `POST` | `/api/trading/resume` | Resume trading |
 | `POST` | `/api/config/risk/reset` | Reset risk state (peak equity, daily PnL) |
+| `GET` | `/api/push/vapid-key` | VAPID public key for push subscription (no auth) |
+| `POST` | `/api/push/subscribe` | Register push subscription |
+| `POST` | `/api/push/unsubscribe` | Remove push subscription |
 | `WS` | `/ws/live?token=KEY` | Real-time updates (token auth) |
 
 ---

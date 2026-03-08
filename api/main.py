@@ -16,6 +16,7 @@ from api.routers import (
     learner,
     markets,
     portfolio,
+    push,
     research,
     risk,
     strategies,
@@ -42,6 +43,24 @@ async def lifespan(app: FastAPI):
     from bot.agent.events import event_bus
 
     event_bus.on("trade_filled", websocket.broadcast_trade_event)
+
+    # Wire EventBus → Push notifications (trade fills → mobile push)
+    from bot.utils.push_notifications import push_notify_trade
+
+    async def _push_broadcast_trade(**kwargs):
+        try:
+            await push_notify_trade(
+                action="opened",
+                strategy=kwargs.get("strategy", ""),
+                question=kwargs.get("question", ""),
+                side=kwargs.get("side", "BUY"),
+                price=kwargs.get("price", 0),
+                size=kwargs.get("size", 0),
+            )
+        except Exception:
+            pass  # Never let push failures affect the trading loop
+
+    event_bus.on("trade_filled", _push_broadcast_trade)
 
     engine = await create_engine()
     bot_task = asyncio.create_task(engine.run())
@@ -87,6 +106,7 @@ app.include_router(config.router)
 app.include_router(learner.router)
 app.include_router(activity.router)
 app.include_router(research.router)
+app.include_router(push.router)
 app.include_router(websocket.router)
 
 

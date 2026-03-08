@@ -51,6 +51,12 @@ from bot.utils.notifications import (
     notify_risk_limit,
     notify_strategy_paused,
 )
+from bot.utils.push_notifications import (
+    push_notify_daily_summary,
+    push_notify_error,
+    push_notify_risk_limit,
+    push_notify_strategy_paused,
+)
 
 from .strategies.arbitrage import ArbitrageStrategy
 from .strategies.market_making import MarketMakingStrategy
@@ -372,6 +378,7 @@ class TradingEngine:
                 except Exception as e:
                     logger.error("trading_cycle_error", error=str(e), cycle=self._cycle_count)
                     await notify_error("trading_cycle", str(e))
+                    await push_notify_error("trading_cycle", str(e))
 
                 await asyncio.sleep(settings.scan_interval_seconds)
         finally:
@@ -489,6 +496,9 @@ class TradingEngine:
             for s_name, s_wr, s_pnl in self.learner.consume_newly_paused():
                 await log_strategy_paused(s_name, s_wr, s_pnl)
                 await notify_strategy_paused(
+                    s_name, f"Win rate {s_wr:.0%}, PnL ${s_pnl:+.2f}"
+                )
+                await push_notify_strategy_paused(
                     s_name, f"Win rate {s_wr:.0%}, PnL ${s_pnl:+.2f}"
                 )
 
@@ -1154,12 +1164,13 @@ class TradingEngine:
                     if self.portfolio.total_equity > 0 else 0.0,
                     config["daily_loss_limit_pct"],
                 )
-                await notify_risk_limit(
-                    "daily_loss",
+                daily_loss_pct = (
                     abs(self.risk_manager._daily_pnl / self.portfolio.total_equity)
-                    if self.portfolio.total_equity > 0 else 0.0,
-                    config["daily_loss_limit_pct"],
+                    if self.portfolio.total_equity > 0 else 0.0
                 )
+                limit_pct = config["daily_loss_limit_pct"]
+                await notify_risk_limit("daily_loss", daily_loss_pct, limit_pct)
+                await push_notify_risk_limit("daily_loss", daily_loss_pct, limit_pct)
         elif "Max drawdown" in reason:
             if self._risk_limit_notified.get("max_drawdown") != day_key:
                 self._risk_limit_notified["max_drawdown"] = day_key
@@ -1170,6 +1181,11 @@ class TradingEngine:
                     config["max_drawdown_limit_pct"],
                 )
                 await notify_risk_limit(
+                    "max_drawdown",
+                    config["current_drawdown_pct"],
+                    config["max_drawdown_limit_pct"],
+                )
+                await push_notify_risk_limit(
                     "max_drawdown",
                     config["current_drawdown_pct"],
                     config["max_drawdown_limit_pct"],
@@ -1275,6 +1291,13 @@ class TradingEngine:
             daily_return = daily_pnl / day_start if day_start > 0 else 0.0
 
             await notify_daily_summary(
+                equity=equity,
+                daily_pnl=daily_pnl,
+                daily_return=daily_return,
+                trades=today_stats["trades_today"],
+                win_rate=today_stats["win_rate_today"],
+            )
+            await push_notify_daily_summary(
                 equity=equity,
                 daily_pnl=daily_pnl,
                 daily_return=daily_return,
