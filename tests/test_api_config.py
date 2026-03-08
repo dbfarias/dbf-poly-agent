@@ -423,6 +423,15 @@ class TestDisabledStrategies:
 
 
 class TestPauseResume:
+    @pytest.fixture(autouse=True)
+    def _mock_state_store(self):
+        from unittest.mock import AsyncMock, patch
+        with patch(
+            "bot.data.settings_store.StateStore.save_trading_paused",
+            new_callable=AsyncMock,
+        ):
+            yield
+
     async def test_pause_calls_engine(self, client, mock_engine):
         resp = await client.post("/api/config/trading/pause")
         assert resp.status_code == 200

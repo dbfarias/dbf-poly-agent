@@ -225,8 +225,24 @@ class TradingEngine:
         if restored > 0:
             logger.info("settings_restored_from_db", count=restored)
 
+        # Re-sync LLM cost tracker budget from restored settings
+        llm_cost_tracker.daily_budget = settings.llm_daily_budget
+
+        # Re-sync per-strategy hold times on closer (strategy params may have changed)
+        for strat in self.analyzer.strategies:
+            hold = getattr(strat, "MIN_HOLD_SECONDS", None)
+            if hold is not None:
+                self.closer.strategy_min_hold[strat.name] = hold
+
         # Restore ephemeral state (daily PnL, cooldowns, paused strategies)
         await self._restore_state()
+
+        # Restore global trading pause
+        from bot.data.settings_store import StateStore as _StateStore
+
+        if await _StateStore.load_trading_paused():
+            self.risk_manager.pause()
+            logger.info("trading_pause_restored")
 
         # Reconstruct LLM cost tracker from DB (survives restarts)
         from bot.data.activity import get_today_llm_cost

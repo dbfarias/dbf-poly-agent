@@ -288,6 +288,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
 async def pause_trading(_: str = Depends(verify_api_key)):
     engine = get_engine()
     engine.risk_manager.pause()
+    # Persist so pause survives container restart
+    from bot.data.settings_store import StateStore
+    await StateStore.save_trading_paused(True)
     return {"status": "paused"}
 
 
@@ -295,6 +298,8 @@ async def pause_trading(_: str = Depends(verify_api_key)):
 async def resume_trading(_: str = Depends(verify_api_key)):
     engine = get_engine()
     engine.risk_manager.resume()
+    from bot.data.settings_store import StateStore
+    await StateStore.save_trading_paused(False)
     return {"status": "resumed"}
 
 

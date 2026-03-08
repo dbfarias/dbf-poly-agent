@@ -47,9 +47,17 @@ _QUALITY_ATTR_MAP: dict[str, tuple[str, str]] = {
     "pause_win_rate": ("learner", "PAUSE_WIN_RATE"),
     "pause_min_loss": ("learner", "PAUSE_MIN_LOSS"),
     "pause_cooldown_hours": ("learner", "PAUSE_COOLDOWN_HOURS"),
+    "multiplier_min": ("learner", "MULTIPLIER_MIN"),
+    "multiplier_max": ("learner", "MULTIPLIER_MAX"),
+    "min_trades_for_adjustment": ("learner", "MIN_TRADES_FOR_ADJUSTMENT"),
     # PositionCloser params
     "min_rebalance_edge": ("closer", "min_rebalance_edge"),
     "min_hold_seconds": ("closer", "min_hold_seconds"),
+    "rebalance_resolution_shield_hours": ("closer", "rebalance_resolution_shield_hours"),
+    "rebalance_resolution_max_loss_pct": ("closer", "rebalance_resolution_max_loss_pct"),
+    # Engine-level params (target resolved as engine itself, not engine.attr)
+    "market_cooldown_hours": ("_engine", "market_cooldown_hours"),
+    "min_balance_for_trades": ("_engine", "min_balance_for_trades"),
 }
 
 # Global settings that are persisted
@@ -312,9 +320,17 @@ _QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
     "pause_win_rate": (float, 0.0, 1.0),
     "pause_min_loss": (float, -100.0, 0.0),
     "pause_cooldown_hours": (float, 1.0, 168.0),
+    "multiplier_min": (float, 0.1, 2.0),
+    "multiplier_max": (float, 1.0, 5.0),
+    "min_trades_for_adjustment": (int, 1, 50),
     # PositionCloser params
     "min_rebalance_edge": (float, 0.0, 0.5),
     "min_hold_seconds": (int, 0, 14400),
+    "rebalance_resolution_shield_hours": (float, 0.0, 168.0),
+    "rebalance_resolution_max_loss_pct": (float, 0.01, 0.5),
+    # Engine-level params
+    "market_cooldown_hours": (float, 0.25, 24.0),
+    "min_balance_for_trades": (float, 0.0, 100.0),
 }
 
 
@@ -324,7 +340,11 @@ def _apply_quality(engine, param: str, value) -> int:
         return 0
 
     target_name, attr = mapping
-    target = getattr(engine, target_name, None)
+    # "_engine" means the engine object itself (not an attribute of it)
+    if target_name == "_engine":
+        target = engine
+    else:
+        target = getattr(engine, target_name, None)
     if target is None or not hasattr(target, attr):
         return 0
 
@@ -455,6 +475,30 @@ class StateStore:
             return result if isinstance(result, dict) else {}
         except (json.JSONDecodeError, TypeError):
             return {}
+
+    @staticmethod
+    async def save_trading_paused(paused: bool) -> None:
+        """Persist global trading pause state."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many(
+                {"state.trading_paused": json.dumps(paused)}
+            )
+
+    @staticmethod
+    async def load_trading_paused() -> bool:
+        """Load persisted global trading pause state."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("state.trading_paused")
+
+        if raw is None:
+            return False
+
+        try:
+            return bool(json.loads(raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return False
 
     @staticmethod
     async def save_paused_strategies(paused: dict[str, str]) -> None:
