@@ -80,8 +80,13 @@ async def test_redeemer_initialize_success(_mock_settings, _mock_web3):
 async def test_redeemer_redeem_success(_mock_settings, _mock_web3):
     from bot.polymarket.redeemer import PositionRedeemer
 
-    redeemer = PositionRedeemer()
+    redeemer = PositionRedeemer(proxy_address="0x" + "11" * 20)
     await redeemer.initialize()
+
+    # Mock resolution check: payoutDenominator > 0 means resolved
+    redeemer._ctf.functions.payoutDenominator.return_value.call.return_value = 1
+    # Mock winning outcome: outcome 0 wins
+    redeemer._ctf.functions.payoutNumerators.return_value.call.side_effect = [1, 0]
 
     condition_id = "0x" + "cc" * 32
     tx_hash = await redeemer.redeem(condition_id)
@@ -92,11 +97,11 @@ async def test_redeemer_redeem_success(_mock_settings, _mock_web3):
 async def test_redeemer_redeem_failure(_mock_settings, _mock_web3):
     from bot.polymarket.redeemer import PositionRedeemer
 
-    redeemer = PositionRedeemer()
+    redeemer = PositionRedeemer(proxy_address="0x" + "11" * 20)
     await redeemer.initialize()
 
-    # Make the contract call raise
-    redeemer._contract.functions.redeemPositions.side_effect = RuntimeError(
+    # Make resolution check raise
+    redeemer._ctf.functions.payoutDenominator.return_value.call.side_effect = RuntimeError(
         "gas estimation failed",
     )
 

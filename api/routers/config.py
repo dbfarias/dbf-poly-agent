@@ -65,6 +65,7 @@ def _get_quality_params(engine) -> dict:
         result["rebalance_resolution_max_loss_pct"] = closer.rebalance_resolution_max_loss_pct
     # Engine-level params
     result["market_cooldown_hours"] = engine.market_cooldown_hours
+    result["min_balance_for_trades"] = engine.min_balance_for_trades
     return result
 
 
@@ -238,6 +239,7 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 # PositionCloser params
                 "min_rebalance_edge": ("closer", "min_rebalance_edge", float, 0.0, 0.5),
                 "market_cooldown_hours": ("engine", "market_cooldown_hours", float, 0.25, 24.0),
+                "min_balance_for_trades": ("engine", "min_balance_for_trades", float, 0.0, 100.0),
                 "min_hold_seconds": ("closer", "min_hold_seconds", int, 0, 14400),
                 "rebalance_resolution_shield_hours": (
                     "closer", "rebalance_resolution_shield_hours",

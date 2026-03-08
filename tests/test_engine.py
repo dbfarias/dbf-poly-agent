@@ -1403,6 +1403,7 @@ class TestTradingCycleIntegration:
         """Signal -> approved -> filled -> position recorded."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
         engine.portfolio.tier = CapitalTier.TIER1
@@ -1462,6 +1463,7 @@ class TestTradingCycleIntegration:
         """Signal from a paused strategy is skipped."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
         engine.portfolio.tier = CapitalTier.TIER1
@@ -1502,6 +1504,7 @@ class TestTradingCycleIntegration:
         """Signal for a market in cooldown is skipped."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
         engine.portfolio.tier = CapitalTier.TIER1
@@ -1545,6 +1548,7 @@ class TestTradingCycleIntegration:
         """Signal for a market with a pending order is skipped."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
         engine.portfolio.tier = CapitalTier.TIER1
@@ -1583,6 +1587,7 @@ class TestTradingCycleIntegration:
         """Second signal gets reduced bankroll (cycle_committed tracks spending)."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 50.0
         engine.portfolio.total_equity = 50.0
         engine.portfolio.positions = []
         engine.portfolio.tier = CapitalTier.TIER1
@@ -1675,6 +1680,7 @@ class TestTradingCycleIntegration:
         """_evaluate_signals returns (signals_found, approved, placed) tuple."""
         engine = _make_engine()
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
         engine.portfolio.tier = CapitalTier.TIER1

@@ -129,6 +129,7 @@ def _setup_engine_for_evaluate(
 ):
     """Wire up engine mocks for _evaluate_signals testing."""
     engine.portfolio = AsyncMock()
+    engine.portfolio.cash = 50.0
     engine.portfolio.total_equity = 50.0
     engine.portfolio.positions = positions or []
     engine.portfolio.tier = CapitalTier.TIER1

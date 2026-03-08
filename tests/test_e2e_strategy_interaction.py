@@ -805,6 +805,7 @@ class TestCycleFlagReset:
         engine._rebalanced_this_cycle = True
 
         engine.portfolio = AsyncMock()
+        engine.portfolio.cash = 50.0
         engine.portfolio.total_equity = 50.0
         engine.portfolio.tier = CapitalTier.TIER1
         engine.portfolio.open_position_count = 0

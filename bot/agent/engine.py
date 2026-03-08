@@ -191,6 +191,7 @@ class TradingEngine:
         self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
         self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
         self.market_cooldown_hours: float = 1.0  # configurable via admin API
+        self.min_balance_for_trades: float = settings.min_balance_for_trades
 
     @property
     def is_running(self) -> bool:
@@ -665,6 +666,16 @@ class TradingEngine:
 
         Returns (signals_found, signals_approved, orders_placed).
         """
+        # Skip entire signal evaluation when cash is too low to trade
+        cash = self.portfolio.cash
+        if cash < self.min_balance_for_trades:
+            logger.info(
+                "signals_skipped_low_balance",
+                cash_balance=cash,
+                min_required=self.min_balance_for_trades,
+            )
+            return (0, 0, 0)
+
         signals = await self.analyzer.scan_markets(tier)
 
         cycle_committed = 0.0

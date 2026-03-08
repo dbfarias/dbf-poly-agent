@@ -156,6 +156,7 @@ class Settings(BaseSettings):
     max_daily_loss_pct: float = 0.10
     max_drawdown_pct: float = 0.25
     daily_target_pct: float = 0.01  # 1% daily profit target
+    min_balance_for_trades: float = 1.0  # Skip new trades when cash below this
 
     # Timezone offset for daily boundaries (e.g., -3 for BRT)
     timezone_offset_hours: int = -3
