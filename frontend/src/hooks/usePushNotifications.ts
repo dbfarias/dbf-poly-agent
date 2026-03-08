@@ -94,7 +94,8 @@ export function usePushNotifications() {
       setState("subscribed");
     } catch (err) {
       console.error("Push subscribe failed:", err);
-      // Check if permission was denied during the flow
+      const msg = err instanceof Error ? err.message : String(err);
+      setDebug((prev) => prev + ` | ERR: ${msg}`);
       if (Notification.permission === "denied") {
         setState("denied");
       } else {
