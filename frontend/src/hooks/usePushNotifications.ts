@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 
 type PushState =
@@ -21,9 +21,26 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+/** Wait for SW to reach "activated" state. */
+async function ensureSwActive(reg: ServiceWorkerRegistration): Promise<void> {
+  if (reg.active) return;
+  const sw = reg.installing || reg.waiting;
+  if (!sw) return;
+  if (sw.state === "activated") return;
+  await new Promise<void>((resolve) => {
+    sw.addEventListener("statechange", function handler() {
+      if (sw.state === "activated") {
+        sw.removeEventListener("statechange", handler);
+        resolve();
+      }
+    });
+  });
+}
+
 export function usePushNotifications() {
   const [state, setState] = useState<PushState>("loading");
   const [debug, setDebug] = useState("");
+  const swReg = useRef<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -44,7 +61,18 @@ export function usePushNotifications() {
       return;
     }
 
-    const checkState = async () => {
+    // Eagerly register SW on load so it's active by the time user clicks
+    const init = async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        await ensureSwActive(reg);
+        await navigator.serviceWorker.ready;
+        swReg.current = reg;
+        setDebug((prev) => prev + ` | SW:active`);
+      } catch (e) {
+        setDebug((prev) => prev + ` | SW-REG-ERR:${e}`);
+      }
+
       const permission = Notification.permission;
       if (permission === "denied") {
         setState("denied");
@@ -52,7 +80,6 @@ export function usePushNotifications() {
       }
 
       try {
-        // Check if SW is already registered; if not, don't wait for .ready (it hangs forever)
         const reg = await navigator.serviceWorker.getRegistration();
         if (!reg) {
           setState("prompt");
@@ -65,24 +92,20 @@ export function usePushNotifications() {
       }
     };
 
-    checkState();
+    init();
   }, []);
 
   const subscribe = useCallback(async () => {
     setState("loading");
     try {
-      // Register SW and wait for it to become active
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      if (reg.installing || reg.waiting) {
-        const sw = reg.installing || reg.waiting;
-        await new Promise<void>((resolve) => {
-          sw!.addEventListener("statechange", () => {
-            if (sw!.state === "activated") resolve();
-          });
-          if (sw!.state === "activated") resolve();
-        });
+      // SW should already be registered and active from useEffect
+      let reg = swReg.current;
+      if (!reg) {
+        reg = await navigator.serviceWorker.register("/sw.js");
+        await ensureSwActive(reg);
+        await navigator.serviceWorker.ready;
+        swReg.current = reg;
       }
-      await navigator.serviceWorker.ready;
 
       // Get VAPID key from server
       const { data } = await api.get<{ public_key: string }>("/api/push/vapid-key");
