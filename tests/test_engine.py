@@ -1596,7 +1596,7 @@ class TestTradingCycleIntegration:
 
         async def capture_evaluate(
             signal, bankroll, open_positions, tier, pending_count, edge_multiplier,
-            urgency=1.0,
+            urgency=1.0, calibration=None,
         ):
             bankroll_calls.append(bankroll)
             return (True, 5.0, "approved")

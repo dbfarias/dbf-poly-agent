@@ -731,6 +731,15 @@ def _format_proposer_prompt(
         msg += f"Hours until resolution: {hours_to_resolution:.1f}\n"
     if sentiment_score is not None:
         msg += f"News sentiment: {sentiment_score:+.2f} (-1=bearish, +1=bullish)\n"
+
+    # Enrich with extracted crypto threshold (if applicable)
+    crypto = extract_crypto_threshold(question)
+    if crypto is not None:
+        msg += (
+            f"Crypto threshold: {crypto['asset']} must go {crypto['direction']} "
+            f"${crypto['threshold']:,.0f} to resolve YES\n"
+        )
+
     msg += "\nShould we BUY or PASS?"
     return msg
 
@@ -1204,3 +1213,143 @@ async def debate_risk_rejection(
         total_cost_usd=total_cost,
         elapsed_s=round(elapsed, 2),
     )
+
+
+# --- Crypto threshold extraction (#10) ---
+
+_CRYPTO_ASSETS = (
+    r"BTC|Bitcoin|ETH|Ethereum|SOL|Solana|XRP|ADA|Cardano|DOGE|Dogecoin"
+    r"|DOT|Polkadot|LINK|Chainlink|AVAX|Avalanche|MATIC|Polygon"
+    r"|LTC|Litecoin|UNI|Uniswap|AAVE"
+)
+
+_CRYPTO_THRESHOLD_RE = re.compile(
+    rf"(?:Will|Can|Does)\s+({_CRYPTO_ASSETS})\s+"
+    rf"(?:reach|hit|exceed|go\s+above|go\s+below|drop\s+below|fall\s+below|"
+    rf"stay\s+above|stay\s+below|be\s+above|be\s+below|trade\s+above|trade\s+below)"
+    rf"\s+\$?([\d,]+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+
+_CRYPTO_DIRECTION_DOWN = re.compile(
+    r"drop\s+below|fall\s+below|go\s+below|stay\s+below|be\s+below|trade\s+below",
+    re.IGNORECASE,
+)
+
+
+def extract_crypto_threshold(question: str) -> dict | None:
+    """Extract crypto price threshold from a market question.
+
+    Fast regex-first approach. Returns dict with asset, threshold, direction,
+    or None if not a crypto threshold question.
+
+    Examples:
+        "Will BTC reach $100,000 by June?"
+          → {"asset": "BTC", "threshold": 100000, "direction": "above"}
+        "Will ETH drop below $2,000?"
+          → {"asset": "ETH", "threshold": 2000, "direction": "below"}
+    """
+    match = _CRYPTO_THRESHOLD_RE.search(question)
+    if match is None:
+        return None
+
+    asset_raw = match.group(1).upper()
+    # Normalize full names to tickers
+    name_to_ticker = {
+        "BITCOIN": "BTC", "ETHEREUM": "ETH", "SOLANA": "SOL",
+        "CARDANO": "ADA", "DOGECOIN": "DOGE", "POLKADOT": "DOT",
+        "CHAINLINK": "LINK", "AVALANCHE": "AVAX", "POLYGON": "MATIC",
+        "LITECOIN": "LTC", "UNISWAP": "UNI",
+    }
+    asset = name_to_ticker.get(asset_raw, asset_raw)
+
+    try:
+        threshold = float(match.group(2).replace(",", ""))
+    except ValueError:
+        return None
+
+    direction = "below" if _CRYPTO_DIRECTION_DOWN.search(question) else "above"
+
+    return {"asset": asset, "threshold": threshold, "direction": direction}
+
+
+async def extract_crypto_threshold_llm(question: str) -> dict | None:
+    """Fallback: use Claude Haiku to extract crypto threshold when regex fails.
+
+    Only called if extract_crypto_threshold() returns None but the question
+    contains crypto keywords. Returns same format as regex version.
+    """
+    if cost_tracker.is_over_budget:
+        return None
+
+    # Quick check: does the question even mention crypto?
+    crypto_check = re.compile(
+        rf"\b({_CRYPTO_ASSETS})\b", re.IGNORECASE,
+    )
+    if not crypto_check.search(question):
+        return None
+
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError:
+        return None
+
+    api_key = settings.anthropic_api_key
+    if not api_key:
+        return None
+
+    safe_q = _sanitize_prompt_input(question, max_len=300)
+    client = AsyncAnthropic(api_key=api_key, timeout=10.0)
+
+    try:
+        resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=80,
+            system=(
+                "Extract crypto price threshold from this prediction market question. "
+                "Respond ONLY in this format (no extra text):\n"
+                "ASSET: <ticker>\n"
+                "THRESHOLD: <number>\n"
+                "DIRECTION: above or below\n\n"
+                "If the question is not about a crypto price threshold, respond: NONE"
+            ),
+            messages=[{"role": "user", "content": safe_q}],
+        )
+        text = resp.content[0].text.strip()
+        cost = _calc_cost(resp.usage.input_tokens, resp.usage.output_tokens)
+        cost_tracker.add(cost)
+
+        if "NONE" in text.upper():
+            return None
+
+        asset = ""
+        threshold = 0.0
+        direction = "above"
+        for line in text.split("\n"):
+            upper = line.upper().strip()
+            if upper.startswith("ASSET:"):
+                asset = line.split(":", 1)[1].strip().upper()
+            elif upper.startswith("THRESHOLD:"):
+                try:
+                    threshold = float(
+                        line.split(":", 1)[1].strip().replace(",", "").replace("$", "")
+                    )
+                except ValueError:
+                    pass
+            elif upper.startswith("DIRECTION:"):
+                val = line.split(":", 1)[1].strip().lower()
+                direction = "below" if "below" in val else "above"
+
+        if asset and threshold > 0:
+            logger.info(
+                "crypto_threshold_llm_extracted",
+                asset=asset,
+                threshold=threshold,
+                direction=direction,
+                cost_usd=round(cost, 5),
+            )
+            return {"asset": asset, "threshold": threshold, "direction": direction}
+        return None
+    except Exception as e:
+        logger.warning("crypto_threshold_llm_error", error=str(e))
+        return None

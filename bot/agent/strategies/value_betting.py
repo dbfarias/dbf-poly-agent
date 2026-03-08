@@ -9,6 +9,7 @@ Dynamic time horizon based on daily target urgency — same as time_decay:
 - Behind → medium-term (< 168h)
 """
 
+import time
 from datetime import datetime, timezone
 
 import structlog
@@ -54,6 +55,9 @@ class ValueBettingStrategy(BaseStrategy):
         "MAX_PRICE": {"type": float, "min": 0.0, "max": 1.0},
         "MIN_BOOK_VOLUME": {"type": float, "min": 0.0, "max": 10000.0},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
+        "MEAN_REVERSION_THRESHOLD": {"type": float, "min": 0.0, "max": 0.5},
+        "VELOCITY_BOOST": {"type": float, "min": 0.0, "max": 0.3},
+        "VELOCITY_PENALTY": {"type": float, "min": 0.0, "max": 0.3},
     }
 
     def __init__(self, *args, price_tracker=None, **kwargs):
@@ -67,6 +71,11 @@ class ValueBettingStrategy(BaseStrategy):
         self.MIN_BOOK_VOLUME = MIN_BOOK_VOLUME
         self._urgency: float = 1.0
         self._price_tracker = price_tracker
+        self.MEAN_REVERSION_THRESHOLD = 0.05  # 5% price move in 5min → skip
+        # Order book velocity tracking: market_id → (imbalance, timestamp)
+        self._prev_imbalance: dict[str, tuple[float, float]] = {}
+        self.VELOCITY_BOOST = 0.08     # Confidence boost when imbalance growing fast
+        self.VELOCITY_PENALTY = 0.08   # Confidence penalty when imbalance collapsing
 
     def adjust_params(self, adjustments: dict) -> None:
         """Store urgency for dynamic time horizon."""
@@ -168,6 +177,21 @@ class ValueBettingStrategy(BaseStrategy):
         if edge_val < self.MIN_EDGE:
             return None
 
+        # Mean-reversion filter: skip when short-term momentum aligns with
+        # imbalance direction (likely a spike that will revert)
+        if self._price_tracker is not None and market.id:
+            mom_5m = self._price_tracker.momentum(market.id, 5)
+            if mom_5m is not None and abs(mom_5m) > self.MEAN_REVERSION_THRESHOLD:
+                # Imbalance > 0 means buy-side pressure; positive momentum = same direction
+                if (imbalance > 0 and mom_5m > 0) or (imbalance < 0 and mom_5m < 0):
+                    self.logger.info(
+                        "value_betting_mean_reversion_skip",
+                        market_id=market.id[:20],
+                        imbalance=round(imbalance, 3),
+                        momentum_5m=round(mom_5m, 4),
+                    )
+                    return None
+
         # Determine which sides are in tradeable price range
         yes_ok = self.MIN_PRICE <= yes_price <= self.MAX_PRICE
         no_ok = has_no_token and self.MIN_PRICE <= no_price <= self.MAX_PRICE
@@ -215,6 +239,28 @@ class ValueBettingStrategy(BaseStrategy):
                     confidence += 0.05
                 elif not pick_yes and mom > 0.02:
                     confidence -= 0.05
+
+        # Order book velocity: compare imbalance change rate
+        now_ts = time.monotonic()
+        prev = self._prev_imbalance.get(market.id)
+        if prev is not None:
+            prev_imb, prev_ts = prev
+            elapsed_min = (now_ts - prev_ts) / 60.0
+            if elapsed_min > 0.1:  # At least 6 seconds between samples
+                delta_per_min = (imbalance - prev_imb) / elapsed_min
+                if delta_per_min > 0.1:
+                    confidence += self.VELOCITY_BOOST
+                elif delta_per_min < -0.1:
+                    confidence -= self.VELOCITY_PENALTY
+        # Store current imbalance for next scan
+        self._prev_imbalance[market.id] = (imbalance, now_ts)
+        # Evict stale entries (>10 min old)
+        stale_cutoff = now_ts - 600.0
+        stale_keys = [
+            k for k, (_, ts) in self._prev_imbalance.items() if ts < stale_cutoff
+        ]
+        for k in stale_keys:
+            del self._prev_imbalance[k]
 
         metadata = {
             "category": market.category,

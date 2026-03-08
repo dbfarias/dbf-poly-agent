@@ -67,9 +67,11 @@ class TimeDecayStrategy(BaseStrategy):
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
-    EXIT_TAKE_PROFIT_PCT = 0.015  # 1.5% take-profit threshold (was 3%)
-    EXIT_MIN_HOLD_HOURS = 4.0  # Min hold before take-profit triggers (was 12h)
-    EXIT_STOP_LOSS_PCT = 0.10   # 10% stop-loss (tighter than universal 15%)
+    EXIT_TP_EARLY_PCT = 0.025    # 2.5% TP for first 6h (need higher profit to justify)
+    EXIT_TP_MID_PCT = 0.015      # 1.5% TP for 6-24h
+    EXIT_TP_LATE_PCT = 0.010     # 1.0% TP after 24h (take what you can)
+    EXIT_MIN_HOLD_HOURS = 4.0    # Min hold before any take-profit triggers
+    EXIT_STOP_LOSS_PCT = 0.10    # 10% stop-loss (tighter than universal 15%)
 
     # Anti-churn: minimum hold before rebalance can sell this strategy's positions
     MIN_HOLD_SECONDS = 7200  # 2h (high-prob markets need patience to resolve)
@@ -80,14 +82,23 @@ class TimeDecayStrategy(BaseStrategy):
         "MIN_IMPLIED_PROB": {"type": float, "min": 0.0, "max": 1.0},
         "CONFIDENCE_BASE": {"type": float, "min": 0.0, "max": 1.0},
         "MAX_HOURS_TO_RESOLUTION": {"type": float, "min": 1.0, "max": 720.0},
-        "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.0, "max": 1.0},
+        "EXIT_TP_EARLY_PCT": {"type": float, "min": 0.0, "max": 1.0},
+        "EXIT_TP_MID_PCT": {"type": float, "min": 0.0, "max": 1.0},
+        "EXIT_TP_LATE_PCT": {"type": float, "min": 0.0, "max": 1.0},
         "EXIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 168.0},
         "EXIT_STOP_LOSS_PCT": {"type": float, "min": 0.0, "max": 1.0},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
+        "MOMENTUM_BOOST": {"type": float, "min": 1.0, "max": 1.5},
+        "MOMENTUM_PENALTY": {"type": float, "min": 0.5, "max": 1.0},
     }
 
-    def __init__(self, *args, **kwargs):
+    # Momentum adjustments for confidence
+    MOMENTUM_BOOST = 1.12     # Multiply confidence when momentum aligns with trade
+    MOMENTUM_PENALTY = 0.88   # Multiply confidence when momentum opposes trade
+
+    def __init__(self, *args, price_tracker=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self._price_tracker = price_tracker
         # Tunable parameters (exposed to admin API via Settings page)
         self.MIN_EDGE = MIN_EDGE
         self.MIN_PRICE = MIN_PRICE
@@ -235,7 +246,7 @@ class TimeDecayStrategy(BaseStrategy):
                 continue
 
             # Calculate confidence based on multiple factors
-            confidence = self._calculate_confidence(price, hours_left)
+            confidence = self._calculate_confidence(price, hours_left, market.id)
 
             # Apply category confidence from learner
             cat_confidence = self._confidence_adjustment.get(
@@ -285,10 +296,13 @@ class TimeDecayStrategy(BaseStrategy):
         estimated = base_prob + time_factor
         return min(0.99, estimated)
 
-    def _calculate_confidence(self, price: float, hours_left: float) -> float:
+    def _calculate_confidence(
+        self, price: float, hours_left: float, market_id: str = "",
+    ) -> float:
         """Calculate strategy confidence (0-1).
 
         Strongly rewards shorter time horizons.
+        Adjusts for price momentum when tracker is available.
         """
         confidence = self.CONFIDENCE_BASE
 
@@ -309,6 +323,16 @@ class TimeDecayStrategy(BaseStrategy):
             confidence += 0.06   # Resolves in 1-2 days
         elif hours_left <= 72:
             confidence += 0.03   # 2-3 days
+
+        # Momentum adjustment: BUY signal + rising price = boost
+        if self._price_tracker is not None and market_id:
+            mom = self._price_tracker.momentum(market_id, 60)
+            if mom is not None:
+                # BUY-only strategy: rising = aligned, falling = opposed
+                if mom > 0.02:
+                    confidence *= self.MOMENTUM_BOOST
+                elif mom < -0.02:
+                    confidence *= self.MOMENTUM_PENALTY
 
         return min(0.99, confidence)
 
@@ -344,20 +368,29 @@ class TimeDecayStrategy(BaseStrategy):
                 )
                 return True
 
-        # Take-profit: lock in gains after minimum hold period
+        # Time-tiered take-profit: earlier exits need higher profit
         if avg_price > 0 and created_at is not None:
             profit_pct = (current_price - avg_price) / avg_price
-            if profit_pct >= self.EXIT_TAKE_PROFIT_PCT:
-                now = datetime.now(timezone.utc)
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-                held_hours = (now - created_at).total_seconds() / 3600
-                if held_hours >= self.EXIT_MIN_HOLD_HOURS:
+            now = datetime.now(timezone.utc)
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            held_hours = (now - created_at).total_seconds() / 3600
+            if held_hours >= self.EXIT_MIN_HOLD_HOURS:
+                # Select TP threshold based on hold duration
+                if held_hours < 6:
+                    tp_threshold = self.EXIT_TP_EARLY_PCT
+                elif held_hours < 24:
+                    tp_threshold = self.EXIT_TP_MID_PCT
+                else:
+                    tp_threshold = self.EXIT_TP_LATE_PCT
+
+                if profit_pct >= tp_threshold:
                     self.logger.info(
                         "time_decay_take_profit",
                         market_id=market_id,
                         profit_pct=f"{profit_pct:.1%}",
                         held_hours=f"{held_hours:.0f}",
+                        tp_threshold=f"{tp_threshold:.1%}",
                     )
                     return True
 

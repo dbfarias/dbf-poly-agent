@@ -326,7 +326,9 @@ class PositionCloser:
         min_sell_notional = 1.0  # Match CLOB minimum notional
 
         effective_min_edge = self.min_rebalance_edge / max(urgency, 1.0)
-        if signal.edge < effective_min_edge:
+        # Fast reject: even the most lenient per-candidate threshold (0.5x)
+        # won't be met if signal edge is below half the effective minimum
+        if signal.edge < effective_min_edge * 0.5:
             return None
 
         candidates = []
@@ -349,6 +351,18 @@ class PositionCloser:
                 (pos.current_price - pos.avg_price) / pos.avg_price
                 if pos.avg_price > 0 else 0.0
             )
+
+            # Adaptive min_edge: deeper losers are easier to rebalance
+            loss_pct = abs(pnl_pct)
+            if loss_pct > 0.10:
+                candidate_min_edge = effective_min_edge * 0.5
+            elif loss_pct > 0.05:
+                candidate_min_edge = effective_min_edge * 0.7
+            else:
+                candidate_min_edge = effective_min_edge
+
+            if signal.edge < candidate_min_edge:
+                continue
             # Near-resolution protection: skip if market resolves soon
             # unless loss is severe enough to override
             if self.cache and abs(pnl_pct) < self.rebalance_resolution_max_loss_pct:

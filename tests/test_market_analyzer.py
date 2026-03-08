@@ -305,7 +305,7 @@ class TestQualityFilterConstants:
         assert MarketAnalyzer.MIN_BID_RATIO == 0.50
 
     def test_min_volume_24h_set(self):
-        assert MarketAnalyzer.MIN_VOLUME_24H == 50.0
+        assert MarketAnalyzer.MIN_VOLUME_24H == 150.0
 
     def test_max_spread_set(self):
         assert MarketAnalyzer.MAX_SPREAD == 0.04

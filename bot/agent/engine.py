@@ -126,7 +126,10 @@ class TradingEngine:
         # Strategies (ordered by priority)
         strategies = [
             ArbitrageStrategy(self.clob_client, self.gamma_client, self.cache),
-            TimeDecayStrategy(self.clob_client, self.gamma_client, self.cache),
+            TimeDecayStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                price_tracker=self.price_tracker,
+            ),
             PriceDivergenceStrategy(
                 self.clob_client, self.gamma_client, self.cache,
                 research_cache=self.research_cache,
@@ -825,6 +828,12 @@ class TradingEngine:
                 else 1.0
             )
 
+            _calibration = (
+                self._learner_adjustments.calibration
+                if self._learner_adjustments
+                else None
+            )
+
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
                 bankroll=effective_bankroll,
@@ -833,6 +842,7 @@ class TradingEngine:
                 pending_count=pending_count,
                 edge_multiplier=edge_multiplier,
                 urgency=_urgency,
+                calibration=_calibration,
             )
 
             if not approved:
@@ -895,6 +905,7 @@ class TradingEngine:
                         pending_count=pending_count,
                         edge_multiplier=edge_multiplier,
                         urgency=_urgency,
+                        calibration=_calibration,
                     )
                     if not approved:
                         logger.warning(

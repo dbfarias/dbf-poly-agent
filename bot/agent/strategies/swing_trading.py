@@ -5,7 +5,7 @@ momentum and sell for 1-2% profit within hours. Uses in-memory price history
 to detect momentum across scan cycles.
 
 Entry: Liquid mid-range markets ($0.15-$0.85) with confirmed upward momentum.
-Exit: Take profit at 1.2%, stop loss at 1.2%, time expiry at 4h, or momentum reversal.
+Exit: Take profit at 1.5%, stop loss at 0.8%, time expiry at 4h, or momentum reversal.
 Tier: TIER1+ ($5+) — tight exits bound risk at low capital.
 """
 
@@ -22,8 +22,8 @@ from .base import BaseStrategy
 logger = structlog.get_logger()
 
 # Tunable defaults
-TAKE_PROFIT_PCT = 0.012     # 1.2% take profit
-STOP_LOSS_PCT = 0.012       # 1.2% stop loss
+TAKE_PROFIT_PCT = 0.015     # 1.5% take profit (let winners run)
+STOP_LOSS_PCT = 0.008       # 0.8% stop loss (cut losses fast)
 MAX_HOLD_HOURS = 4.0        # Max time before forced exit
 MIN_PRICE = 0.15            # Min market price for entry
 MAX_PRICE = 0.85            # Max market price for entry

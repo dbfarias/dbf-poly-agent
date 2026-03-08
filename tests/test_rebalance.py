@@ -157,13 +157,14 @@ class TestTryRebalance:
 
     @pytest.mark.asyncio
     async def test_no_rebalance_when_edge_below_threshold(self):
-        """Skip if signal.edge < 1.5%."""
+        """Skip if signal.edge below even the loosest adaptive threshold."""
         with _patch_engine():
             engine = _build_engine()
             loser = make_position(current_price=0.40)
             engine.portfolio.positions = [loser]
 
-            signal = make_signal(edge=0.01)  # Below 1.5% threshold
+            # Edge 0.005 < 0.015 * 0.5 = 0.0075 (fast reject)
+            signal = make_signal(edge=0.005)
 
             result = await engine.closer.try_rebalance(signal, engine.portfolio.positions)
 

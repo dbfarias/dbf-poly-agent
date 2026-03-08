@@ -104,13 +104,13 @@ class TestSwingTradingMeta:
         s = _make_strategy()
         assert s.is_enabled_for_tier(CapitalTier.TIER3)
 
-    def test_tighter_take_profit(self):
+    def test_asymmetric_take_profit(self):
         s = _make_strategy()
-        assert s.TAKE_PROFIT_PCT == 0.012
+        assert s.TAKE_PROFIT_PCT == 0.015
 
-    def test_tighter_stop_loss(self):
+    def test_asymmetric_stop_loss(self):
         s = _make_strategy()
-        assert s.STOP_LOSS_PCT == 0.012
+        assert s.STOP_LOSS_PCT == 0.008
 
     def test_higher_min_volume(self):
         s = _make_strategy()

@@ -123,6 +123,7 @@ class RiskManager:
         pending_count: int = 0,
         edge_multiplier: float = 1.0,
         urgency: float = 1.0,
+        calibration: dict | None = None,
     ) -> tuple[bool, float, str]:
         """Evaluate a trade signal against all risk checks.
 
@@ -160,7 +161,10 @@ class RiskManager:
         # Calculate position size (capped to available capital)
         deployed = sum(p.cost_basis for p in open_positions if p.is_open)
         available = bankroll - deployed
-        size = self._calculate_size(signal, bankroll, config, available_capital=available)
+        size = self._calculate_size(
+            signal, bankroll, config,
+            available_capital=available, calibration=calibration,
+        )
         if size <= 0:
             return False, 0.0, "Position size too small"
 
@@ -328,23 +332,56 @@ class RiskManager:
             )
         return RiskCheckResult(True)
 
+    @staticmethod
+    def _calibration_bucket(prob: float) -> str:
+        """Map a probability to its calibration bucket key."""
+        pct = int(prob * 100)
+        if pct >= 95:
+            return "95-99"
+        if pct >= 90:
+            return "90-95"
+        if pct >= 85:
+            return "85-90"
+        if pct >= 80:
+            return "80-85"
+        if pct >= 70:
+            return "70-80"
+        if pct >= 60:
+            return "60-70"
+        return "50-60"
+
     def _calculate_size(
         self,
         signal: TradeSignal,
         bankroll: float,
         config: dict,
         available_capital: float | None = None,
+        calibration: dict | None = None,
     ) -> float:
         """Calculate position size using fractional Kelly with tier constraints.
 
         Uses min_order_usd=0 so Kelly can produce sub-$1 sizes naturally.
         The 1-share floor only applies when Kelly recommends a positive amount
         that falls just below 1 share — never inflates a zero-size signal.
+        Calibration penalty: scale Kelly down if this probability bucket is
+        historically overconfident, or up if underconfident.
         """
         from bot.utils.math_utils import kelly_criterion
 
         full_kelly = kelly_criterion(signal.estimated_prob, signal.market_price)
         kelly_frac = config["kelly_fraction"] * full_kelly
+
+        # Calibration adjustment: penalize overconfident probability buckets
+        if calibration:
+            bucket = self._calibration_bucket(signal.estimated_prob)
+            cal_ratio = calibration.get(bucket, 1.0)
+            if cal_ratio > 1.1:
+                # Overconfident: reduce size
+                kelly_frac *= 0.8
+            elif cal_ratio < 0.9:
+                # Underconfident: slightly increase size
+                kelly_frac *= 1.1
+            kelly_frac = max(0.05, min(0.5, kelly_frac))
 
         # Let Kelly produce natural sizes (no internal $1 floor)
         size = position_size_usd(
