@@ -86,11 +86,20 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
             "influence": influence,
         })
 
+    # Brier scores per strategy (lower = better calibration)
+    brier_scores = {
+        strategy: round(score, 4)
+        for strategy, score in (
+            getattr(adjustments, "brier_scores", {}) or {}
+        ).items()
+    }
+
     return {
         "edge_multipliers": edge_list,
         "category_confidences": cat_list,
         "paused_strategies": list(adjustments.paused_strategies),
         "post_mortem_influence": pm_influence,
+        "brier_scores": brier_scores,
         "last_computed": (
             learner._last_computed.isoformat()
             if learner._last_computed

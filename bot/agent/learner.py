@@ -15,6 +15,7 @@ from bot.data.activity import get_post_mortem_stats
 from bot.data.database import async_session
 from bot.data.models import StrategyMetric, Trade
 from bot.data.repositories import StrategyMetricRepository, TradeRepository
+from bot.research.probability_calibrator import ProbabilityCalibrator
 
 logger = structlog.get_logger()
 
@@ -67,6 +68,7 @@ class LearnerAdjustments:
         calibration: dict[str, float],
         urgency_multiplier: float = 1.0,
         daily_progress: float = 0.0,
+        brier_scores: dict[str, float] | None = None,
     ):
         self.edge_multipliers = edge_multipliers
         self.category_confidences = category_confidences
@@ -74,6 +76,7 @@ class LearnerAdjustments:
         self.calibration = calibration
         self.urgency_multiplier = urgency_multiplier
         self.daily_progress = daily_progress
+        self.brier_scores = brier_scores or {}
 
 
 class PerformanceLearner:
@@ -107,6 +110,9 @@ class PerformanceLearner:
         self.MULTIPLIER_MIN = MULTIPLIER_MIN
         self.MULTIPLIER_MAX = MULTIPLIER_MAX
         self.MIN_TRADES_FOR_ADJUSTMENT = MIN_TRADES_FOR_ADJUSTMENT
+
+        # Probability calibrator (trained from resolved trades)
+        self.calibrator = ProbabilityCalibrator()
 
         # Post-mortem feedback stats (populated by compute_stats)
         self._pm_stats: dict[str, dict] = {}
@@ -245,6 +251,10 @@ class PerformanceLearner:
         # Confidence calibration
         calibration = self._compute_calibration(recent)
 
+        # Train probability calibrator and compute Brier scores
+        await self.calibrator.train(recent)
+        brier_scores = self.calibrator.per_strategy_brier(recent)
+
         # Update strategy metrics in DB
         await self._update_strategy_metrics(stats)
 
@@ -261,6 +271,7 @@ class PerformanceLearner:
             calibration=calibration,
             urgency_multiplier=urgency,
             daily_progress=daily_progress,
+            brier_scores=brier_scores,
         )
 
         logger.info(

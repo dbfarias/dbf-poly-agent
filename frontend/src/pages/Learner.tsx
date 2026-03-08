@@ -93,6 +93,9 @@ export default function Learner() {
       {/* Category Confidences */}
       <CategoryPanel multipliers={multipliers} />
 
+      {/* Brier Scores */}
+      <BrierScoresPanel multipliers={multipliers} />
+
       {/* Calibration Chart */}
       <CalibrationPanel calibration={calibration} />
     </div>
@@ -329,6 +332,53 @@ function CategoryPanel({ multipliers }: { multipliers: ReturnType<typeof fetchLe
             </div>
             <div className="mt-2 text-xs text-zinc-500 text-center">
               {cat.total_trades} trades
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Brier Scores Panel ────────────────────────────────────── */
+
+function BrierScoresPanel({ multipliers }: { multipliers: ReturnType<typeof fetchLearnerMultipliers> extends Promise<infer T> ? T | undefined : never }) {
+  if (!multipliers) return null;
+
+  const brierScores = multipliers.brier_scores ?? {};
+  const entries = Object.entries(brierScores);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5">
+      <h3 className="text-sm font-medium text-white mb-4 flex items-center">
+        Brier Scores by Strategy
+        <HelpTooltip text="Brier score measures prediction accuracy (0 = perfect, 0.25 = random). Lower is better. A score below 0.15 indicates good calibration." />
+      </h3>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {entries.map(([strategy, score]) => (
+          <div
+            key={strategy}
+            className="rounded-lg border border-[#2a2d3e] bg-[#0f1117] p-3 text-center"
+          >
+            <div className="text-sm font-medium text-white mb-1 capitalize">
+              {STRATEGY_LABELS[strategy] || strategy}
+            </div>
+            <div
+              className={clsx(
+                "text-2xl font-bold font-mono",
+                score <= 0.15
+                  ? "text-green-400"
+                  : score <= 0.25
+                    ? "text-yellow-400"
+                    : "text-red-400",
+              )}
+            >
+              {score.toFixed(3)}
+            </div>
+            <div className="text-[10px] text-zinc-500 mt-1">
+              {score <= 0.15 ? "Good" : score <= 0.25 ? "Fair" : "Poor"}
             </div>
           </div>
         ))}

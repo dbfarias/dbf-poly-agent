@@ -122,6 +122,11 @@ async def notify_daily_target(equity: float, daily_pnl: float, target_pct: float
     await send_telegram(msg)
 
 
+async def notify_market_report(report_html: str) -> None:
+    """Send the daily market report via Telegram."""
+    await send_telegram(report_html)
+
+
 async def notify_daily_summary(
     equity: float, daily_pnl: float, daily_return: float, trades: int, win_rate: float
 ) -> None:

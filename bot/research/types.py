@@ -32,3 +32,6 @@ class ResearchResult:
     resolution_condition: str = ""  # HOW market resolves (from description)
     resolution_source: str = ""  # Data source for resolution
     is_volume_anomaly: bool = False  # Volume/price spike detected
+    whale_activity: bool = False  # Large orders detected on CLOB
+    market_category: str = ""  # LLM/regex classified category
+    historical_base_rate: float = 0.0  # Win rate for similar past trades (0 = no data)

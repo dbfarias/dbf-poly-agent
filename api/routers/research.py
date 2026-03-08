@@ -34,6 +34,14 @@ async def get_research_markets(_: str = Depends(verify_api_key)):
             "crypto_sentiment": round(r.crypto_sentiment, 4),
             "updated_at": r.updated_at.isoformat(),
             "article_count": len(r.news_items),
+            "is_volume_anomaly": getattr(r, "is_volume_anomaly", False),
+            "whale_activity": getattr(r, "whale_activity", False),
+            "market_category": getattr(r, "market_category", ""),
+            "resolution_condition": getattr(r, "resolution_condition", ""),
+            "resolution_source": getattr(r, "resolution_source", ""),
+            "historical_base_rate": round(
+                getattr(r, "historical_base_rate", 0.0), 3
+            ),
             "top_headlines": [
                 {
                     "title": item.title,

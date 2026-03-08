@@ -361,6 +361,7 @@ async def debate_signal(
     hours_to_resolution: float | None = None,
     resolution_condition: str = "",
     resolution_source: str = "",
+    whale_activity: bool = False,
 ) -> DebateResult | None:
     """Run a Proposer vs Challenger debate on a trade signal.
 
@@ -400,6 +401,7 @@ async def debate_signal(
         confidence, reasoning, sentiment_score, hours_to_resolution,
         resolution_condition=resolution_condition,
         resolution_source=resolution_source,
+        whale_activity=whale_activity,
     )
 
     try:
@@ -742,6 +744,7 @@ def _format_proposer_prompt(
     estimated_prob: float, confidence: float, reasoning: str,
     sentiment_score: float | None, hours_to_resolution: float | None,
     resolution_condition: str = "", resolution_source: str = "",
+    whale_activity: bool = False,
 ) -> str:
     safe_q = _sanitize_prompt_input(question)
     safe_r = _sanitize_prompt_input(reasoning)
@@ -768,6 +771,9 @@ def _format_proposer_prompt(
             safe_src = _sanitize_prompt_input(resolution_source, max_len=100)
             msg += f" (source: {safe_src})"
         msg += "\n"
+
+    if whale_activity:
+        msg += "WHALE ALERT: Large orders detected on this market's order book\n"
 
     # Enrich with extracted crypto threshold (if applicable)
     crypto = extract_crypto_threshold(question)

@@ -7,7 +7,9 @@ import structlog
 import websockets
 
 from bot.data.market_cache import MarketCache
+from bot.data.price_tracker import PriceTracker
 from bot.polymarket.types import OrderBook, OrderBookEntry
+from bot.research.whale_detector import WhaleDetector
 
 logger = structlog.get_logger()
 
@@ -19,12 +21,15 @@ class WebSocketManager:
 
     def __init__(self, cache: MarketCache):
         self.cache = cache
+        self.whale_detector = WhaleDetector()
+        self.price_tracker: PriceTracker | None = None
         self._ws = None
         self._running = False
         self._subscribed_tokens: set[str] = set()
         self._reconnect_delay = 1.0
         self._max_reconnect_delay = 60.0
         self._callbacks: list = []
+        self._alert_callbacks: list = []
 
     def on_update(self, callback) -> None:
         """Register a callback for price updates."""
@@ -120,6 +125,23 @@ class WebSocketManager:
                       for a in data.get("asks", [])],
             )
             self.cache.set_order_book(asset_id, book, ttl=30)
+
+            # Feed whale detector
+            self.whale_detector.record_book_update(asset_id, book)
+
+            # Feed price tracker from best bid
+            if self.price_tracker and book.bids:
+                best_bid = float(book.bids[0].price)
+                self.price_tracker.record(asset_id, best_bid)
+
+                # Check price alerts
+                alert = self.price_tracker.check_alerts(asset_id, best_bid)
+                if alert:
+                    for acb in self._alert_callbacks:
+                        try:
+                            await acb(asset_id, alert, best_bid)
+                        except Exception as e:
+                            logger.error("alert_callback_error", error=str(e))
 
             # Notify callbacks
             for cb in self._callbacks:

@@ -287,6 +287,7 @@ export interface LearnerMultipliers {
   edge_multipliers: EdgeMultiplier[];
   category_confidences: CategoryConfidence[];
   paused_strategies: string[];
+  brier_scores: Record<string, number>;
   last_computed: string | null;
 }
 
@@ -403,6 +404,12 @@ export interface ResearchMarket {
   crypto_sentiment: number;
   updated_at: string;
   article_count: number;
+  is_volume_anomaly: boolean;
+  whale_activity: boolean;
+  market_category: string;
+  resolution_condition: string;
+  resolution_source: string;
+  historical_base_rate: number;
   top_headlines: ResearchHeadline[];
 }
 

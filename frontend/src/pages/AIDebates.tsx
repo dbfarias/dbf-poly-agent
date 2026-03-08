@@ -15,6 +15,7 @@ import type { ActivityEvent } from "../api/client";
 import { formatDateTime } from "../utils/date";
 
 type TabType = "debates" | "reviews" | "risk_debates" | "post_mortems";
+type DecisionFilter = "all" | "approved" | "rejected";
 
 function CostVsPnlChart() {
   const { data: costs } = useQuery({
@@ -515,6 +516,7 @@ function Pagination({
 
 export default function AIDebates() {
   const [tab, setTab] = useState<TabType>("debates");
+  const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("all");
   const [debatePage, setDebatePage] = useState(0);
   const [reviewPage, setReviewPage] = useState(0);
   const [riskPage, setRiskPage] = useState(0);
@@ -584,10 +586,17 @@ export default function AIDebates() {
     refetchInterval: 15000,
   });
 
-  const debates = debateData?.events ?? [];
+  const allDebates = debateData?.events ?? [];
   const reviews = reviewData?.events ?? [];
   const riskDebates = riskDebateData?.events ?? [];
   const postMortems = postMortemData?.events ?? [];
+
+  // Apply decision filter to debates
+  const debates = allDebates.filter((e) => {
+    if (decisionFilter === "all") return true;
+    const isApproved = (e.metadata as Record<string, unknown>).approved === true;
+    return decisionFilter === "approved" ? isApproved : !isApproved;
+  });
 
   const isLoading =
     tab === "debates"
@@ -610,11 +619,11 @@ export default function AIDebates() {
     : tab === "risk_debates" ? riskDebateData
     : postMortemData;
 
-  // Stats
-  const approvedCount = debates.filter(
+  // Stats (use allDebates for accurate counts regardless of filter)
+  const approvedCount = allDebates.filter(
     (e) => (e.metadata as Record<string, unknown>).approved === true,
   ).length;
-  const rejectedCount = debates.filter(
+  const rejectedCount = allDebates.filter(
     (e) => (e.metadata as Record<string, unknown>).approved === false,
   ).length;
   const exitReviews = reviews.filter(
@@ -629,7 +638,7 @@ export default function AIDebates() {
   const holdReviews = reviews.filter(
     (e) => (e.metadata as Record<string, unknown>).verdict === "HOLD",
   ).length;
-  const totalDebateCost = debates.reduce(
+  const totalDebateCost = allDebates.reduce(
     (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
     0,
   );
@@ -756,16 +765,38 @@ export default function AIDebates() {
       </div>
 
       {/* Stats summary */}
-      {tab === "debates" && debates.length > 0 && (
-        <div className="flex gap-4 text-xs text-zinc-500">
-          <span>
-            Approval rate:{" "}
-            {debates.length > 0
-              ? ((approvedCount / debates.length) * 100).toFixed(0)
-              : 0}
-            %
-          </span>
-          <span>Total cost: ${totalDebateCost.toFixed(4)}</span>
+      {tab === "debates" && allDebates.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex gap-4 text-xs text-zinc-500">
+            <span>
+              Approval rate:{" "}
+              {allDebates.length > 0
+                ? ((approvedCount / allDebates.length) * 100).toFixed(0)
+                : 0}
+              %
+            </span>
+            <span>Total cost: ${totalDebateCost.toFixed(4)}</span>
+          </div>
+          {/* Decision filter */}
+          <div className="flex gap-1">
+            {(["all", "approved", "rejected"] as DecisionFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setDecisionFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  decisionFilter === f
+                    ? f === "approved"
+                      ? "bg-green-900/40 text-green-400"
+                      : f === "rejected"
+                        ? "bg-red-900/40 text-red-400"
+                        : "bg-indigo-600 text-white"
+                    : "bg-[#1a1d29] text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {f === "all" ? `All (${allDebates.length})` : f === "approved" ? `Approved (${approvedCount})` : `Rejected (${rejectedCount})`}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {tab === "reviews" && reviews.length > 0 && (

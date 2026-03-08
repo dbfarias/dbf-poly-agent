@@ -9,16 +9,19 @@ from bot.agent.market_analyzer import classify_market_type
 from bot.config import settings
 from bot.data.market_cache import MarketCache
 from bot.research.cache import ResearchCache
+from bot.research.category_classifier import CategoryClassifier
 from bot.research.correlation_detector import CorrelationDetector
 from bot.research.crypto_fetcher import CryptoFetcher
 from bot.research.keyword_extractor import extract_keywords, extract_keywords_llm
 from bot.research.llm_sentiment import analyze_sentiment_llm
 from bot.research.news_fetcher import NewsFetcher
+from bot.research.pattern_analyzer import PatternAnalyzer
 from bot.research.reddit_fetcher import RedditFetcher
 from bot.research.resolution_parser import parse_resolution_criteria
 from bot.research.sentiment import analyze_sentiment, compute_research_multiplier
 from bot.research.types import ResearchResult
 from bot.research.volume_detector import VolumeAnomalyDetector
+from bot.research.whale_detector import WhaleDetector
 
 logger = structlog.get_logger()
 
@@ -46,6 +49,9 @@ class ResearchEngine:
         self.reddit_fetcher = RedditFetcher()
         self.volume_detector = VolumeAnomalyDetector()
         self.correlation_detector = CorrelationDetector()
+        self.category_classifier = CategoryClassifier()
+        self.pattern_analyzer = PatternAnalyzer()
+        self.whale_detector: WhaleDetector | None = None
         self._running = False
         self._priority_market_ids: set[str] = set()
 
@@ -132,6 +138,7 @@ class ResearchEngine:
                     crypto_sentiment=crypto_sentiment,
                     crypto_prices=crypto_prices,
                     is_volume_anomaly=self.volume_detector.is_anomaly(market.id),
+                    token_ids=getattr(market, "token_ids", []),
                 )
                 if result is not None:
                     self.research_cache.set(market.id, result)
@@ -158,6 +165,7 @@ class ResearchEngine:
         crypto_sentiment: dict[str, float] | None = None,
         crypto_prices: dict[str, float] | None = None,
         is_volume_anomaly: bool = False,
+        token_ids: list[str] | None = None,
     ) -> ResearchResult | None:
         """Research a single market: keywords -> news + reddit -> sentiment -> multiplier."""
         if crypto_sentiment is None:
@@ -232,6 +240,15 @@ class ResearchEngine:
             article_count=len(merged_items),
         )
 
+        # Classify market category (regex fast-path + LLM fallback)
+        market_category = await self.category_classifier.classify_market(
+            market_id, question,
+        )
+
+        # Historical pattern matching (base rate from similar past trades)
+        base_rate = await self.pattern_analyzer.compute_base_rate(question)
+        historical_base_rate = base_rate if base_rate is not None else 0.0
+
         # Include crypto market trend for crypto-related markets
         crypto_score = 0.0
         question_lower = question.lower()
@@ -243,6 +260,14 @@ class ResearchEngine:
         prices_tuple = tuple(
             (coin, price) for coin, price in (crypto_prices or {}).items()
         )
+
+        # Check whale activity from WebSocket order book data
+        whale_activity = False
+        if self.whale_detector and token_ids:
+            for tid in token_ids:
+                if self.whale_detector.has_whale_activity_by_token(tid):
+                    whale_activity = True
+                    break
 
         return ResearchResult(
             market_id=market_id,
@@ -258,4 +283,7 @@ class ResearchEngine:
             resolution_condition=resolution_condition,
             resolution_source=resolution_source,
             is_volume_anomaly=is_volume_anomaly,
+            whale_activity=whale_activity,
+            market_category=market_category,
+            historical_base_rate=historical_base_rate,
         )

@@ -41,11 +41,13 @@ from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
 from bot.research.llm_debate import cost_tracker as llm_cost_tracker
 from bot.research.llm_debate import debate_risk_rejection, debate_signal, review_position
+from bot.research.market_report import generate_daily_report
 from bot.utils.notifications import (
     close_telegram_client,
     notify_daily_summary,
     notify_daily_target,
     notify_error,
+    notify_market_report,
     notify_risk_limit,
     notify_strategy_paused,
 )
@@ -123,6 +125,10 @@ class TradingEngine:
         # Shared price tracker (in-memory, ~6h history per market)
         self.price_tracker = PriceTracker()
 
+        # Wire price tracker and whale detector into WebSocket + research
+        self.ws_manager.price_tracker = self.price_tracker
+        self.research_engine.whale_detector = self.ws_manager.whale_detector
+
         # Strategies (ordered by priority)
         strategies = [
             ArbitrageStrategy(self.clob_client, self.gamma_client, self.cache),
@@ -167,6 +173,7 @@ class TradingEngine:
         self._learner_adjustments = None
         self._rebalanced_this_cycle = False
         self.disabled_strategies: set[str] = set()
+        self._last_report_date: str = ""
         self._target_notified_day: str = ""
         self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
         self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
@@ -389,6 +396,11 @@ class TradingEngine:
         self.risk_manager.update_peak_equity(self.portfolio.total_equity)
         self.risk_manager.set_day_start_equity(self.portfolio.day_start_equity)
 
+        # 1b. Subscribe open position tokens to WebSocket for real-time data
+        for pos in self.portfolio.positions:
+            if pos.token_id:
+                await self.ws_manager.subscribe(pos.token_id)
+
         # 2. Update learner
         await self._update_learner()
 
@@ -416,6 +428,9 @@ class TradingEngine:
 
         # 11. Daily summary
         await self._maybe_daily_summary()
+
+        # 12. Daily market report (sent once at ~23:00 UTC)
+        await self._maybe_daily_report()
 
         _urgency = (
             round(self._learner_adjustments.urgency_multiplier, 2)
@@ -760,6 +775,11 @@ class TradingEngine:
                 if research is not None and research.is_volume_anomaly:
                     signal.metadata["is_volume_anomaly"] = True
 
+                whale_flag = (
+                    research.whale_activity
+                    if research is not None
+                    else False
+                )
                 debate_result = await debate_signal(
                     question=signal.question,
                     strategy=signal.strategy,
@@ -772,6 +792,7 @@ class TradingEngine:
                     hours_to_resolution=hours_res,
                     resolution_condition=res_condition,
                     resolution_source=res_source,
+                    whale_activity=whale_flag,
                 )
                 if debate_result is not None:
                     debate_meta = {
@@ -860,6 +881,13 @@ class TradingEngine:
                 edge_multiplier = max(0.5, min(2.0, edge_multiplier))
                 signal.metadata["research_sentiment"] = research.sentiment_score
                 signal.metadata["research_multiplier"] = r_mult
+
+            # Calibrate estimated probability using historical accuracy
+            if self.learner.calibrator.is_trained:
+                calibrated = self.learner.calibrator.calibrate(
+                    signal.estimated_prob,
+                )
+                signal.metadata["calibrated_prob"] = calibrated
 
             _urgency = (
                 self._learner_adjustments.urgency_multiplier
@@ -1253,6 +1281,28 @@ class TradingEngine:
                 trades=today_stats["trades_today"],
                 win_rate=today_stats["win_rate_today"],
             )
+
+    async def _maybe_daily_report(self) -> None:
+        """Send daily market report via Telegram at ~23:00 UTC."""
+        now = datetime.now(timezone.utc)
+        today = now.strftime("%Y-%m-%d")
+        if self._last_report_date == today:
+            return
+        if now.hour < 23:
+            return
+
+        self._last_report_date = today
+        try:
+            report = await generate_daily_report(
+                research_cache=self.research_cache,
+                portfolio=self.portfolio,
+                learner=self.learner,
+                research_engine=self.research_engine,
+            )
+            await notify_market_report(report)
+            logger.info("daily_report_sent")
+        except Exception as e:
+            logger.error("daily_report_failed", error=str(e))
 
     async def _seed_strategy_metrics(self) -> None:
         """Ensure all strategies have a StrategyMetric record so the page is never empty."""

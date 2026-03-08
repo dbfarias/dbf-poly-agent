@@ -13,7 +13,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 
 ---
 
-**$5 to $500** | **6 Strategies** | **AI Trade Debates** | **Tier-Based Risk** | **Active Rebalancing** | **Adaptive Learning** | **Real-Time Dashboard**
+**$5 to $500** | **6 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Tier-Based Risk** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
@@ -28,6 +28,7 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 - [AI-Powered Analysis](#ai-powered-analysis)
 - [Risk Management](#risk-management)
 - [Adaptive Learning](#adaptive-learning)
+- [Research Engine](#research-engine)
 - [Price Momentum Tracking](#price-momentum-tracking)
 - [Post-Mortem Feedback Loop](#post-mortem-feedback-loop)
 - [Auto-Claim Resolved Positions](#auto-claim-resolved-positions)
@@ -62,13 +63,22 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | **AI Trade Debates** | Claude Haiku-powered Proposer vs Challenger debate gate — every trade is debated before execution |
 | **AI Position Reviewer** | LLM reviews open positions every ~30min: HOLD, EXIT, REDUCE, or INCREASE recommendations |
 | **LLM Sentiment** | Optional Claude-powered sentiment analysis replacing VADER for deeper market understanding |
+| **Multi-Source Research** | Google News + Reddit + CoinGecko sentiment, resolution criteria parsing, volume anomaly detection |
+| **LLM Category Classification** | Regex fast-path + Haiku LLM fallback for accurate market categorization |
+| **Cross-Market Correlation** | Jaccard similarity + Union-Find detects correlated markets to prevent overexposure |
+| **Volume Anomaly Detection** | Rolling 24h history detects 3x volume spikes and 10%+ price moves |
+| **Whale Activity Tracking** | WebSocket order book analysis detects large CLOB orders (>$500) |
+| **Historical Pattern Matching** | Base rate estimation from similar resolved trades |
+| **Probability Calibration** | Brier score tracking per strategy, 5-bin calibration model |
+| **Resolution Criteria Parsing** | Regex + LLM extraction of HOW markets resolve from descriptions |
+| **Daily Market Report** | Automated Telegram report: portfolio, top markets, strategy health, risk alerts |
 | **Price Momentum** | Shared PriceTracker tracks 1h momentum across all strategies — adjusts confidence for value bets |
 | **Post-Mortem Feedback** | LLM trade analysis (strategy_fit) feeds back into learner edge multipliers — tightens poor, relaxes good |
 | **Auto-Claim Positions** | Optional web3.py integration to auto-redeem winning tokens on Polygon after market resolution |
 | **Secure Dashboard** | JWT-authenticated React app with 11 pages including AI Debates viewer and Research |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Activity Log** | Every bot decision logged with reasoning — visible in dashboard |
-| **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries |
+| **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries + daily market reports |
 | **Docker Deploy** | One-command deployment on AWS Lightsail (~$5/month) with HTTPS |
 | **CI/CD Pipeline** | GitHub Actions 3-job pipeline: test, build, deploy on every push to main |
 
@@ -447,6 +457,75 @@ Visible via `GET /api/learner/multipliers` → `post_mortem_influence` field.
 
 ---
 
+## Research Engine
+
+Background engine that scans markets every 15 minutes, aggregating news, sentiment, and market intelligence from multiple sources.
+
+### Data Sources
+
+| Source | Data | Refresh |
+|:---|:---|:---:|
+| **Google News** | Headlines + VADER/LLM sentiment | 15 min |
+| **Reddit** | Posts from category-specific subreddits (crypto, politics, economics, general) | 15 min |
+| **CoinGecko** | BTC/ETH prices + market sentiment | 15 min |
+| **Polymarket CLOB** | Order book whale detection (>$500 orders) | Real-time (WebSocket) |
+| **Market Descriptions** | Resolution criteria (regex + LLM parsing) | On first scan |
+
+### Volume Anomaly Detection
+
+Tracks rolling 24h volume and price history per market (96 samples at 15-min intervals):
+
+- **Volume spike:** Current `volume_24h > 3x mean(last 10 samples)` — flags sudden interest
+- **Price move:** `abs(current - mean(last 5)) / mean(last 5) > 10%` — flags sharp price changes
+- Anomaly markets are prioritized in research scans and flagged in trading signals
+
+### Cross-Market Correlation
+
+Prevents overexposure to the same underlying event across different markets:
+
+- **Jaccard similarity** on tokenized questions (stop words removed, 3+ char words)
+- **Union-Find** for transitive grouping: if A~B and B~C, then A, B, C are all correlated
+- **Threshold:** Jaccard > 0.5 triggers grouping
+- **Engine integration:** Correlated signals are deduplicated; correlated open positions block new entries
+
+### LLM Category Classification
+
+Classifies markets into categories (crypto, politics, economics, sports, etc.):
+
+- **Regex fast-path:** Pattern matching on question keywords (zero cost)
+- **LLM fallback:** Claude Haiku classifies ambiguous markets (~$0.00003/call)
+- **Indefinite cache:** Each market classified once, cached forever
+- Used by research engine, learner, and dashboard
+
+### Historical Pattern Matching
+
+Estimates base rates from similar resolved trades in the database:
+
+- Extracts pattern type from question (price_target, win_outcome, binary_event, etc.)
+- Finds similar past trades via Jaccard similarity on question tokens
+- Returns win rate as `historical_base_rate` in research results
+- Helps calibrate probability estimates for new markets
+
+### Probability Calibration (Brier Scores)
+
+Tracks prediction accuracy per strategy using Brier scores:
+
+- **5-bin calibration model:** Compares estimated probability vs actual win rate across probability buckets
+- **Per-strategy Brier scores:** 0 = perfect predictions, 0.25 = random. Visible on Learner dashboard
+- **Calibration integration:** `calibrator.calibrate(estimated_prob)` adjusts probabilities before trading
+
+### Daily Market Report
+
+Automated Telegram report generated at 23:00 UTC daily:
+
+- **Portfolio summary:** Equity, daily PnL, open positions, capital deployed
+- **Top 5 markets:** Highest-sentiment markets with keywords and multipliers
+- **Strategy health:** Win rates, total PnL, active/paused status
+- **Risk alerts:** Volume anomalies, whale activity, high drawdown warnings
+- HTML-formatted for Telegram, zero LLM cost
+
+---
+
 ## Price Momentum Tracking
 
 Shared `PriceTracker` (`bot/data/price_tracker.py`) provides cross-strategy momentum detection:
@@ -561,9 +640,9 @@ JWT-authenticated React dashboard with **11 pages** for full visibility into the
 | **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio (real-time from trade data) |
 | **Markets** | Live market scanner with opportunities and signals |
 | **Risk** | Drawdown chart, category exposure (pie), risk limits by tier |
-| **Research** | News sentiment analysis: per-market headlines, sentiment scores, research multipliers |
-| **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, probability calibration chart, strategy pause status and cooldown timers |
-| **AI Debates** | Trade debate history (Proposer vs Challenger verdicts + reasoning) and position review log (HOLD/EXIT/REDUCE/INCREASE). Tabbed view with approval rates and cost tracking |
+| **Research** | News sentiment analysis: per-market headlines, sentiment scores, research multipliers, volume anomaly/whale activity badges, market categories, resolution criteria, historical base rates |
+| **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, Brier scores per strategy, probability calibration chart, strategy pause status and cooldown timers |
+| **AI Debates** | Trade debate history with decision filter (All/Approved/Rejected), position reviews (HOLD/EXIT/REDUCE/INCREASE), risk debates, post-mortems. Tabbed view with approval rates and cost tracking |
 | **Activity** | Bot decision log — every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
 | **Settings** | AI feature toggles (sentiment/debate/reviewer + daily budget), strategy toggles, risk parameters, strategy parameters, quality filters, system info. All persisted across restarts |
 
@@ -700,7 +779,7 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (1491+ tests, ~30s) + ruff lint + frontend build
+1. **Test** — pytest (1728+ tests, ~2min) + ruff lint + frontend build
 2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
 3. **Deploy** — SSH to server, pull image, restart containers
 
@@ -764,7 +843,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1491+ tests** across **38+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
+**1728+ tests** across **45+ test files** covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -802,7 +881,13 @@ cd frontend && npx vite build
 | `test_price_tracker.py` | 16 tests — momentum, trend, eviction, batch, cap |
 | `test_post_mortem_feedback.py` | 8 tests — PM stats, learner integration, API response |
 | `test_auto_claim.py` | 8 tests — redeemer init/success/failure, portfolio integration |
-| + 12 more | API routers, types, cache, strategies, price rounding |
+| `test_research_improvements.py` | 37 tests — volume detector, correlation detector, Reddit fetcher, resolution parser |
+| `test_category_classifier.py` | 10 tests — regex fast-path, LLM fallback, caching |
+| `test_pattern_analyzer.py` | 25 tests — pattern extraction, base rate, Jaccard matching |
+| `test_probability_calibrator.py` | 28 tests — 5-bin calibration, Brier scores, strategy-level metrics |
+| `test_whale_detector.py` | Whale detection thresholds, token tracking, history eviction |
+| `test_market_report.py` | 13 tests — report generation, HTML formatting, edge cases |
+| + 15 more | API routers, types, cache, strategies, price rounding, E2E |
 
 ---
 
@@ -845,11 +930,24 @@ dbf-poly-agent/
 |   |   |-- settings_store.py         # Persistent settings (survives restarts)
 |   |   +-- market_cache.py           # In-memory TTL cache
 |   |-- research/
-|   |   |-- engine.py                 # Background market research engine
+|   |   |-- engine.py                 # Background market research engine (15-min scan)
 |   |   |-- llm_sentiment.py          # Claude Haiku sentiment analysis
 |   |   |-- llm_debate.py             # Proposer vs Challenger debate gate + Position reviewer
 |   |   |-- sentiment.py              # VADER lexicon-based sentiment (fallback)
-|   |   +-- cache.py                  # Research result cache (1h TTL)
+|   |   |-- cache.py                  # Research result cache (1h TTL)
+|   |   |-- reddit_fetcher.py         # Reddit JSON API (category-mapped subreddits)
+|   |   |-- volume_detector.py        # Volume spike + price move anomaly detection
+|   |   |-- correlation_detector.py   # Jaccard + Union-Find cross-market correlation
+|   |   |-- category_classifier.py    # Regex + LLM market category classification
+|   |   |-- pattern_analyzer.py       # Historical pattern matching + base rates
+|   |   |-- probability_calibrator.py # 5-bin calibration model + Brier scores
+|   |   |-- whale_detector.py         # CLOB order book whale detection (>$500)
+|   |   |-- resolution_parser.py      # Resolution criteria extraction (regex + LLM)
+|   |   |-- market_report.py          # Automated daily Telegram report
+|   |   |-- keyword_extractor.py      # Question keyword extraction (regex + LLM)
+|   |   |-- crypto_fetcher.py         # CoinGecko price + sentiment data
+|   |   |-- news_fetcher.py           # Google News RSS parser
+|   |   +-- types.py                  # ResearchResult, NewsItem dataclasses
 |   +-- utils/
 |       |-- logging_config.py         # structlog JSON logging
 |       |-- math_utils.py             # Kelly, Sharpe, drawdown
@@ -885,7 +983,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 1491+ pytest tests (38+ files)
+|-- tests/                            # 1728+ pytest tests (45+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -946,7 +1044,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 1491+ tests
+- **pytest** — 1728+ tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`
@@ -987,6 +1085,9 @@ All endpoints except `/api/health` and `/api/auth/login` require authentication 
 | `GET` | `/api/learner/calibration` | Probability calibration per bucket |
 | `GET` | `/api/learner/pauses` | Strategy pause status + cooldowns |
 | `POST` | `/api/learner/unpause` | Force-unpause a strategy (6h grace period) |
+| `GET` | `/api/research/status` | Research engine status |
+| `GET` | `/api/research/markets` | Per-market research (sentiment, anomalies, categories, whales) |
+| `GET` | `/api/research/markets/{id}` | Detailed research for a specific market |
 | `GET` | `/api/config/` | Bot configuration |
 | `PUT` | `/api/config/` | Update configuration (persisted) |
 | `POST` | `/api/trading/pause` | Pause trading |

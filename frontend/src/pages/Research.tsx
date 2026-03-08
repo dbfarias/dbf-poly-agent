@@ -176,6 +176,8 @@ function SentimentGauge({ markets }: { markets: ResearchMarket[] }) {
   const avgMultiplier =
     markets.reduce((sum, m) => sum + m.research_multiplier, 0) / markets.length;
   const totalArticles = markets.reduce((sum, m) => sum + m.article_count, 0);
+  const volumeAnomalies = markets.filter((m) => m.is_volume_anomaly).length;
+  const whaleMarkets = markets.filter((m) => m.whale_activity).length;
 
   // Sentiment bar position: map [-1, 1] to [0, 100]
   const barPosition = Math.round((avgSentiment + 1) * 50);
@@ -241,6 +243,22 @@ function SentimentGauge({ markets }: { markets: ResearchMarket[] }) {
           <div className="text-xs text-zinc-500 mt-1">Articles Analyzed</div>
         </div>
       </div>
+
+      {/* Alerts row */}
+      {(volumeAnomalies > 0 || whaleMarkets > 0) && (
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-[#2a2d3e]">
+          {volumeAnomalies > 0 && (
+            <span className="px-2 py-1 rounded text-xs font-medium bg-amber-900/30 text-amber-400">
+              {volumeAnomalies} volume anomal{volumeAnomalies === 1 ? "y" : "ies"}
+            </span>
+          )}
+          {whaleMarkets > 0 && (
+            <span className="px-2 py-1 rounded text-xs font-medium bg-purple-900/30 text-purple-400">
+              {whaleMarkets} whale activit{whaleMarkets === 1 ? "y" : "ies"}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -260,11 +278,13 @@ function MarketSentimentTable({ markets }: { markets: ResearchMarket[] }) {
           <thead>
             <tr className="text-zinc-500 text-xs border-b border-[#2a2d3e]">
               <th className="text-left py-2 pr-3">Keywords</th>
+              <th className="text-center py-2 pr-3 hidden lg:table-cell">Category</th>
               <th className="text-center py-2 pr-3">Sentiment</th>
-              <th className="text-center py-2 pr-3">Label</th>
+              <th className="text-center py-2 pr-3 hidden sm:table-cell">Label</th>
               <th className="text-center py-2 pr-3">Multiplier</th>
-              <th className="text-center py-2 pr-3">Articles</th>
-              <th className="text-center py-2 pr-3">Confidence</th>
+              <th className="text-center py-2 pr-3 hidden md:table-cell">Articles</th>
+              <th className="text-center py-2 pr-3 hidden md:table-cell">Confidence</th>
+              <th className="text-center py-2 pr-3">Flags</th>
               <th className="text-right py-2">Updated</th>
             </tr>
           </thead>
@@ -286,6 +306,15 @@ function MarketRow({ market }: { market: ResearchMarket }) {
         <td className="py-2 pr-3 text-white max-w-[200px] truncate">
           {market.keywords.join(", ")}
         </td>
+        <td className="py-2 pr-3 text-center hidden lg:table-cell">
+          {market.market_category ? (
+            <span className="px-2 py-0.5 rounded text-xs bg-indigo-900/30 text-indigo-400 capitalize">
+              {market.market_category}
+            </span>
+          ) : (
+            <span className="text-zinc-600 text-xs">-</span>
+          )}
+        </td>
         <td className="py-2 pr-3 text-center">
           <span
             className={clsx(
@@ -297,7 +326,7 @@ function MarketRow({ market }: { market: ResearchMarket }) {
             {market.sentiment_score.toFixed(3)}
           </span>
         </td>
-        <td className="py-2 pr-3 text-center">
+        <td className="py-2 pr-3 text-center hidden sm:table-cell">
           <span
             className={clsx(
               "px-2 py-0.5 rounded text-xs",
@@ -318,10 +347,10 @@ function MarketRow({ market }: { market: ResearchMarket }) {
             {market.research_multiplier.toFixed(3)}x
           </span>
         </td>
-        <td className="py-2 pr-3 text-center text-zinc-400">
+        <td className="py-2 pr-3 text-center text-zinc-400 hidden md:table-cell">
           {market.article_count}
         </td>
-        <td className="py-2 pr-3 text-center">
+        <td className="py-2 pr-3 text-center hidden md:table-cell">
           <span
             className={clsx(
               "font-mono",
@@ -331,14 +360,45 @@ function MarketRow({ market }: { market: ResearchMarket }) {
             {(market.confidence * 100).toFixed(0)}%
           </span>
         </td>
+        <td className="py-2 pr-3 text-center">
+          <div className="flex items-center justify-center gap-1">
+            {market.is_volume_anomaly && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-900/30 text-amber-400" title="Volume anomaly detected">
+                VOL
+              </span>
+            )}
+            {market.whale_activity && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-900/30 text-purple-400" title="Whale activity detected">
+                WHALE
+              </span>
+            )}
+            {market.historical_base_rate > 0 && (
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-cyan-900/30 text-cyan-400" title={`Historical base rate: ${(market.historical_base_rate * 100).toFixed(0)}%`}>
+                {(market.historical_base_rate * 100).toFixed(0)}%
+              </span>
+            )}
+            {!market.is_volume_anomaly && !market.whale_activity && market.historical_base_rate === 0 && (
+              <span className="text-zinc-600 text-xs">-</span>
+            )}
+          </div>
+        </td>
         <td className="py-2 text-right text-zinc-500 text-xs">
           {formatTime(market.updated_at)}
         </td>
       </tr>
-      {/* Top Headlines */}
-      {market.top_headlines.length > 0 && (
+      {/* Top Headlines + Resolution */}
+      {(market.top_headlines.length > 0 || market.resolution_condition) && (
         <tr className="border-b border-[#2a2d3e]/30">
-          <td colSpan={7} className="py-1 px-4">
+          <td colSpan={9} className="py-1 px-4">
+            {market.resolution_condition && (
+              <div className="flex items-center gap-2 text-xs mb-1">
+                <span className="text-indigo-400 font-medium shrink-0">Resolution:</span>
+                <span className="text-zinc-400 truncate">{market.resolution_condition}</span>
+                {market.resolution_source && (
+                  <span className="text-zinc-600 shrink-0">({market.resolution_source})</span>
+                )}
+              </div>
+            )}
             <div className="space-y-0.5">
               {market.top_headlines.slice(0, 3).map((h, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs">

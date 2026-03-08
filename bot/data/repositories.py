@@ -301,6 +301,24 @@ class TradeRepository:
         await self.session.commit()
         return True
 
+    async def get_resolved_with_questions(self, days: int = 90) -> list[Trade]:
+        """Return resolved trades from last N days (with exit_reason set).
+
+        Used by PatternAnalyzer to compute historical base rates.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        result = await self.session.execute(
+            select(Trade)
+            .where(
+                Trade.status.in_(["filled", "completed"]),
+                Trade.exit_reason.isnot(None),
+                Trade.exit_reason != "",
+                Trade.created_at >= cutoff,
+            )
+            .order_by(Trade.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def mark_scan_traded(self, market_id: str, strategy: str) -> None:
         """Mark the most recent scan for a market as traded."""
         from bot.data.models import MarketScan
