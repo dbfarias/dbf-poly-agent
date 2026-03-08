@@ -1,5 +1,6 @@
 """LLM debate gate — Proposer vs Challenger pattern for trade signals."""
 
+import asyncio
 import re
 import time
 from dataclasses import dataclass, replace
@@ -188,6 +189,51 @@ _DEBATABLE_KEYWORDS = frozenset({
 })
 
 
+_CONSERVATIVE_SYSTEM = (
+    "You are a conservative, risk-first prediction market analyst. "
+    "You require a strong 3%+ edge before recommending any trade. "
+    "You are skeptical of short-resolution markets (high noise, low signal). "
+    "Capital preservation matters more than daily targets.\n\n"
+    "Only say BUY if:\n"
+    "- Edge is 3%+ with solid reasoning\n"
+    "- Win probability is well-supported, not just orderbook noise\n"
+    "- Time to resolution gives enough runway for thesis to play out\n\n"
+    "Respond in this exact format:\n"
+    "VERDICT: BUY or PASS\n"
+    "CONFIDENCE: 0.0 to 1.0\n"
+    "REASONING: 1-2 sentences"
+)
+
+_AGGRESSIVE_SYSTEM = (
+    "You are an aggressive prediction market trader on Polymarket. You look for "
+    "any reasonable edge and push to take it. You WANT to trade — that's how you "
+    "make money. A 2-5% edge is worth taking, especially on short-resolution markets.\n\n"
+    "Your bias is BUY. Only say PASS if the signal is clearly garbage:\n"
+    "- Edge < 1% (too thin to overcome fees)\n"
+    "- Market is clearly mispriced against you\n"
+    "- Resolution is years away with no catalyst\n\n"
+    "For edges of 2%+ with reasonable probability, you should BUY.\n\n"
+    "Respond in this exact format:\n"
+    "VERDICT: BUY or PASS\n"
+    "CONFIDENCE: 0.0 to 1.0\n"
+    "REASONING: 1-2 sentences"
+)
+
+_BALANCED_SYSTEM = (
+    "You are a data-driven prediction market analyst. You weigh three factors equally:\n"
+    "1. Edge magnitude — is the edge large enough to justify the risk?\n"
+    "2. Time to resolution — shorter is better (less uncertainty, faster capital turnover)\n"
+    "3. Category performance — has this type of market historically been profitable?\n\n"
+    "You have no inherent bias toward BUY or PASS. Let the data decide.\n"
+    "A 2-3% edge on a short-resolution market in a profitable category = BUY.\n"
+    "A 5% edge on a long-resolution market in a losing category = PASS.\n\n"
+    "Respond in this exact format:\n"
+    "VERDICT: BUY or PASS\n"
+    "CONFIDENCE: 0.0 to 1.0\n"
+    "REASONING: 1-2 sentences"
+)
+
+
 def _is_debatable_rejection(reason: str) -> bool:
     """Check if a risk rejection is debatable (not a hard safety limit)."""
     lower = reason.lower()
@@ -241,6 +287,17 @@ class PostMortemResult:
     strategy_fit: str  # "GOOD_FIT", "POOR_FIT", "NEUTRAL"
     analysis: str
     cost_usd: float
+
+
+@dataclass(frozen=True)
+class ConsensusResult:
+    """Result of a multi-persona consensus vote."""
+
+    approved: bool
+    verdicts: list[str]  # ["BUY", "PASS", "BUY"]
+    confidences: list[float]
+    avg_confidence: float
+    total_cost_usd: float
 
 
 @dataclass(frozen=True)
@@ -349,6 +406,194 @@ def clear_debate_cache() -> None:
     _debate_cache.clear()
 
 
+async def _get_market_history(question: str) -> str:
+    """Query recent trades for the same market and format as context text.
+
+    Uses first 60 chars of the question for LIKE matching.
+    Returns formatted text block, or empty string if no history found.
+    """
+    try:
+        from sqlalchemy import select
+
+        from bot.data.database import async_session
+        from bot.data.models import Trade
+    except ImportError:
+        return ""
+
+    prefix = question.strip()[:60]
+    if not prefix:
+        return ""
+
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                select(Trade)
+                .where(Trade.question.like(f"{prefix}%"))
+                .where(Trade.status == "filled")
+                .order_by(Trade.created_at.desc())
+                .limit(5)
+            )
+            trades = list(result.scalars().all())
+
+        if not trades:
+            return ""
+
+        lines = []
+        for t in trades:
+            pnl_str = f"${t.pnl:+.2f}" if t.pnl else "N/A"
+            exit_str = t.exit_reason or "N/A"
+            lines.append(
+                f"- {t.side} @ ${t.price:.3f}, PnL: {pnl_str}, "
+                f"exit: {exit_str}, strategy: {t.strategy}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("market_history_query_error", error=str(e))
+        return ""
+
+
+def _parse_consensus_persona(text: str) -> tuple[str, float]:
+    """Parse a consensus persona response. Returns (verdict, confidence)."""
+    verdict = "PASS"
+    confidence = 0.5
+
+    for line in text.split("\n"):
+        upper = line.upper().strip()
+        if upper.startswith("VERDICT:"):
+            val = upper.split(":", 1)[1].strip()
+            if "BUY" in val:
+                verdict = "BUY"
+            else:
+                verdict = "PASS"
+        elif upper.startswith("CONFIDENCE:"):
+            try:
+                confidence = float(line.split(":", 1)[1].strip())
+                confidence = max(0.0, min(1.0, confidence))
+            except ValueError:
+                pass
+
+    return verdict, confidence
+
+
+async def debate_with_consensus(
+    question: str,
+    strategy: str,
+    edge: float,
+    price: float,
+    estimated_prob: float,
+    confidence: float,
+    reasoning: str,
+    sentiment_score: float | None = None,
+    hours_to_resolution: float | None = None,
+) -> ConsensusResult | None:
+    """Run 3 Haiku personas in parallel and take majority vote.
+
+    Returns ConsensusResult, or None if consensus couldn't run.
+    """
+    if cost_tracker.is_over_budget:
+        return None
+
+    try:
+        from anthropic import AsyncAnthropic
+    except ImportError:
+        return None
+
+    api_key = settings.anthropic_api_key
+    if not api_key:
+        return None
+
+    client = AsyncAnthropic(api_key=api_key, timeout=_TIMEOUT)
+
+    safe_q = _sanitize_prompt_input(question)
+    safe_r = _sanitize_prompt_input(reasoning)
+    user_msg = (
+        f"Trade opportunity:\n"
+        f"Market: {safe_q}\n"
+        f"Strategy: {strategy}\n"
+        f"Market price: ${price:.3f}\n"
+        f"Our estimated probability: {estimated_prob:.1%}\n"
+        f"Edge: {edge:.1%}\n"
+        f"Signal confidence: {confidence:.2f}\n"
+        f"Strategy reasoning: {safe_r}\n"
+    )
+    if hours_to_resolution is not None:
+        user_msg += f"Hours until resolution: {hours_to_resolution:.1f}\n"
+    if sentiment_score is not None:
+        user_msg += f"News sentiment: {sentiment_score:+.2f} (-1=bearish, +1=bullish)\n"
+    user_msg += "\nShould we BUY or PASS?"
+
+    personas = [
+        ("conservative", _CONSERVATIVE_SYSTEM),
+        ("aggressive", _AGGRESSIVE_SYSTEM),
+        ("balanced", _BALANCED_SYSTEM),
+    ]
+
+    async def _call_persona(system_prompt: str) -> tuple[str, float, float]:
+        """Call a single persona. Returns (verdict, confidence, cost)."""
+        resp = await client.messages.create(
+            model=_MODEL,
+            max_tokens=_MAX_TOKENS,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        text = resp.content[0].text.strip()
+        cost = _calc_cost(resp.usage.input_tokens, resp.usage.output_tokens)
+        verdict, conf = _parse_consensus_persona(text)
+        return verdict, conf, cost
+
+    try:
+        results = await asyncio.gather(
+            *[_call_persona(sys) for _, sys in personas],
+            return_exceptions=True,
+        )
+    except Exception as e:
+        logger.warning("consensus_gather_error", error=str(e))
+        return None
+
+    verdicts: list[str] = []
+    confidences: list[float] = []
+    total_cost = 0.0
+
+    for i, res in enumerate(results):
+        if isinstance(res, Exception):
+            logger.warning(
+                "consensus_persona_error",
+                persona=personas[i][0],
+                error=str(res),
+            )
+            # Default to PASS on error
+            verdicts.append("PASS")
+            confidences.append(0.0)
+        else:
+            verdict, conf, cost = res
+            verdicts.append(verdict)
+            confidences.append(conf)
+            total_cost += cost
+
+    cost_tracker.add(total_cost)
+
+    buy_count = sum(1 for v in verdicts if v == "BUY")
+    approved = buy_count >= 2  # 2/3 majority needed
+    avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+
+    logger.info(
+        "llm_consensus_complete",
+        question=question[:60],
+        verdicts=verdicts,
+        approved=approved,
+        avg_confidence=round(avg_confidence, 2),
+        cost_usd=round(total_cost, 5),
+    )
+
+    return ConsensusResult(
+        approved=approved,
+        verdicts=list(verdicts),
+        confidences=list(confidences),
+        avg_confidence=round(avg_confidence, 3),
+        total_cost_usd=total_cost,
+    )
+
+
 async def debate_signal(
     question: str,
     strategy: str,
@@ -362,6 +607,7 @@ async def debate_signal(
     resolution_condition: str = "",
     resolution_source: str = "",
     whale_activity: bool = False,
+    whale_summary: str = "",
 ) -> DebateResult | None:
     """Run a Proposer vs Challenger debate on a trade signal.
 
@@ -395,30 +641,87 @@ async def debate_signal(
     start = time.monotonic()
     total_cost = 0.0
 
-    # --- PROPOSER ---
-    proposer_msg = _format_proposer_prompt(
-        question, strategy, edge, price, estimated_prob,
-        confidence, reasoning, sentiment_score, hours_to_resolution,
-        resolution_condition=resolution_condition,
-        resolution_source=resolution_source,
-        whale_activity=whale_activity,
-    )
+    # --- DEBATE MEMORY: fetch past trades on this market ---
+    history_text = await _get_market_history(question)
 
-    try:
-        prop_resp = await client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=_PROPOSER_SYSTEM,
-            messages=[{"role": "user", "content": proposer_msg}],
+    # --- CONSENSUS MODE (optional, replaces single proposer) ---
+    consensus_used = False
+    if settings.use_llm_consensus:
+        consensus = await debate_with_consensus(
+            question=question,
+            strategy=strategy,
+            edge=edge,
+            price=price,
+            estimated_prob=estimated_prob,
+            confidence=confidence,
+            reasoning=reasoning,
+            sentiment_score=sentiment_score,
+            hours_to_resolution=hours_to_resolution,
         )
-        prop_text = prop_resp.content[0].text.strip()
-        prop_cost = _calc_cost(prop_resp.usage.input_tokens, prop_resp.usage.output_tokens)
-        total_cost += prop_cost
-    except Exception as e:
-        logger.warning("llm_proposer_error", error=str(e))
-        return None
+        if consensus is not None:
+            consensus_used = True
+            total_cost += consensus.total_cost_usd
+            prop_verdict = "BUY" if consensus.approved else "PASS"
+            prop_confidence = consensus.avg_confidence
+            prop_reasoning = (
+                f"Consensus: {'/'.join(consensus.verdicts)} "
+                f"(avg conf {consensus.avg_confidence:.2f})"
+            )
+            prop_edge_valid = True  # Consensus doesn't do edge validation
 
-    prop_verdict, prop_confidence, prop_reasoning, prop_edge_valid = _parse_proposer(prop_text)
+            if not consensus.approved:
+                # Consensus said PASS — skip challenger
+                elapsed = time.monotonic() - start
+                cost_tracker.add(total_cost)
+                result = DebateResult(
+                    approved=False,
+                    proposer_verdict="PASS",
+                    proposer_confidence=prop_confidence,
+                    proposer_reasoning=prop_reasoning,
+                    challenger_verdict="skipped",
+                    challenger_risk="N/A",
+                    challenger_objections="Consensus voted PASS — no challenger needed",
+                    total_cost_usd=total_cost,
+                    elapsed_s=round(elapsed, 2),
+                )
+                _cache_debate(question, strategy, result, price=price, edge=edge)
+                return result
+
+    # --- PROPOSER (single mode, or consensus fallback) ---
+    if not consensus_used:
+        proposer_msg = _format_proposer_prompt(
+            question, strategy, edge, price, estimated_prob,
+            confidence, reasoning, sentiment_score, hours_to_resolution,
+            resolution_condition=resolution_condition,
+            resolution_source=resolution_source,
+            whale_activity=whale_activity,
+        )
+
+        # Inject market history context
+        if history_text:
+            proposer_msg += f"\n\nPREVIOUS TRADES ON THIS MARKET:\n{history_text}"
+
+        # Inject whale summary context
+        if whale_summary:
+            proposer_msg += f"\n\nWHALE ACTIVITY:\n{whale_summary}"
+
+        try:
+            prop_resp = await client.messages.create(
+                model=_MODEL,
+                max_tokens=_MAX_TOKENS,
+                system=_PROPOSER_SYSTEM,
+                messages=[{"role": "user", "content": proposer_msg}],
+            )
+            prop_text = prop_resp.content[0].text.strip()
+            prop_cost = _calc_cost(prop_resp.usage.input_tokens, prop_resp.usage.output_tokens)
+            total_cost += prop_cost
+        except Exception as e:
+            logger.warning("llm_proposer_error", error=str(e))
+            return None
+
+        prop_verdict, prop_confidence, prop_reasoning, prop_edge_valid = _parse_proposer(
+            prop_text,
+        )
 
     # If edge is invalid, force PASS and skip challenger (save cost)
     if not prop_edge_valid:
@@ -477,6 +780,14 @@ async def debate_signal(
         question, strategy, edge, price, estimated_prob,
         prop_reasoning, sentiment_score, hours_to_resolution,
     )
+
+    # Inject market history context for challenger
+    if history_text:
+        challenger_msg += f"\n\nPREVIOUS TRADES ON THIS MARKET:\n{history_text}"
+
+    # Inject whale summary context for challenger
+    if whale_summary:
+        challenger_msg += f"\n\nWHALE ACTIVITY:\n{whale_summary}"
 
     try:
         chal_resp = await client.messages.create(

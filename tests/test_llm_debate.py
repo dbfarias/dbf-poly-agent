@@ -4,6 +4,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bot.research.llm_debate import (
+    ConsensusResult,
     DebateResult,
     LlmCostTracker,
     _debate_cache,
@@ -11,6 +12,7 @@ from bot.research.llm_debate import (
     _get_cached_debate,
     _is_debatable_rejection,
     _parse_challenger,
+    _parse_consensus_persona,
     _parse_counter_proposer,
     _parse_post_mortem,
     _parse_proposer,
@@ -20,6 +22,7 @@ from bot.research.llm_debate import (
     clear_debate_cache,
     debate_risk_rejection,
     debate_signal,
+    debate_with_consensus,
     review_position,
 )
 
@@ -202,6 +205,7 @@ class TestDebateSignal:
         ):
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="value_betting", edge=0.05,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
@@ -242,6 +246,7 @@ class TestDebateSignal:
         ):
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will BTC reach $100k?", strategy="value_betting",
                 edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
@@ -282,6 +287,7 @@ class TestDebateSignal:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = False
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.03,
                 price=0.5, estimated_prob=0.53, confidence=0.6,
@@ -635,6 +641,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = False
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.05,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
@@ -690,6 +697,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = True
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will BTC reach $100k?", strategy="value_betting",
                 edge=0.05, price=0.5, estimated_prob=0.55, confidence=0.8,
@@ -746,6 +754,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = True
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.03,
                 price=0.5, estimated_prob=0.53, confidence=0.6,
@@ -793,6 +802,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = True
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.03,
                 price=0.5, estimated_prob=0.53, confidence=0.6,
@@ -837,6 +847,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = True
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.08,
                 price=0.5, estimated_prob=0.58, confidence=0.9,
@@ -877,6 +888,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = True
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.05,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
@@ -925,6 +937,7 @@ class TestMultiRoundDebate:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = True
+            mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will X?", strategy="test", edge=0.05,
                 price=0.5, estimated_prob=0.55, confidence=0.8,
@@ -1062,6 +1075,7 @@ class TestDebateCache:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_multi_round_debate = False
+            mock_settings.use_llm_consensus = False
 
             # First call — should hit the API
             result1 = await debate_signal(
@@ -1091,3 +1105,394 @@ class TestDebateCache:
         assert result2.total_cost_usd == 0.0  # No cost — cached
         # API was NOT called again
         assert mock_client.messages.create.call_count == 2
+
+
+class TestConsensusResult:
+    """Tests for the ConsensusResult dataclass."""
+
+    def test_dataclass_fields(self):
+        from bot.research.llm_debate import ConsensusResult
+        result = ConsensusResult(
+            approved=True,
+            verdicts=["BUY", "BUY", "PASS"],
+            confidences=[0.8, 0.7, 0.3],
+            avg_confidence=0.6,
+            total_cost_usd=0.003,
+        )
+        assert result.approved is True
+        assert len(result.verdicts) == 3
+        assert result.avg_confidence == 0.6
+
+    def test_frozen(self):
+        from bot.research.llm_debate import ConsensusResult
+        result = ConsensusResult(
+            approved=False,
+            verdicts=["PASS", "PASS", "BUY"],
+            confidences=[0.2, 0.3, 0.8],
+            avg_confidence=0.433,
+            total_cost_usd=0.002,
+        )
+        import pytest
+        with pytest.raises(AttributeError):
+            result.approved = True  # type: ignore[misc]
+
+
+class TestParseConsensusPersona:
+    def test_buy_verdict(self):
+        from bot.research.llm_debate import _parse_consensus_persona
+        text = "VERDICT: BUY\nCONFIDENCE: 0.85\nREASONING: Strong edge"
+        verdict, conf = _parse_consensus_persona(text)
+        assert verdict == "BUY"
+        assert conf == 0.85
+
+    def test_pass_verdict(self):
+        from bot.research.llm_debate import _parse_consensus_persona
+        text = "VERDICT: PASS\nCONFIDENCE: 0.2\nREASONING: Too risky"
+        verdict, conf = _parse_consensus_persona(text)
+        assert verdict == "PASS"
+        assert conf == 0.2
+
+    def test_malformed_defaults(self):
+        from bot.research.llm_debate import _parse_consensus_persona
+        text = "I think we should pass on this"
+        verdict, conf = _parse_consensus_persona(text)
+        assert verdict == "PASS"
+        assert conf == 0.5
+
+    def test_confidence_clamped(self):
+        from bot.research.llm_debate import _parse_consensus_persona
+        text = "VERDICT: BUY\nCONFIDENCE: 1.5"
+        _, conf = _parse_consensus_persona(text)
+        assert conf == 1.0
+
+
+class TestDebateWithConsensus:
+    """Tests for the debate_with_consensus function."""
+
+    async def test_budget_exhausted_returns_none(self):
+        from bot.research.llm_debate import debate_with_consensus
+        with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
+            mock_tracker.is_over_budget = True
+            result = await debate_with_consensus(
+                question="Q?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.7,
+                reasoning="test",
+            )
+            assert result is None
+
+    async def test_missing_api_key_returns_none(self):
+        from bot.research.llm_debate import debate_with_consensus
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = ""
+            result = await debate_with_consensus(
+                question="Q?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.7,
+                reasoning="test",
+            )
+            assert result is None
+
+    async def test_majority_buy_approves(self):
+        from bot.research.llm_debate import debate_with_consensus
+        # 3 personas: conservative=PASS, aggressive=BUY, balanced=BUY
+        conservative_resp = MagicMock()
+        conservative_resp.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.3\nREASONING: Edge too thin"
+        )]
+        conservative_resp.usage.input_tokens = 200
+        conservative_resp.usage.output_tokens = 30
+
+        aggressive_resp = MagicMock()
+        aggressive_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.9\nREASONING: Great edge"
+        )]
+        aggressive_resp.usage.input_tokens = 200
+        aggressive_resp.usage.output_tokens = 30
+
+        balanced_resp = MagicMock()
+        balanced_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.7\nREASONING: Data supports"
+        )]
+        balanced_resp.usage.input_tokens = 200
+        balanced_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[conservative_resp, aggressive_resp, balanced_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            result = await debate_with_consensus(
+                question="Will BTC hit $100k?", strategy="value_betting",
+                edge=0.05, price=0.5, estimated_prob=0.55, confidence=0.8,
+                reasoning="Strong imbalance",
+            )
+
+        assert result is not None
+        assert result.approved is True
+        assert result.verdicts == ["PASS", "BUY", "BUY"]
+        assert len(result.confidences) == 3
+        assert result.avg_confidence > 0
+        assert result.total_cost_usd > 0
+        assert mock_client.messages.create.call_count == 3
+
+    async def test_majority_pass_rejects(self):
+        from bot.research.llm_debate import debate_with_consensus
+        # All 3 return PASS
+        resp = MagicMock()
+        resp.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.2\nREASONING: Bad signal"
+        )]
+        resp.usage.input_tokens = 200
+        resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=resp)
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            result = await debate_with_consensus(
+                question="Will X?", strategy="test", edge=0.01,
+                price=0.5, estimated_prob=0.51, confidence=0.3,
+                reasoning="Weak",
+            )
+
+        assert result is not None
+        assert result.approved is False
+        assert result.verdicts == ["PASS", "PASS", "PASS"]
+
+    async def test_persona_error_defaults_to_pass(self):
+        from bot.research.llm_debate import debate_with_consensus
+        # First persona succeeds with BUY, other two throw errors
+        good_resp = MagicMock()
+        good_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.9\nREASONING: Strong"
+        )]
+        good_resp.usage.input_tokens = 200
+        good_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[good_resp, Exception("API error"), Exception("Timeout")]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            result = await debate_with_consensus(
+                question="Will X?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.7,
+                reasoning="test",
+            )
+
+        assert result is not None
+        assert result.approved is False  # Only 1 BUY, 2 errors (PASS)
+        assert result.verdicts == ["BUY", "PASS", "PASS"]
+        assert result.confidences[1] == 0.0  # Error persona gets 0 confidence
+        assert result.confidences[2] == 0.0
+
+
+class TestGetMarketHistory:
+    async def test_empty_question_returns_empty(self):
+        from bot.research.llm_debate import _get_market_history
+        result = await _get_market_history("")
+        assert result == ""
+
+    async def test_import_error_returns_empty(self):
+        from bot.research.llm_debate import _get_market_history
+        with patch.dict("sys.modules", {"bot.data.database": None}):
+            result = await _get_market_history("Will BTC hit $100k?")
+            # Should not crash, returns empty
+            assert isinstance(result, str)
+
+
+class TestWhaleSummaryIntegration:
+    """Tests that whale_summary parameter is accepted and doesn't break debate."""
+
+    def setup_method(self):
+        clear_debate_cache()
+
+    async def test_whale_summary_in_debate_signal(self):
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.85\nREASONING: Whales are buying"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK_LEVEL: LOW\nOBJECTIONS: None"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.use_multi_round_debate = False
+            result = await debate_signal(
+                question="Will BTC hit $100k?", strategy="value_betting",
+                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                reasoning="Strong imbalance",
+                whale_summary="3 whale orders, $5,000 total, net bias: BUY",
+            )
+
+        assert result is not None
+        assert result.approved is True
+        # Verify whale summary was included in the prompt
+        call_args = mock_client.messages.create.call_args_list[0]
+        proposer_msg = call_args.kwargs["messages"][0]["content"]
+        assert "WHALE ACTIVITY" in proposer_msg
+        assert "3 whale orders" in proposer_msg
+
+    async def test_empty_whale_summary_not_injected(self):
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.3\nREASONING: Weak"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=prop_resp)
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.05,
+                price=0.5, estimated_prob=0.55, confidence=0.7,
+                reasoning="test",
+                whale_summary="",
+            )
+
+        assert result is not None
+        call_args = mock_client.messages.create.call_args_list[0]
+        proposer_msg = call_args.kwargs["messages"][0]["content"]
+        assert "WHALE ACTIVITY" not in proposer_msg
+
+
+class TestConsensusIntegrationWithDebateSignal:
+    """Test that consensus mode integrates correctly with debate_signal."""
+
+    def setup_method(self):
+        clear_debate_cache()
+
+    async def test_consensus_approved_triggers_challenger(self):
+        """When consensus approves, challenger still reviews."""
+        # Consensus: 2 BUY, 1 PASS = approved
+        buy_resp = MagicMock()
+        buy_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Good"
+        )]
+        buy_resp.usage.input_tokens = 200
+        buy_resp.usage.output_tokens = 30
+
+        pass_resp = MagicMock()
+        pass_resp.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.3\nREASONING: Weak"
+        )]
+        pass_resp.usage.input_tokens = 200
+        pass_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK_LEVEL: LOW\nOBJECTIONS: None"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        # 3 consensus + 1 challenger = 4 calls
+        mock_client.messages.create = AsyncMock(
+            side_effect=[buy_resp, buy_resp, pass_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = True
+            mock_settings.use_multi_round_debate = False
+            result = await debate_signal(
+                question="Will BTC hit $100k?", strategy="value_betting",
+                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                reasoning="Strong",
+            )
+
+        assert result is not None
+        assert result.approved is True
+        assert "Consensus" in result.proposer_reasoning
+        assert result.challenger_verdict == "APPROVE"
+        # 3 consensus calls + 1 challenger call = 4
+        assert mock_client.messages.create.call_count == 4
+
+    async def test_consensus_rejected_skips_challenger(self):
+        """When consensus rejects (majority PASS), skip challenger."""
+        pass_resp = MagicMock()
+        pass_resp.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.2\nREASONING: Bad"
+        )]
+        pass_resp.usage.input_tokens = 200
+        pass_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=pass_resp)
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = True
+            mock_settings.use_multi_round_debate = False
+            result = await debate_signal(
+                question="Will X?", strategy="test", edge=0.01,
+                price=0.5, estimated_prob=0.51, confidence=0.3,
+                reasoning="Weak",
+            )
+
+        assert result is not None
+        assert result.approved is False
+        assert result.challenger_verdict == "skipped"
+        # Only 3 consensus calls, no challenger
+        assert mock_client.messages.create.call_count == 3

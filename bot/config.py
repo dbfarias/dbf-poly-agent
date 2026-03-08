@@ -190,6 +190,7 @@ class Settings(BaseSettings):
     use_multi_round_debate: bool = False
     use_llm_keywords: bool = False
     use_llm_post_mortem: bool = False
+    use_llm_consensus: bool = False
     llm_daily_budget: float = 3.0
     anthropic_api_key: str = ""
 

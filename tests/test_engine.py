@@ -1390,6 +1390,7 @@ def _make_learner_adjustments(
     adj.daily_progress = 0.0
     adj.edge_multipliers = {}
     adj.category_confidences = {}
+    adj.category_min_edges = {}
     adj.calibration = {}
     return adj
 
