@@ -1541,7 +1541,7 @@ class TestMediumRiskOverride:
         assert result.challenger_risk == "MEDIUM"
 
     async def test_high_risk_low_conf_still_rejects(self):
-        """Proposer BUY conf 0.8 + Challenger REJECT HIGH → rejected (conf < 0.85)."""
+        """Proposer BUY conf 0.8 + Challenger REJECT HIGH → rejected (conf < 0.9)."""
         prop_resp = MagicMock()
         prop_resp.content = [MagicMock(
             text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong signal"
@@ -1622,7 +1622,7 @@ class TestMediumRiskOverride:
 
 
     async def test_high_risk_high_conf_overrides(self):
-        """Proposer BUY conf 0.9 + Challenger REJECT HIGH → approved (conf >= 0.85)."""
+        """Proposer BUY conf 0.9 + Challenger REJECT HIGH → approved (conf >= 0.9)."""
         prop_resp = MagicMock()
         prop_resp.content = [MagicMock(
             text="VERDICT: BUY\nCONFIDENCE: 0.9\nREASONING: Very strong signal"

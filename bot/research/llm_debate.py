@@ -837,12 +837,12 @@ async def debate_signal(
         approved = (prop_verdict == "BUY" and chal_verdict == "APPROVE")
 
     # Override: confident proposer can override challenger rejection
-    # MEDIUM risk + conf >= 0.7 → approve
-    # HIGH risk + conf >= 0.85 → approve (very strong proposer conviction)
+    # MEDIUM risk + conf >= 0.8 → approve (raised from 0.7 to reduce bad trades)
+    # HIGH risk + conf >= 0.9 → approve (raised from 0.85 for extra safety)
     if not approved and prop_verdict == "BUY" and chal_verdict == "REJECT":
-        if chal_risk == "MEDIUM" and prop_confidence >= 0.7:
+        if chal_risk == "MEDIUM" and prop_confidence >= 0.8:
             approved = True
-        elif chal_risk == "HIGH" and prop_confidence >= 0.85:
+        elif chal_risk == "HIGH" and prop_confidence >= 0.9:
             approved = True
 
     elapsed = time.monotonic() - start
