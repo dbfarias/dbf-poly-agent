@@ -345,10 +345,10 @@ class TestTimeDecayStopLoss:
         assert result is True
 
     async def test_stop_loss_no_trigger_below_threshold(self, strategy):
-        """8% loss from entry → should_exit returns False."""
-        # avg=0.90, current=0.828 → 8% loss → no trigger
+        """5% loss from entry → should_exit returns False (threshold is 7%)."""
+        # avg=0.90, current=0.855 → 5% loss → no trigger
         result = await strategy.should_exit(
-            "mkt1", 0.828, avg_price=0.90, created_at=None,
+            "mkt1", 0.855, avg_price=0.90, created_at=None,
         )
         assert result is False
 

@@ -28,7 +28,7 @@ logger = structlog.get_logger()
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 MIN_DIVERGENCE_PCT = 0.01        # 1% minimum divergence (was 0.3% — too noisy)
-MIN_EDGE = 0.02                  # 2% minimum edge (was 0.5% — barely covered costs)
+MIN_EDGE = 0.03                  # 3% minimum edge (conservative, reduce false signals)
 MAX_EDGE = 0.25                  # 25% max edge — reject absurd signals
 TAKE_PROFIT_PCT = 0.015          # 1.5% take profit (was 0.5% — too tight)
 STOP_LOSS_PCT = 0.015            # 1.5% stop loss (symmetric with TP)
@@ -105,16 +105,28 @@ class PriceDivergenceStrategy(BaseStrategy):
     # ── Public interface ───────────────────────────────────────────────────
 
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
-        """Scan markets for price divergence opportunities."""
+        """Scan markets for price divergence opportunities (crypto only)."""
         self._update_price_history(markets)
 
         signals: list[TradeSignal] = []
         now = datetime.now(timezone.utc)
+        skipped_non_crypto = 0
 
         for market in markets:
+            # Crypto-only filter: skip non-crypto markets early
+            if not self._is_crypto_market(market.question):
+                skipped_non_crypto += 1
+                continue
+
             signal = self._evaluate_market(market, now)
             if signal is not None:
                 signals.append(signal)
+
+        if skipped_non_crypto > 0:
+            self.logger.info(
+                "price_divergence_skip_non_crypto",
+                skipped=skipped_non_crypto,
+            )
 
         # Sort by divergence strength (edge)
         signals.sort(key=lambda s: s.edge, reverse=True)

@@ -32,7 +32,7 @@ URGENCY_CAP_SHORT = 72.0    # Urgency 1.0 → up to 3 days
 URGENCY_CAP_MAX = 168.0     # Urgency 1.3+ → up to 7 days
 
 # Strategy parameters
-MIN_IMPLIED_PROB = 0.80
+MIN_IMPLIED_PROB = 0.85
 MAX_PRICE = 0.97
 MIN_PRICE = 0.80
 MIN_EDGE = 0.015  # 1.5% minimum edge (real edge, no phantom bonus)
@@ -67,11 +67,11 @@ class TimeDecayStrategy(BaseStrategy):
     name = "time_decay"
     min_tier = CapitalTier.TIER1
 
-    EXIT_TP_EARLY_PCT = 0.025    # 2.5% TP for first 6h (need higher profit to justify)
+    EXIT_TP_EARLY_PCT = 0.03     # 3% TP for first 6h (need higher profit to justify)
     EXIT_TP_MID_PCT = 0.015      # 1.5% TP for 6-24h
     EXIT_TP_LATE_PCT = 0.010     # 1.0% TP after 24h (take what you can)
     EXIT_MIN_HOLD_HOURS = 4.0    # Min hold before any take-profit triggers
-    EXIT_STOP_LOSS_PCT = 0.10    # 10% stop-loss (tighter than universal 15%)
+    EXIT_STOP_LOSS_PCT = 0.07    # 7% stop-loss (tighter, cut losses faster)
 
     # Anti-churn: minimum hold before rebalance can sell this strategy's positions
     MIN_HOLD_SECONDS = 7200  # 2h (high-prob markets need patience to resolve)

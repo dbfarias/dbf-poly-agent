@@ -199,13 +199,13 @@ class TestSentimentDivergence:
     def test_divergence_detected(self):
         """Positive sentiment + falling price → BUY YES."""
         rc = ResearchCache()
-        research = _make_research(sentiment=0.90, confidence=0.80)
+        research = _make_research(sentiment=0.95, confidence=0.90)
         rc.set("m1", research)
 
         strategy = _make_strategy(research_cache=rc)
         # Seed sharply falling price history → strong negative trend
         strategy._price_history["m1"] = deque(
-            [0.65, 0.60, 0.55, 0.50, 0.45], maxlen=PRICE_HISTORY_MAXLEN
+            [0.70, 0.62, 0.55, 0.48, 0.40], maxlen=PRICE_HISTORY_MAXLEN
         )
 
         market = _make_market(
@@ -252,17 +252,17 @@ class TestScan:
     async def test_returns_sorted_signals(self):
         """Signals should be sorted by edge (descending).
 
-        m1: BTC at $101.5k, threshold $100k → est_prob=0.65, edge=0.10
-        m2: BTC at $101k, threshold $100k → est_prob=0.60, edge=0.05
+        m1: BTC at $103k, threshold $100k → est_prob=0.65, edge=0.10
+        m2: BTC at $102k, threshold $100k → est_prob=0.60, edge=0.05
         """
         rc = ResearchCache()
         r1 = _make_research(
             market_id="m1",
-            crypto_prices=(("bitcoin", 101_500.0),),
+            crypto_prices=(("bitcoin", 103_000.0),),
         )
         r2 = _make_research(
             market_id="m2",
-            crypto_prices=(("bitcoin", 101_000.0),),
+            crypto_prices=(("bitcoin", 102_000.0),),
         )
         rc.set("m1", r1)
         rc.set("m2", r2)
