@@ -99,9 +99,9 @@ def _build_challenger_system(daily_target_pct: float = 1.0) -> str:
         "- Resolution is very far away (>30 days) with thin edge\n\n"
         "RISK LEVEL guidance:\n"
         "- LOW: solid trade, no concerns\n"
-        "- MEDIUM: minor concerns but trade is probably fine\n"
-        "- HIGH: serious flaws, this trade should NOT proceed\n"
-        "Only use HIGH when there is a fundamental problem.\n\n"
+        "- MEDIUM: some concerns but trade has merit — use this for most rejections\n"
+        "- HIGH: ONLY for fatal flaws (wrong market, impossible outcome, obvious scam)\n"
+        "Default to MEDIUM when rejecting. HIGH should be rare (<10% of rejections).\n\n"
         "Remember: we trade small sizes ($1-5). The cost of missing a good trade "
         "is worse than taking a slightly marginal one.\n\n"
         "Respond in this exact format:\n"
@@ -836,16 +836,14 @@ async def debate_signal(
     else:
         approved = (prop_verdict == "BUY" and chal_verdict == "APPROVE")
 
-    # Override: confident proposer + challenger MEDIUM risk → approve
-    # Only challenger HIGH risk can truly veto a high-confidence proposer
-    if (
-        not approved
-        and prop_verdict == "BUY"
-        and chal_verdict == "REJECT"
-        and chal_risk == "MEDIUM"
-        and prop_confidence >= 0.7
-    ):
-        approved = True
+    # Override: confident proposer can override challenger rejection
+    # MEDIUM risk + conf >= 0.7 → approve
+    # HIGH risk + conf >= 0.85 → approve (very strong proposer conviction)
+    if not approved and prop_verdict == "BUY" and chal_verdict == "REJECT":
+        if chal_risk == "MEDIUM" and prop_confidence >= 0.7:
+            approved = True
+        elif chal_risk == "HIGH" and prop_confidence >= 0.85:
+            approved = True
 
     elapsed = time.monotonic() - start
     cost_tracker.add(total_cost)

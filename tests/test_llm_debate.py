@@ -1115,7 +1115,6 @@ class TestConsensusResult:
     """Tests for the ConsensusResult dataclass."""
 
     def test_dataclass_fields(self):
-        from bot.research.llm_debate import ConsensusResult
         result = ConsensusResult(
             approved=True,
             verdicts=["BUY", "BUY", "PASS"],
@@ -1128,7 +1127,6 @@ class TestConsensusResult:
         assert result.avg_confidence == 0.6
 
     def test_frozen(self):
-        from bot.research.llm_debate import ConsensusResult
         result = ConsensusResult(
             approved=False,
             verdicts=["PASS", "PASS", "BUY"],
@@ -1143,28 +1141,24 @@ class TestConsensusResult:
 
 class TestParseConsensusPersona:
     def test_buy_verdict(self):
-        from bot.research.llm_debate import _parse_consensus_persona
         text = "VERDICT: BUY\nCONFIDENCE: 0.85\nREASONING: Strong edge"
         verdict, conf = _parse_consensus_persona(text)
         assert verdict == "BUY"
         assert conf == 0.85
 
     def test_pass_verdict(self):
-        from bot.research.llm_debate import _parse_consensus_persona
         text = "VERDICT: PASS\nCONFIDENCE: 0.2\nREASONING: Too risky"
         verdict, conf = _parse_consensus_persona(text)
         assert verdict == "PASS"
         assert conf == 0.2
 
     def test_malformed_defaults(self):
-        from bot.research.llm_debate import _parse_consensus_persona
         text = "I think we should pass on this"
         verdict, conf = _parse_consensus_persona(text)
         assert verdict == "PASS"
         assert conf == 0.5
 
     def test_confidence_clamped(self):
-        from bot.research.llm_debate import _parse_consensus_persona
         text = "VERDICT: BUY\nCONFIDENCE: 1.5"
         _, conf = _parse_consensus_persona(text)
         assert conf == 1.0
@@ -1174,7 +1168,6 @@ class TestDebateWithConsensus:
     """Tests for the debate_with_consensus function."""
 
     async def test_budget_exhausted_returns_none(self):
-        from bot.research.llm_debate import debate_with_consensus
         with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
             mock_tracker.is_over_budget = True
             result = await debate_with_consensus(
@@ -1185,7 +1178,6 @@ class TestDebateWithConsensus:
             assert result is None
 
     async def test_missing_api_key_returns_none(self):
-        from bot.research.llm_debate import debate_with_consensus
         with (
             patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
             patch("bot.research.llm_debate.settings") as mock_settings,
@@ -1200,7 +1192,6 @@ class TestDebateWithConsensus:
             assert result is None
 
     async def test_majority_buy_approves(self):
-        from bot.research.llm_debate import debate_with_consensus
         # 3 personas: conservative=PASS, aggressive=BUY, balanced=BUY
         conservative_resp = MagicMock()
         conservative_resp.content = [MagicMock(
@@ -1250,7 +1241,6 @@ class TestDebateWithConsensus:
         assert mock_client.messages.create.call_count == 3
 
     async def test_majority_pass_rejects(self):
-        from bot.research.llm_debate import debate_with_consensus
         # All 3 return PASS
         resp = MagicMock()
         resp.content = [MagicMock(
@@ -1280,7 +1270,6 @@ class TestDebateWithConsensus:
         assert result.verdicts == ["PASS", "PASS", "PASS"]
 
     async def test_persona_error_defaults_to_pass(self):
-        from bot.research.llm_debate import debate_with_consensus
         # First persona succeeds with BUY, other two throw errors
         good_resp = MagicMock()
         good_resp.content = [MagicMock(
@@ -1503,7 +1492,7 @@ class TestConsensusIntegrationWithDebateSignal:
 
 
 class TestMediumRiskOverride:
-    """Test the MEDIUM risk override: confident proposer overrides MEDIUM rejections."""
+    """Test risk override: confident proposer overrides MEDIUM/HIGH rejections."""
 
     def setup_method(self):
         clear_debate_cache()
@@ -1551,8 +1540,8 @@ class TestMediumRiskOverride:
         assert result.challenger_verdict == "REJECT"
         assert result.challenger_risk == "MEDIUM"
 
-    async def test_high_risk_still_rejects(self):
-        """Proposer BUY conf 0.8 + Challenger REJECT HIGH → rejected."""
+    async def test_high_risk_low_conf_still_rejects(self):
+        """Proposer BUY conf 0.8 + Challenger REJECT HIGH → rejected (conf < 0.85)."""
         prop_resp = MagicMock()
         prop_resp.content = [MagicMock(
             text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong signal"
@@ -1630,6 +1619,47 @@ class TestMediumRiskOverride:
 
         assert result is not None
         assert result.approved is False
+
+
+    async def test_high_risk_high_conf_overrides(self):
+        """Proposer BUY conf 0.9 + Challenger REJECT HIGH → approved (conf >= 0.85)."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.9\nREASONING: Very strong signal"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Some concerns"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.use_multi_round_debate = False
+            mock_settings.daily_target_pct = 1.0
+            result = await debate_signal(
+                question="Will Z happen soon?", strategy="value_betting",
+                edge=0.10, price=0.40, estimated_prob=0.50, confidence=0.9,
+                reasoning="Very strong signal",
+            )
+
+        assert result is not None
+        assert result.approved is True
 
 
 class TestContextEnrichment:
