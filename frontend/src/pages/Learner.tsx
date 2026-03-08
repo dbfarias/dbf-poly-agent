@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { clsx } from "clsx";
 import { formatDateTime } from "../utils/date";
 import {
@@ -16,6 +17,7 @@ import {
   fetchLearnerCalibration,
   fetchLearnerMultipliers,
   fetchLearnerPauses,
+  unpauseStrategy,
 } from "../api/client";
 import HelpTooltip from "../components/HelpTooltip";
 
@@ -37,6 +39,8 @@ const STRATEGY_LABELS: Record<string, string> = {
 };
 
 export default function Learner() {
+  const queryClient = useQueryClient();
+
   const { data: multipliers, isLoading: loadingMult } = useQuery({
     queryKey: ["learner-multipliers"],
     queryFn: fetchLearnerMultipliers,
@@ -85,7 +89,7 @@ export default function Learner() {
       </div>
 
       {/* Strategy Pause Status */}
-      <PausePanel pauses={pauses} />
+      <PausePanel pauses={pauses} onUnpause={() => queryClient.invalidateQueries({ queryKey: ["learner-pauses"] })} />
 
       {/* Edge Multipliers */}
       <MultipliersPanel multipliers={multipliers} />
@@ -104,8 +108,25 @@ export default function Learner() {
 
 /* ─── Pause Panel ────────────────────────────────────────────── */
 
-function PausePanel({ pauses }: { pauses: ReturnType<typeof fetchLearnerPauses> extends Promise<infer T> ? T | undefined : never }) {
+function PausePanel({ pauses, onUnpause }: {
+  pauses: ReturnType<typeof fetchLearnerPauses> extends Promise<infer T> ? T | undefined : never;
+  onUnpause: () => void;
+}) {
+  const [loadingStrategy, setLoadingStrategy] = useState<string | null>(null);
+
   if (!pauses) return null;
+
+  const handleUnpause = async (strategy: string) => {
+    setLoadingStrategy(strategy);
+    try {
+      await unpauseStrategy(strategy);
+      onUnpause();
+    } catch {
+      // Error is shown via the API interceptor
+    } finally {
+      setLoadingStrategy(null);
+    }
+  };
 
   return (
     <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5">
@@ -143,6 +164,13 @@ function PausePanel({ pauses }: { pauses: ReturnType<typeof fetchLearnerPauses> 
                     {s.pause_info.remaining_hours.toFixed(1)}h remaining
                   </div>
                 )}
+                <button
+                  onClick={() => handleUnpause(s.strategy)}
+                  disabled={loadingStrategy === s.strategy}
+                  className="mt-2 px-3 py-1 rounded text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loadingStrategy === s.strategy ? "Unpausing..." : "Unpause"}
+                </button>
               </>
             ) : (
               <div className="text-xs text-green-400 mt-1">Active</div>

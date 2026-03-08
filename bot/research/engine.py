@@ -100,6 +100,13 @@ class ResearchEngine:
         await self.twitter_fetcher.close()
         logger.info("research_engine_stopped")
 
+    async def trigger_scan(self) -> int:
+        """Manual scan trigger via API. Returns number of markets scanned."""
+        if not self._running:
+            return 0
+        await self._scan_all_markets()
+        return self.MAX_MARKETS
+
     async def _scan_all_markets(self) -> None:
         """For each cached market: extract keywords, fetch news, compute sentiment."""
         markets = self.market_cache.get_all_markets()

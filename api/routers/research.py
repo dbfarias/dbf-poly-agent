@@ -58,6 +58,18 @@ async def get_research_markets(_: str = Depends(verify_api_key)):
     ]
 
 
+@router.post("/scan")
+async def trigger_research_scan(_: str = Depends(verify_api_key)):
+    """Manually trigger a research scan."""
+    engine = get_engine()
+    if engine.research_engine is None:
+        raise HTTPException(
+            status_code=400, detail="Research engine not available"
+        )
+    count = await engine.research_engine.trigger_scan()
+    return {"status": "triggered", "markets_scanned": count}
+
+
 @router.get("/markets/{market_id}")
 async def get_market_research(
     market_id: str = Path(..., max_length=100, pattern=r"^[A-Za-z0-9_\-]+$"),

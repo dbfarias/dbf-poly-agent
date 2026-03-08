@@ -338,6 +338,17 @@ export const fetchLearnerCalibration = () =>
 export const fetchLearnerPauses = () =>
   api.get<LearnerPauses>("/api/learner/pauses").then((r) => r.data);
 
+export const unpauseStrategy = (strategy: string) =>
+  api.post<{ strategy: string; was_paused: boolean; status: string }>(
+    "/api/learner/unpause",
+    { strategy }
+  ).then((r) => r.data);
+
+export const triggerResearchScan = () =>
+  api.post<{ status: string; markets_scanned: number }>(
+    "/api/research/scan"
+  ).then((r) => r.data);
+
 // Daily PnL types
 export interface DailyPnlPoint {
   date: string;

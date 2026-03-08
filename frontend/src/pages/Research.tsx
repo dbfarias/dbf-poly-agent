@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { clsx } from "clsx";
 import {
   fetchResearchMarkets,
   fetchResearchStatus,
+  triggerResearchScan,
   type ResearchMarket,
 } from "../api/client";
 import HelpTooltip from "../components/HelpTooltip";
@@ -37,6 +39,9 @@ function sentimentLabel(score: number): string {
 }
 
 export default function Research() {
+  const queryClient = useQueryClient();
+  const [scanning, setScanning] = useState(false);
+
   const { data: status, isLoading: loadingStatus } = useQuery({
     queryKey: ["research-status"],
     queryFn: fetchResearchStatus,
@@ -50,6 +55,19 @@ export default function Research() {
   });
 
   const isLoading = loadingStatus || loadingMarkets;
+
+  const handleScanNow = async () => {
+    setScanning(true);
+    try {
+      await triggerResearchScan();
+      queryClient.invalidateQueries({ queryKey: ["research-status"] });
+      queryClient.invalidateQueries({ queryKey: ["research-markets"] });
+    } catch {
+      // Error is shown via the API interceptor
+    } finally {
+      setScanning(false);
+    }
+  };
 
   if (isLoading) {
     return <div className="text-zinc-500">Loading research data...</div>;
@@ -70,7 +88,16 @@ export default function Research() {
               : "Not yet scanned"}
           </p>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleScanNow}
+            disabled={scanning}
+            className="px-3 py-1.5 rounded text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {scanning ? "Scanning..." : "Scan Now"}
+          </button>
+          <StatusBadge status={status} />
+        </div>
       </div>
 
       {/* Engine Stats */}
