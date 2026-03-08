@@ -71,9 +71,23 @@ _SPORTS_KEYWORDS = re.compile(
     r"|dc united|chicago fire"
     # College teams (commonly traded)
     r"|uconn|gonzaga|duke|kentucky|north carolina|villanova|kansas|baylor"
-    # Esports
+    # Esports — games
     r"|valorant|counter-strike|dota|league of legends|overwatch"
-    r"|esports|bo3|bo5"
+    r"|esports|e-sports|csgo|cs2|cs:go|fortnite|pubg|call of duty"
+    r"|rocket league|rainbow six|apex legends|starcraft|hearthstone"
+    r"|smash bros|tekken|street fighter|mortal kombat"
+    # Esports — match formats
+    r"|bo1|bo3|bo5|best of 3|best of 5|best of 7"
+    r"|game [1-9]|map [1-9]|set [1-9]|round [1-9]"
+    # Esports — in-game events
+    r"|first blood|first kill|first tower|first dragon|first baron"
+    r"|first roshan|ace |clutch |mvp |pentakill|quadrakill|triple kill"
+    r"|pistol round|knife round|overtime"
+    # Esports — orgs and tournaments
+    r"|fnatic|cloud9|team liquid|g2 esports|navi|faze clan|100 thieves"
+    r"|t1 |gen\.?g|drx |nrg |sentinels|loud |mibr|furia"
+    r"|worlds 202|msi 202|vct |pgl |esl |iem |blast premier|dreamhack"
+    r"|lck |lpl |lec |lcs |cblol"
     r")",
     re.IGNORECASE,
 )
