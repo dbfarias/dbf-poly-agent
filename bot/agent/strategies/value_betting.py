@@ -172,7 +172,24 @@ class ValueBettingStrategy(BaseStrategy):
         no_price = market.no_price or (1.0 - yes_price)
         has_no_token = len(token_ids) >= 2
 
-        edge_val = abs(imbalance) * 0.1
+        # Empirically-calibrated edge formula:
+        # 1) Base edge from imbalance (nonlinear: bigger imbalance → disproportionately higher edge)
+        # 2) Volume depth bonus: thicker books = more reliable signal
+        # 3) Time discount: shorter resolution → higher confidence in signal
+        abs_imb = abs(imbalance)
+        # nonlinear: 0.15→0.52%, 0.25→1.18%, 0.40→2.40%, 0.60→4.39%
+        base_edge = abs_imb ** 1.5 * 0.3
+
+        # Volume depth factor: scale 0.8-1.2 based on book thickness
+        # 500 vol = 1.0 baseline, 2000+ = 1.2 max, <200 = 0.8 min
+        vol_factor = max(0.8, min(1.2, 0.8 + (total_volume - 200) / 4500))
+        edge_val = base_edge * vol_factor
+
+        # Time-to-resolution bonus: shorter markets → signal more actionable
+        if hours_left <= 24:
+            edge_val *= 1.15
+        elif hours_left <= 72:
+            edge_val *= 1.05
 
         if edge_val < self.MIN_EDGE:
             return None

@@ -935,6 +935,19 @@ class TradingEngine:
                 signal.metadata["research_sentiment"] = research.sentiment_score
                 signal.metadata["research_multiplier"] = r_mult
 
+                # Wire historical base rate into confidence scoring
+                br_raw = getattr(research, "historical_base_rate", 0.0)
+                if isinstance(br_raw, (int, float)) and br_raw > 0:
+                    # If pattern analyzer found similar past trades,
+                    # blend the base rate with signal confidence.
+                    # High base rate (>60%) → boost confidence up to +10%
+                    # Low base rate (<40%) → penalize confidence up to -10%
+                    br_adjustment = (br_raw - 0.5) * 0.2  # maps [0,1] → [-0.1, +0.1]
+                    signal.confidence = max(
+                        0.3, min(0.95, signal.confidence + br_adjustment),
+                    )
+                    signal.metadata["historical_base_rate"] = br_raw
+
             # Calibrate estimated probability using historical accuracy
             if self.learner.calibrator.is_trained:
                 calibrated = self.learner.calibrator.calibrate(

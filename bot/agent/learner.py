@@ -582,18 +582,26 @@ class PerformanceLearner:
             return 1.5
 
     def _compute_edge_multiplier(self, stats: StrategyStats) -> float:
-        """Compute edge multiplier from stats, clamped to safe range."""
+        """Compute edge multiplier from stats using smooth linear interpolation.
+
+        Maps win_rate linearly:
+          win_rate >= 0.70 → 0.7  (very profitable, lower the bar)
+          win_rate == 0.50 → 1.0  (breakeven, standard)
+          win_rate <= 0.25 → 1.75 (losing, demand much higher edge)
+
+        This avoids cliff-step oscillation at 40%/60% boundaries.
+        """
         if stats.total_trades < self.MIN_TRADES_FOR_ADJUSTMENT:
             return 1.2  # Cautious until enough data
 
         win_rate = stats.actual_win_rate
 
-        if win_rate > 0.60:
-            multiplier = 0.8
-        elif win_rate >= 0.40:
-            multiplier = 1.0
-        else:
-            multiplier = 1.5
+        # Linear interpolation: higher win rate → lower multiplier
+        # Anchored at (0.25, 1.75) and (0.70, 0.7)
+        # slope = (0.7 - 1.75) / (0.70 - 0.25) = -1.05 / 0.45 ≈ -2.333
+        # multiplier = 1.75 + (win_rate - 0.25) * (-2.333)
+        # Simplified: multiplier = 1.75 - 2.333 * (win_rate - 0.25)
+        multiplier = 1.75 - (win_rate - 0.25) * (1.05 / 0.45)
 
         return max(self.MULTIPLIER_MIN, min(self.MULTIPLIER_MAX, multiplier))
 

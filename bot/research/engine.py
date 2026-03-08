@@ -35,7 +35,7 @@ class ResearchEngine:
 
     SCAN_INTERVAL = 900  # 15 minutes (fresher crypto + sentiment data)
     WARMUP_DELAY = 60  # Wait for market cache before first scan
-    MAX_MARKETS = 50  # Scan more markets per cycle
+    MAX_MARKETS = 150  # Cover 3x more markets with sentiment data
 
     def __init__(
         self,

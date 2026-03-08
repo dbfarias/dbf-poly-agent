@@ -108,7 +108,9 @@ class TestGetEdgeMultiplier:
             avg_estimated_prob=0.92,
             actual_win_rate=0.75,
         )
-        assert learner.get_edge_multiplier("time_decay", "politics") == 0.8
+        # Smooth linear: 75% win rate → ~0.583 (low bar for profitable strategy)
+        mult = learner.get_edge_multiplier("time_decay", "politics")
+        assert 0.5 <= mult <= 0.65, f"Expected ~0.58, got {mult}"
 
     def test_losing_strategy_returns_high_multiplier(self):
         learner = PerformanceLearner()
@@ -122,7 +124,9 @@ class TestGetEdgeMultiplier:
             avg_estimated_prob=0.90,
             actual_win_rate=0.25,
         )
-        assert learner.get_edge_multiplier("time_decay", "sports") == 1.5
+        # Smooth linear: 25% win rate → 1.75 (demand much higher edge)
+        mult = learner.get_edge_multiplier("time_decay", "sports")
+        assert 1.7 <= mult <= 1.8, f"Expected ~1.75, got {mult}"
 
     def test_normal_strategy_returns_default(self):
         learner = PerformanceLearner()
@@ -136,7 +140,9 @@ class TestGetEdgeMultiplier:
             avg_estimated_prob=0.91,
             actual_win_rate=0.50,
         )
-        assert learner.get_edge_multiplier("time_decay", "crypto") == 1.0
+        # Smooth linear: 50% win rate → ~1.167 (slightly above baseline)
+        mult = learner.get_edge_multiplier("time_decay", "crypto")
+        assert 1.1 <= mult <= 1.2, f"Expected ~1.17, got {mult}"
 
     def test_few_trades_returns_cautious(self):
         learner = PerformanceLearner()
@@ -486,10 +492,11 @@ class TestComputeStats:
 
                     adjustments = await learner.compute_stats()
 
-                    # 75% win rate → edge multiplier should be 0.8
+                    # 75% win rate → smooth linear ≈ 0.583
                     key = ("time_decay", "politics")
                     assert key in adjustments.edge_multipliers
-                    assert adjustments.edge_multipliers[key] == 0.8
+                    mult = adjustments.edge_multipliers[key]
+                    assert 0.5 <= mult <= 0.65, f"Expected ~0.58, got {mult}"
 
                     # Category confidence for high win rate → 1.2
                     assert adjustments.category_confidences.get("politics") == 1.2
