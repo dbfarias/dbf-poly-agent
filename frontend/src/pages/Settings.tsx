@@ -68,6 +68,7 @@ function NumberField({
 
 const PUSH_STATE_TEXT: Record<string, string> = {
   unsupported: "Not supported in this browser",
+  "ios-needs-install": "Install as PWA first (see below)",
   denied: "Blocked by browser — enable in settings",
   prompt: "Click to enable push notifications",
   subscribed: "Push notifications active",
@@ -406,14 +407,23 @@ export default function Settings() {
                 Install as PWA (Add to Home Screen) for notifications even when the browser is closed
               </p>
             )}
+            {push.state === "ios-needs-install" && (
+              <div className="text-xs text-amber-400/80 mt-1.5 space-y-0.5">
+                <p>On iOS, push requires installing as PWA:</p>
+                <p>1. Open in <strong>Safari</strong> (not Chrome)</p>
+                <p>2. Tap Share button → <strong>Add to Home Screen</strong></p>
+                <p>3. Open from the home screen icon</p>
+                <p>4. Come back here to enable push</p>
+              </div>
+            )}
           </div>
           <button
             onClick={() =>
               push.state === "subscribed" ? push.unsubscribe() : push.subscribe()
             }
-            disabled={push.state === "unsupported" || push.state === "denied" || push.state === "loading"}
+            disabled={push.state === "unsupported" || push.state === "ios-needs-install" || push.state === "denied" || push.state === "loading"}
             className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-              push.state === "unsupported" || push.state === "denied"
+              push.state === "unsupported" || push.state === "ios-needs-install" || push.state === "denied"
                 ? "bg-zinc-800 cursor-not-allowed opacity-50"
                 : push.state === "subscribed"
                   ? "bg-green-600"

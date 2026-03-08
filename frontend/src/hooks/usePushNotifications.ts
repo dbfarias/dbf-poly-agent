@@ -3,6 +3,7 @@ import { api } from "../api/client";
 
 type PushState =
   | "unsupported"
+  | "ios-needs-install"
   | "denied"
   | "prompt"
   | "subscribed"
@@ -24,8 +25,15 @@ export function usePushNotifications() {
   const [state, setState] = useState<PushState>("loading");
 
   useEffect(() => {
+    // iOS Safari supports Push only when installed as PWA (Add to Home Screen)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (navigator as unknown as { standalone?: boolean }).standalone === true;
+
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      setState("unsupported");
+      // On iOS in browser (not installed), hint to install as PWA
+      setState(isIOS && !isStandalone ? "ios-needs-install" : "unsupported");
       return;
     }
 

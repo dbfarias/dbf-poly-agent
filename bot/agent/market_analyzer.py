@@ -74,7 +74,7 @@ _SPORTS_KEYWORDS = re.compile(
     # Esports
     r"|valorant|counter-strike|dota|league of legends|overwatch"
     r"|esports|bo3|bo5"
-    r")\b",
+    r")",
     re.IGNORECASE,
 )
 
