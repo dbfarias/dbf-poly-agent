@@ -194,6 +194,11 @@ class Settings(BaseSettings):
     llm_daily_budget: float = 3.0
     anthropic_api_key: str = ""
 
+    # Twitter/X research (via Tavily)
+    tavily_api_key: str = ""
+    use_twitter_fetcher: bool = False
+    twitter_daily_budget: int = 30
+
     # Auto-claim
     use_auto_claim: bool = False
     polygon_rpc_url: str = "https://polygon-rpc.com"

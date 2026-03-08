@@ -19,7 +19,8 @@ from bot.research.pattern_analyzer import PatternAnalyzer
 from bot.research.reddit_fetcher import RedditFetcher
 from bot.research.resolution_parser import parse_resolution_criteria
 from bot.research.sentiment import analyze_sentiment, compute_research_multiplier
-from bot.research.types import ResearchResult
+from bot.research.twitter_fetcher import TwitterFetcher
+from bot.research.types import NewsItem, ResearchResult
 from bot.research.volume_detector import VolumeAnomalyDetector
 from bot.research.whale_detector import WhaleDetector
 
@@ -47,6 +48,7 @@ class ResearchEngine:
         self.news_fetcher = NewsFetcher()
         self.crypto_fetcher = CryptoFetcher()
         self.reddit_fetcher = RedditFetcher()
+        self.twitter_fetcher = TwitterFetcher()
         self.volume_detector = VolumeAnomalyDetector()
         self.correlation_detector = CorrelationDetector()
         self.category_classifier = CategoryClassifier()
@@ -95,6 +97,7 @@ class ResearchEngine:
         await self.news_fetcher.close()
         await self.crypto_fetcher.close()
         await self.reddit_fetcher.close()
+        await self.twitter_fetcher.close()
         logger.info("research_engine_stopped")
 
     async def _scan_all_markets(self) -> None:
@@ -207,22 +210,30 @@ class ResearchEngine:
             keywords, category=category, max_results=5,
         )
 
+        # Fetch Twitter/X posts (priority markets only to stay within daily budget)
+        twitter_items: list[NewsItem] = []
+        if settings.use_twitter_fetcher and market_id in self._priority_market_ids:
+            twitter_items = await self.twitter_fetcher.fetch_tweets(
+                keywords, category=category, max_results=5,
+            )
+
         # Merge and deduplicate (Jaccard > 0.6 on titles = duplicate)
+        supplementary_items = list(reddit_items) + list(twitter_items)
         merged_items = list(news_items)
-        for reddit_item in reddit_items:
-            reddit_words = set(reddit_item.title.lower().split())
+        for item in supplementary_items:
+            item_words = set(item.title.lower().split())
             is_dup = False
             for existing in merged_items:
                 existing_words = set(existing.title.lower().split())
-                if reddit_words and existing_words:
-                    jaccard = len(reddit_words & existing_words) / len(
-                        reddit_words | existing_words
+                if item_words and existing_words:
+                    jaccard = len(item_words & existing_words) / len(
+                        item_words | existing_words
                     )
                     if jaccard > 0.6:
                         is_dup = True
                         break
             if not is_dup:
-                merged_items.append(reddit_item)
+                merged_items.append(item)
 
         # Compute headline sentiment
         headlines = [item.title for item in merged_items]
