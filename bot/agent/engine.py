@@ -39,8 +39,15 @@ from bot.polymarket.heartbeat import HeartbeatManager
 from bot.polymarket.websocket_manager import WebSocketManager
 from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
-from bot.research.llm_debate import cost_tracker as llm_cost_tracker
-from bot.research.llm_debate import debate_risk_rejection, debate_signal, review_position
+from bot.research.llm_debate import (
+    DebateContext,
+    debate_risk_rejection,
+    debate_signal,
+    review_position,
+)
+from bot.research.llm_debate import (
+    cost_tracker as llm_cost_tracker,
+)
 from bot.research.market_report import generate_daily_report
 from bot.utils.notifications import (
     close_telegram_client,
@@ -818,6 +825,11 @@ class TradingEngine:
                     except (TypeError, KeyError):
                         pass
 
+                # Build rich context for LLM debate
+                debate_ctx = self._build_debate_context(
+                    signal, research,
+                )
+
                 debate_result = await debate_signal(
                     question=signal.question,
                     strategy=signal.strategy,
@@ -832,6 +844,7 @@ class TradingEngine:
                     resolution_source=res_source,
                     whale_activity=whale_flag,
                     whale_summary=whale_summary_text,
+                    context=debate_ctx,
                 )
                 if debate_result is not None:
                     debate_meta = {
@@ -1205,6 +1218,65 @@ class TradingEngine:
                 )
 
         return len(signals), signals_approved, orders_placed
+
+    def _build_debate_context(self, signal, research) -> DebateContext:
+        """Build rich DebateContext from learner + research for LLM debate."""
+        adj = self._learner_adjustments
+        category = signal.metadata.get("category", "")
+
+        # Learner stats
+        win_rate = 0.0
+        total_trades = 0
+        edge_mult = 1.0
+        cat_conf = 1.0
+        daily_prog = 0.0
+        urgency = 1.0
+
+        if adj is not None:
+            daily_prog = adj.daily_progress
+            urgency = adj.urgency_multiplier
+            cat_conf = adj.category_confidences.get(category, 1.0)
+            key = (signal.strategy, category)
+            edge_mult = adj.edge_multipliers.get(key, 1.0)
+
+        # Per-strategy stats from learner
+        stats = self.learner._stats.get((signal.strategy, category))
+        if stats is not None:
+            win_rate = stats.actual_win_rate
+            total_trades = stats.total_trades
+
+        # Research data
+        res_conf = 0.0
+        mkt_cat = ""
+        headlines: tuple[str, ...] = ()
+        crypto_px: tuple[tuple[str, float], ...] = ()
+        vol_anomaly = False
+        base_rate = 0.0
+
+        if research is not None:
+            res_conf = research.confidence
+            mkt_cat = research.market_category
+            headlines = tuple(
+                item.title for item in research.news_items[:3]
+            ) if research.news_items else ()
+            crypto_px = research.crypto_prices
+            vol_anomaly = research.is_volume_anomaly
+            base_rate = research.historical_base_rate
+
+        return DebateContext(
+            strategy_win_rate=win_rate,
+            strategy_total_trades=total_trades,
+            edge_multiplier=edge_mult,
+            category_confidence=cat_conf,
+            daily_progress=daily_prog,
+            urgency_multiplier=urgency,
+            research_confidence=res_conf,
+            market_category=mkt_cat,
+            news_headlines=headlines,
+            crypto_prices=crypto_px,
+            is_volume_anomaly=vol_anomaly,
+            historical_base_rate=base_rate,
+        )
 
     async def _maybe_notify_risk_limit(self, reason: str) -> None:
         """Send a one-time daily notification when a risk limit is breached."""

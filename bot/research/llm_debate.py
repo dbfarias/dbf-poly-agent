@@ -20,6 +20,24 @@ _CACHE_TTL_APPROVED = 3600.0 * 3   # 3h for approved trades (no need to re-debat
 _CACHE_TTL_REJECTED = 1800.0       # 30min for rejections (allow re-try sooner)
 
 
+@dataclass(frozen=True)
+class DebateContext:
+    """Rich context from engine → debate for better LLM decisions."""
+
+    strategy_win_rate: float = 0.0
+    strategy_total_trades: int = 0
+    edge_multiplier: float = 1.0
+    category_confidence: float = 1.0
+    daily_progress: float = 0.0
+    urgency_multiplier: float = 1.0
+    research_confidence: float = 0.0
+    market_category: str = ""
+    news_headlines: tuple[str, ...] = ()
+    crypto_prices: tuple[tuple[str, float], ...] = ()
+    is_volume_anomaly: bool = False
+    historical_base_rate: float = 0.0
+
+
 def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> str:
     """Sanitize external text before interpolation into LLM prompts.
 
@@ -32,60 +50,65 @@ def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> s
     cleaned = re.sub(r" {2,}", " ", cleaned).strip()
     return cleaned[:max_len]
 
-_PROPOSER_SYSTEM = (
-    "You are an aggressive prediction market trader on Polymarket. You look for "
-    "any reasonable edge and push to take it. You WANT to trade — that's how you "
-    "make money. A 2-5% edge is worth taking, especially on short-resolution markets.\n\n"
-    "DAILY PROFIT OBSESSION: Your bot MUST hit at least 0.5% net daily profit "
-    "(after all fees and LLM costs). Every trade that doesn't contribute to this "
-    "target is wasted capital and time. Favor high-conviction, quick-resolution "
-    "trades that compound toward the daily goal. Passing on a solid 3%+ edge "
-    "trade is leaving money on the table.\n\n"
-    "Your bias is BUY. Only say PASS if the signal is clearly garbage:\n"
-    "- Edge < 1% (too thin to overcome fees)\n"
-    "- Market is clearly mispriced against you (no information edge)\n"
-    "- Resolution is years away with no catalyst\n\n"
-    "For edges of 2%+ with reasonable probability, you should BUY. "
-    "Short-resolution markets (<72h) are especially attractive — less time for "
-    "things to go wrong. Higher confidence = stronger BUY.\n\n"
-    "EDGE VALIDATION: Before deciding, verify the reported edge is plausible.\n"
-    "- Does the edge make sense given the market question and current price?\n"
-    "- Could the edge be an artifact of stale data or orderbook noise?\n"
-    "- Is the estimated probability reasonable for this type of market?\n"
-    "If the edge seems fabricated, implausible, or based on nonsensical data, "
-    "set EDGE_VALID to NO regardless of your verdict.\n\n"
-    "Respond in this exact format:\n"
-    "VERDICT: BUY or PASS\n"
-    "CONFIDENCE: 0.0 to 1.0\n"
-    "EDGE_VALID: YES or NO\n"
-    "REASONING: 1-2 sentences explaining your decision"
-)
+def _build_proposer_system(daily_target_pct: float = 1.0) -> str:
+    """Build proposer system prompt with dynamic daily target."""
+    return (
+        "You are an aggressive prediction market trader on Polymarket. You look for "
+        "any reasonable edge and push to take it. You WANT to trade — that's how you "
+        "make money. A 2-5% edge is worth taking, especially on short-resolution markets.\n\n"
+        f"DAILY PROFIT OBSESSION: Your bot MUST hit at least {daily_target_pct}% net daily profit "
+        "(after all fees and LLM costs). Every trade that doesn't contribute to this "
+        "target is wasted capital and time. Favor high-conviction, quick-resolution "
+        "trades that compound toward the daily goal. Passing on a solid 3%+ edge "
+        "trade is leaving money on the table.\n\n"
+        "Your bias is BUY. Only say PASS if the signal is clearly garbage:\n"
+        "- Edge < 1% (too thin to overcome fees)\n"
+        "- Market is clearly mispriced against you (no information edge)\n"
+        "- Resolution is years away with no catalyst\n\n"
+        "For edges of 2%+ with reasonable probability, you should BUY. "
+        "Short-resolution markets (<72h) are especially attractive — less time for "
+        "things to go wrong. Higher confidence = stronger BUY.\n\n"
+        "EDGE CONTEXT: The edge is algorithmically computed from orderbook data — do NOT "
+        "question its validity. Your job is to evaluate the TRADE OPPORTUNITY: is this "
+        "market question one where orderbook signals are meaningful? Is the timing right?\n\n"
+        "Respond in this exact format:\n"
+        "VERDICT: BUY or PASS\n"
+        "CONFIDENCE: 0.0 to 1.0\n"
+        "REASONING: 1-2 sentences explaining your decision"
+    )
 
-_CHALLENGER_SYSTEM = (
-    "You are a fair but thorough risk analyst reviewing a prediction market trade. "
-    "Your job is to evaluate whether this trade has reasonable risk/reward.\n\n"
-    "DAILY PROFIT OBSESSION: The bot targets at least 0.5% net daily profit "
-    "(after fees and LLM costs). Your role is to protect capital, but remember "
-    "that being too conservative kills profitability. Rejecting a solid trade "
-    "means we fall behind the daily target. Only reject when the risk genuinely "
-    "outweighs the reward — not out of caution alone.\n\n"
-    "APPROVE the trade if:\n"
-    "- Edge is 2%+ and the reasoning is sound\n"
-    "- Short resolution time (<72h) reduces risk significantly\n"
-    "- The proposer's thesis is logical even if not perfect\n"
-    "- Risk is manageable with the small position sizes we use ($1-5)\n\n"
-    "REJECT only if:\n"
-    "- Edge is clearly fabricated or based on stale data\n"
-    "- There's a fundamental flaw the proposer missed entirely\n"
-    "- The market is a pure coin flip with no information edge\n"
-    "- Resolution is very far away (>30 days) with thin edge\n\n"
-    "Remember: we trade small sizes ($1-5). The cost of missing a good trade "
-    "is worse than taking a slightly marginal one.\n\n"
-    "Respond in this exact format:\n"
-    "VERDICT: APPROVE or REJECT\n"
-    "RISK_LEVEL: LOW, MEDIUM, or HIGH\n"
-    "OBJECTIONS: 1-2 sentences with specific concerns (or 'None' if truly solid)"
-)
+def _build_challenger_system(daily_target_pct: float = 1.0) -> str:
+    """Build challenger system prompt with dynamic daily target."""
+    return (
+        "You are a fair but thorough risk analyst reviewing a prediction market trade. "
+        "Your job is to evaluate whether this trade has reasonable risk/reward.\n\n"
+        f"DAILY PROFIT OBSESSION: The bot targets at least {daily_target_pct}% net daily profit "
+        "(after fees and LLM costs). Your role is to protect capital, but remember "
+        "that being too conservative kills profitability. Rejecting a solid trade "
+        "means we fall behind the daily target. Only reject when the risk genuinely "
+        "outweighs the reward — not out of caution alone.\n\n"
+        "APPROVE the trade if:\n"
+        "- Edge is 2%+ and the reasoning is sound\n"
+        "- Short resolution time (<72h) reduces risk significantly\n"
+        "- The proposer's thesis is logical even if not perfect\n"
+        "- Risk is manageable with the small position sizes we use ($1-5)\n\n"
+        "REJECT only if:\n"
+        "- Edge is clearly fabricated or based on stale data\n"
+        "- There's a fundamental flaw the proposer missed entirely\n"
+        "- The market is a pure coin flip with no information edge\n"
+        "- Resolution is very far away (>30 days) with thin edge\n\n"
+        "RISK LEVEL guidance:\n"
+        "- LOW: solid trade, no concerns\n"
+        "- MEDIUM: minor concerns but trade is probably fine\n"
+        "- HIGH: serious flaws, this trade should NOT proceed\n"
+        "Only use HIGH when there is a fundamental problem.\n\n"
+        "Remember: we trade small sizes ($1-5). The cost of missing a good trade "
+        "is worse than taking a slightly marginal one.\n\n"
+        "Respond in this exact format:\n"
+        "VERDICT: APPROVE or REJECT\n"
+        "RISK_LEVEL: LOW, MEDIUM, or HIGH\n"
+        "OBJECTIONS: 1-2 sentences with specific concerns (or 'None' if truly solid)"
+    )
 
 _COUNTER_PROPOSER_SYSTEM = (
     "You are the same aggressive prediction market trader. Your trade was challenged "
@@ -608,6 +631,7 @@ async def debate_signal(
     resolution_source: str = "",
     whale_activity: bool = False,
     whale_summary: str = "",
+    context: DebateContext | None = None,
 ) -> DebateResult | None:
     """Run a Proposer vs Challenger debate on a trade signal.
 
@@ -667,7 +691,7 @@ async def debate_signal(
                 f"Consensus: {'/'.join(consensus.verdicts)} "
                 f"(avg conf {consensus.avg_confidence:.2f})"
             )
-            prop_edge_valid = True  # Consensus doesn't do edge validation
+            # Edge validation deprecated — edges are algo-computed
 
             if not consensus.approved:
                 # Consensus said PASS — skip challenger
@@ -695,6 +719,7 @@ async def debate_signal(
             resolution_condition=resolution_condition,
             resolution_source=resolution_source,
             whale_activity=whale_activity,
+            context=context,
         )
 
         # Inject market history context
@@ -709,7 +734,7 @@ async def debate_signal(
             prop_resp = await client.messages.create(
                 model=_MODEL,
                 max_tokens=_MAX_TOKENS,
-                system=_PROPOSER_SYSTEM,
+                system=_build_proposer_system(settings.daily_target_pct),
                 messages=[{"role": "user", "content": proposer_msg}],
             )
             prop_text = prop_resp.content[0].text.strip()
@@ -719,35 +744,9 @@ async def debate_signal(
             logger.warning("llm_proposer_error", error=str(e))
             return None
 
-        prop_verdict, prop_confidence, prop_reasoning, prop_edge_valid = _parse_proposer(
+        prop_verdict, prop_confidence, prop_reasoning, _prop_edge_valid = _parse_proposer(
             prop_text,
         )
-
-    # If edge is invalid, force PASS and skip challenger (save cost)
-    if not prop_edge_valid:
-        elapsed = time.monotonic() - start
-        cost_tracker.add(total_cost)
-        logger.info(
-            "llm_debate_edge_invalid",
-            question=question[:60],
-            proposer=prop_verdict,
-            edge_valid=False,
-            cost_usd=round(total_cost, 5),
-        )
-        result = DebateResult(
-            approved=False,
-            proposer_verdict=prop_verdict,
-            proposer_confidence=prop_confidence,
-            proposer_reasoning=prop_reasoning,
-            edge_valid=False,
-            challenger_verdict="skipped",
-            challenger_risk="N/A",
-            challenger_objections="Edge invalid — challenger skipped",
-            total_cost_usd=total_cost,
-            elapsed_s=round(elapsed, 2),
-        )
-        _cache_debate(question, strategy, result, price=price, edge=edge)
-        return result
 
     # If proposer says PASS, skip challenger (save cost)
     if prop_verdict == "PASS":
@@ -779,6 +778,10 @@ async def debate_signal(
     challenger_msg = _format_challenger_prompt(
         question, strategy, edge, price, estimated_prob,
         prop_reasoning, sentiment_score, hours_to_resolution,
+        resolution_condition=resolution_condition,
+        resolution_source=resolution_source,
+        whale_activity=whale_activity,
+        context=context,
     )
 
     # Inject market history context for challenger
@@ -793,7 +796,7 @@ async def debate_signal(
         chal_resp = await client.messages.create(
             model=_MODEL,
             max_tokens=_MAX_TOKENS,
-            system=_CHALLENGER_SYSTEM,
+            system=_build_challenger_system(settings.daily_target_pct),
             messages=[{"role": "user", "content": challenger_msg}],
         )
         chal_text = chal_resp.content[0].text.strip()
@@ -832,6 +835,17 @@ async def debate_signal(
         approved = (prop_verdict == "BUY" and final_verdict == "APPROVE")
     else:
         approved = (prop_verdict == "BUY" and chal_verdict == "APPROVE")
+
+    # Override: confident proposer + challenger MEDIUM risk → approve
+    # Only challenger HIGH risk can truly veto a high-confidence proposer
+    if (
+        not approved
+        and prop_verdict == "BUY"
+        and chal_verdict == "REJECT"
+        and chal_risk == "MEDIUM"
+        and prop_confidence >= 0.7
+    ):
+        approved = True
 
     elapsed = time.monotonic() - start
     cost_tracker.add(total_cost)
@@ -952,7 +966,7 @@ async def _run_counter_round(
         final_resp = await client.messages.create(
             model=_MODEL,
             max_tokens=_MAX_TOKENS,
-            system=_CHALLENGER_SYSTEM,
+            system=_build_challenger_system(settings.daily_target_pct),
             messages=[{"role": "user", "content": final_msg}],
         )
         final_text = final_resp.content[0].text.strip()
@@ -1050,12 +1064,70 @@ async def review_position(
         return None
 
 
+def _edge_multiplier_label(mult: float) -> str:
+    if mult > 1.0:
+        return "tightened"
+    if mult < 1.0:
+        return "relaxed"
+    return "neutral"
+
+
+def _format_context_block(ctx: DebateContext) -> str:
+    """Format rich context block for proposer/challenger prompts."""
+    parts: list[str] = []
+
+    # Bot track record
+    if ctx.strategy_total_trades > 0:
+        parts.append(
+            f"\nBOT TRACK RECORD: {ctx.strategy_win_rate:.0%} win rate over "
+            f"{ctx.strategy_total_trades} trades with this strategy. "
+            f"Edge multiplier: {ctx.edge_multiplier:.2f} "
+            f"({_edge_multiplier_label(ctx.edge_multiplier)})."
+        )
+
+    # Daily progress
+    if ctx.daily_progress != 0.0:
+        status = "AHEAD" if ctx.daily_progress >= 1.0 else "BEHIND"
+        parts.append(
+            f"Daily progress: {ctx.daily_progress:.0%} of target ({status}). "
+            f"Urgency: {ctx.urgency_multiplier:.2f}x."
+        )
+
+    # Market category
+    if ctx.market_category:
+        cat_line = f"Market category: {ctx.market_category}"
+        if ctx.category_confidence != 1.0:
+            cat_line += f" (confidence: {ctx.category_confidence:.2f})"
+        parts.append(cat_line)
+
+    # Research
+    if ctx.research_confidence > 0:
+        parts.append(f"Research confidence: {ctx.research_confidence:.2f}")
+    if ctx.news_headlines:
+        headlines = "; ".join(ctx.news_headlines[:3])
+        parts.append(f"Top headlines: {headlines}")
+    if ctx.crypto_prices:
+        prices = ", ".join(
+            f"{name}: ${price:,.0f}" for name, price in ctx.crypto_prices[:3]
+        )
+        parts.append(f"Crypto prices: {prices}")
+
+    # Signals
+    if ctx.is_volume_anomaly:
+        parts.append("VOLUME ANOMALY: Unusual trading activity detected.")
+    if ctx.historical_base_rate > 0:
+        parts.append(f"Historical base rate: {ctx.historical_base_rate:.0%}")
+
+    return "\n".join(parts)
+
+
 def _format_proposer_prompt(
     question: str, strategy: str, edge: float, price: float,
     estimated_prob: float, confidence: float, reasoning: str,
     sentiment_score: float | None, hours_to_resolution: float | None,
     resolution_condition: str = "", resolution_source: str = "",
     whale_activity: bool = False,
+    context: DebateContext | None = None,
 ) -> str:
     safe_q = _sanitize_prompt_input(question)
     safe_r = _sanitize_prompt_input(reasoning)
@@ -1094,6 +1166,10 @@ def _format_proposer_prompt(
             f"${crypto['threshold']:,.0f} to resolve YES\n"
         )
 
+    # Enrich with learner/research context
+    if context is not None:
+        msg += _format_context_block(context)
+
     msg += "\nShould we BUY or PASS?"
     return msg
 
@@ -1102,6 +1178,10 @@ def _format_challenger_prompt(
     question: str, strategy: str, edge: float, price: float,
     estimated_prob: float, proposer_reasoning: str,
     sentiment_score: float | None, hours_to_resolution: float | None,
+    resolution_condition: str = "",
+    resolution_source: str = "",
+    whale_activity: bool = False,
+    context: DebateContext | None = None,
 ) -> str:
     safe_q = _sanitize_prompt_input(question)
     safe_reasoning = _sanitize_prompt_input(proposer_reasoning, max_len=300)
@@ -1117,6 +1197,23 @@ def _format_challenger_prompt(
         msg += f"Hours until resolution: {hours_to_resolution:.1f}\n"
     if sentiment_score is not None:
         msg += f"News sentiment: {sentiment_score:+.2f}\n"
+
+    # Resolution criteria (was proposer-only, now shared)
+    if resolution_condition:
+        safe_cond = _sanitize_prompt_input(resolution_condition)
+        msg += f"Resolution: This market resolves YES if {safe_cond}"
+        if resolution_source and resolution_source != "Unknown":
+            safe_src = _sanitize_prompt_input(resolution_source, max_len=100)
+            msg += f" (source: {safe_src})"
+        msg += "\n"
+
+    if whale_activity:
+        msg += "WHALE ALERT: Large orders detected on this market's order book\n"
+
+    # Enrich with learner/research context
+    if context is not None:
+        msg += _format_context_block(context)
+
     msg += "\nAPPROVE or REJECT this trade?"
     return msg
 
@@ -1147,8 +1244,7 @@ def _parse_proposer(text: str) -> tuple[str, float, str, bool]:
             except ValueError:
                 pass
         elif upper.startswith("EDGE_VALID:"):
-            val = upper.split(":", 1)[1].strip()
-            edge_valid = "NO" not in val
+            pass  # Deprecated: edges are algo-computed, always valid
         elif upper.startswith("REASONING:"):
             reasoning = line.split(":", 1)[1].strip()
 

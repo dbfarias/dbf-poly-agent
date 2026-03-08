@@ -5,10 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from bot.research.llm_debate import (
     ConsensusResult,
+    DebateContext,
     DebateResult,
     LlmCostTracker,
     _debate_cache,
     _debate_cache_key,
+    _format_challenger_prompt,
+    _format_proposer_prompt,
     _get_cached_debate,
     _is_debatable_rejection,
     _parse_challenger,
@@ -52,12 +55,13 @@ class TestParseProposer:
         assert conf == 0.5
         assert edge_valid is True
 
-    def test_edge_invalid(self):
+    def test_edge_invalid_deprecated_always_true(self):
+        """EDGE_VALID: NO is deprecated — edges are algo-computed, always valid."""
         text = "VERDICT: BUY\nCONFIDENCE: 0.7\nEDGE_VALID: NO\nREASONING: Edge seems fabricated"
         verdict, conf, reasoning, edge_valid = _parse_proposer(text)
         assert verdict == "BUY"
         assert conf == 0.7
-        assert edge_valid is False
+        assert edge_valid is True  # Always True now (deprecated)
 
     def test_edge_valid_missing_defaults_true(self):
         text = "VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Good signal"
@@ -912,7 +916,7 @@ class TestMultiRoundDebate:
 
         chal_resp = MagicMock()
         chal_resp.content = [MagicMock(
-            text="VERDICT: REJECT\nRISK_LEVEL: MEDIUM\nOBJECTIONS: Thin edge"
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Serious flaw"
         )]
         chal_resp.usage.input_tokens = 300
         chal_resp.usage.output_tokens = 30
@@ -1496,3 +1500,196 @@ class TestConsensusIntegrationWithDebateSignal:
         assert result.challenger_verdict == "skipped"
         # Only 3 consensus calls, no challenger
         assert mock_client.messages.create.call_count == 3
+
+
+class TestMediumRiskOverride:
+    """Test the MEDIUM risk override: confident proposer overrides MEDIUM rejections."""
+
+    def setup_method(self):
+        clear_debate_cache()
+
+    async def test_medium_risk_override_approves(self):
+        """Proposer BUY conf 0.8 + Challenger REJECT MEDIUM → approved."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong signal"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: MEDIUM\nOBJECTIONS: Minor concerns"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.use_multi_round_debate = False
+            mock_settings.daily_target_pct = 1.0
+            result = await debate_signal(
+                question="Will BTC hit $100k?", strategy="value_betting",
+                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                reasoning="Strong orderbook imbalance",
+            )
+
+        assert result is not None
+        assert result.approved is True
+        assert result.proposer_verdict == "BUY"
+        assert result.challenger_verdict == "REJECT"
+        assert result.challenger_risk == "MEDIUM"
+
+    async def test_high_risk_still_rejects(self):
+        """Proposer BUY conf 0.8 + Challenger REJECT HIGH → rejected."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Strong signal"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: HIGH\nOBJECTIONS: Fundamental flaw"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.use_multi_round_debate = False
+            mock_settings.daily_target_pct = 1.0
+            result = await debate_signal(
+                question="Will X happen?", strategy="value_betting",
+                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                reasoning="Strong signal",
+            )
+
+        assert result is not None
+        assert result.approved is False
+
+    async def test_low_confidence_medium_still_rejects(self):
+        """Proposer BUY conf 0.5 + Challenger REJECT MEDIUM → rejected (too low conf)."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.5\nREASONING: Marginal signal"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: REJECT\nRISK_LEVEL: MEDIUM\nOBJECTIONS: Some concerns"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.use_multi_round_debate = False
+            mock_settings.daily_target_pct = 1.0
+            result = await debate_signal(
+                question="Will Y?", strategy="time_decay",
+                edge=0.04, price=0.50, estimated_prob=0.54, confidence=0.5,
+                reasoning="Weak edge",
+            )
+
+        assert result is not None
+        assert result.approved is False
+
+
+class TestContextEnrichment:
+    """Test that DebateContext is properly included in prompts."""
+
+    def test_proposer_prompt_includes_context(self):
+        ctx = DebateContext(
+            strategy_win_rate=0.65,
+            strategy_total_trades=20,
+            edge_multiplier=0.85,
+            daily_progress=0.5,
+            urgency_multiplier=1.3,
+            market_category="Crypto",
+            research_confidence=0.8,
+            news_headlines=("BTC hits new high", "ETH upgrade coming"),
+            crypto_prices=(("bitcoin", 102000.0), ("ethereum", 3500.0)),
+            is_volume_anomaly=True,
+            historical_base_rate=0.7,
+        )
+        prompt = _format_proposer_prompt(
+            question="Will BTC hit $110k?", strategy="value_betting",
+            edge=0.05, price=0.45, estimated_prob=0.50, confidence=0.7,
+            reasoning="Orderbook imbalance", sentiment_score=0.3,
+            hours_to_resolution=48.0, context=ctx,
+        )
+        assert "BOT TRACK RECORD" in prompt
+        assert "65%" in prompt
+        assert "20 trades" in prompt
+        assert "Daily progress" in prompt
+        assert "BEHIND" in prompt
+        assert "Crypto" in prompt
+        assert "VOLUME ANOMALY" in prompt
+        assert "BTC hits new high" in prompt
+        assert "bitcoin: $102,000" in prompt
+
+    def test_challenger_prompt_includes_context(self):
+        ctx = DebateContext(
+            strategy_win_rate=0.75,
+            strategy_total_trades=10,
+            edge_multiplier=1.1,
+        )
+        prompt = _format_challenger_prompt(
+            question="Will X happen?", strategy="time_decay",
+            edge=0.03, price=0.50, estimated_prob=0.53,
+            proposer_reasoning="Good edge",
+            sentiment_score=None, hours_to_resolution=24.0,
+            resolution_condition="price exceeds $100",
+            resolution_source="CoinGecko",
+            context=ctx,
+        )
+        assert "BOT TRACK RECORD" in prompt
+        assert "Resolution:" in prompt
+        assert "CoinGecko" in prompt
+
+    def test_prompt_without_context_unchanged(self):
+        """Without context, prompts should not contain track record."""
+        prompt = _format_proposer_prompt(
+            question="Will X?", strategy="test",
+            edge=0.05, price=0.50, estimated_prob=0.55, confidence=0.7,
+            reasoning="Test", sentiment_score=None,
+            hours_to_resolution=None, context=None,
+        )
+        assert "BOT TRACK RECORD" not in prompt
