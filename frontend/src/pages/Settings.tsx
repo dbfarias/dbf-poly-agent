@@ -416,11 +416,6 @@ export default function Settings() {
                 <p>4. Come back here to enable push</p>
               </div>
             )}
-            {push.debug && (
-              <p className="text-[10px] text-zinc-600 mt-2 break-all font-mono">
-                {push.debug}
-              </p>
-            )}
           </div>
           <button
             onClick={() =>

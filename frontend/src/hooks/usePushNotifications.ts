@@ -39,7 +39,6 @@ async function ensureSwActive(reg: ServiceWorkerRegistration): Promise<void> {
 
 export function usePushNotifications() {
   const [state, setState] = useState<PushState>("loading");
-  const [debug, setDebug] = useState("");
   const swReg = useRef<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
@@ -49,12 +48,6 @@ export function usePushNotifications() {
     const isStandalone = standaloneMedia || standaloneNav;
     const hasSW = "serviceWorker" in navigator;
     const hasPush = "PushManager" in window;
-    const hasNotif = "Notification" in window;
-
-    setDebug(
-      `iOS:${isIOS} standalone:${isStandalone}(media:${standaloneMedia},nav:${standaloneNav}) ` +
-      `SW:${hasSW} Push:${hasPush} Notif:${hasNotif} UA:${navigator.userAgent.slice(0, 80)}`
-    );
 
     if (!hasSW || !hasPush) {
       setState(isIOS && !isStandalone ? "ios-needs-install" : "unsupported");
@@ -68,9 +61,8 @@ export function usePushNotifications() {
         await ensureSwActive(reg);
         await navigator.serviceWorker.ready;
         swReg.current = reg;
-        setDebug((prev) => prev + ` | SW:active`);
-      } catch (e) {
-        setDebug((prev) => prev + ` | SW-REG-ERR:${e}`);
+      } catch {
+        // SW registration failed — push won't work
       }
 
       const permission = Notification.permission;
@@ -126,8 +118,6 @@ export function usePushNotifications() {
       setState("subscribed");
     } catch (err) {
       console.error("Push subscribe failed:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      setDebug((prev) => prev + ` | ERR: ${msg}`);
       if (Notification.permission === "denied") {
         setState("denied");
       } else {
@@ -153,5 +143,5 @@ export function usePushNotifications() {
     }
   }, []);
 
-  return { state, subscribe, unsubscribe, debug };
+  return { state, subscribe, unsubscribe };
 }
