@@ -52,7 +52,12 @@ export function usePushNotifications() {
       }
 
       try {
-        const reg = await navigator.serviceWorker.ready;
+        // Check if SW is already registered; if not, don't wait for .ready (it hangs forever)
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) {
+          setState("prompt");
+          return;
+        }
         const sub = await reg.pushManager.getSubscription();
         setState(sub ? "subscribed" : permission === "default" ? "prompt" : "unsubscribed");
       } catch {
