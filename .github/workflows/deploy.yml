@@ -74,6 +74,8 @@ jobs:
       contents: read
       packages: read
     steps:
+      - uses: actions/checkout@v4
+
       - name: Check server reachability
         id: check
         run: |
@@ -85,6 +87,16 @@ jobs:
           fi
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
+
+      - name: Sync config to server
+        if: steps.check.outputs.reachable == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "deploy/,docker-compose.prod.yml"
+          target: "~/polybot"
 
       - name: Deploy to Lightsail
         if: steps.check.outputs.reachable == 'true'
@@ -103,6 +115,6 @@ jobs:
             cd ~/polybot
             echo "$GHCR_TOKEN" | docker login ghcr.io -u dbfarias --password-stdin
             docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
             sleep 5
             docker compose -f docker-compose.prod.yml logs --tail=30 app
