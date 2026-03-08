@@ -12,7 +12,7 @@ from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.position_closer import PositionCloser
 from bot.agent.risk_manager import RiskManager
-from bot.config import settings, trading_day
+from bot.config import TierConfig, settings, trading_day
 from bot.data.activity import (
     log_cycle_summary,
     log_daily_target_reached,
@@ -790,6 +790,34 @@ class TradingEngine:
                     if research is not None
                     else False
                 )
+
+                # Format whale summary from WhaleDetector if available
+                whale_summary_text = ""
+                whale_det = getattr(
+                    self.ws_manager, "whale_detector", None,
+                )
+                if (
+                    whale_det is not None
+                    and hasattr(whale_det, "get_whale_summary")
+                    and signal.token_id
+                    and isinstance(signal.token_id, str)
+                ):
+                    try:
+                        ws_summary = whale_det.get_whale_summary(
+                            signal.token_id,
+                        )
+                        if (
+                            isinstance(ws_summary, dict)
+                            and "count" in ws_summary
+                        ):
+                            whale_summary_text = (
+                                f"{ws_summary['count']} whale orders, "
+                                f"${ws_summary['total_usd']:,.0f} total, "
+                                f"net bias: {ws_summary['net_side']}"
+                            )
+                    except (TypeError, KeyError):
+                        pass
+
                 debate_result = await debate_signal(
                     question=signal.question,
                     strategy=signal.strategy,
@@ -803,6 +831,7 @@ class TradingEngine:
                     resolution_condition=res_condition,
                     resolution_source=res_source,
                     whale_activity=whale_flag,
+                    whale_summary=whale_summary_text,
                 )
                 if debate_result is not None:
                     debate_meta = {
@@ -882,6 +911,20 @@ class TradingEngine:
                 edge_multiplier = _apply_urgency_to_edge_multiplier(
                     edge_multiplier, urgency
                 )
+
+            # Apply category-specific min edge from learner (dynamic calibration)
+            if self._learner_adjustments and category:
+                cat_min_edge = (
+                    self._learner_adjustments.category_min_edges.get(category)
+                )
+                if cat_min_edge is not None:
+                    # Scale edge_multiplier so that base_min_edge * multiplier
+                    # is at least category_min_edge
+                    base_min = TierConfig.get(tier).get("min_edge_pct", 0.01)
+                    if base_min > 0:
+                        required_mult = cat_min_edge / base_min
+                        if required_mult > edge_multiplier:
+                            edge_multiplier = required_mult
 
             # Apply research sentiment multiplier (news-driven edge adjustment)
             research = self.research_cache.get(signal.market_id)

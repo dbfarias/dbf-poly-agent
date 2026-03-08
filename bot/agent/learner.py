@@ -69,6 +69,7 @@ class LearnerAdjustments:
         urgency_multiplier: float = 1.0,
         daily_progress: float = 0.0,
         brier_scores: dict[str, float] | None = None,
+        category_min_edges: dict[str, float] | None = None,
     ):
         self.edge_multipliers = edge_multipliers
         self.category_confidences = category_confidences
@@ -77,6 +78,7 @@ class LearnerAdjustments:
         self.urgency_multiplier = urgency_multiplier
         self.daily_progress = daily_progress
         self.brier_scores = brier_scores or {}
+        self.category_min_edges = category_min_edges or {}
 
 
 class PerformanceLearner:
@@ -117,10 +119,23 @@ class PerformanceLearner:
         # Post-mortem feedback stats (populated by compute_stats)
         self._pm_stats: dict[str, dict] = {}
 
+        # Dynamic category min edges (populated by compute_stats)
+        self._category_min_edges: dict[str, float] = {}
+
         # Daily target context (set by engine each cycle)
         self._daily_pnl: float = 0.0
         self._daily_equity: float = 0.0
         self._daily_target_pct: float = 0.01
+
+    @property
+    def category_min_edges(self) -> dict[str, float]:
+        """Return dynamic min edge overrides per category.
+
+        Categories with good historical win rates get lower min_edge
+        (more trades), while poorly performing categories get higher
+        min_edge (fewer trades, higher quality filter).
+        """
+        return dict(self._category_min_edges)
 
     def set_daily_context(
         self,
@@ -242,6 +257,9 @@ class PerformanceLearner:
         # Compute category confidences
         category_confidences = self._compute_category_confidences(stats)
 
+        # Compute dynamic category min edges based on per-category win rates
+        self._category_min_edges = self._compute_category_min_edges(stats)
+
         # Check for strategies to pause
         paused = set()
         for strategy in {k[0] for k in stats}:
@@ -272,6 +290,7 @@ class PerformanceLearner:
             urgency_multiplier=urgency,
             daily_progress=daily_progress,
             brier_scores=brier_scores,
+            category_min_edges=dict(self._category_min_edges),
         )
 
         logger.info(
@@ -603,6 +622,44 @@ class PerformanceLearner:
                 result[category] = 1.0
             else:
                 result[category] = 0.7
+
+        return result
+
+    def _compute_category_min_edges(
+        self, stats: dict[tuple[str, str], StrategyStats]
+    ) -> dict[str, float]:
+        """Compute dynamic min edge per category based on historical win rate.
+
+        Categories with strong performance get a lower min_edge (more trades),
+        while poorly performing categories get a higher min_edge (fewer trades).
+        Only categories with 10+ resolved trades are included.
+        """
+        by_category: dict[str, list[StrategyStats]] = {}
+        for (_, category), s in stats.items():
+            by_category.setdefault(category, []).append(s)
+
+        result: dict[str, float] = {}
+        for category, cat_stats in by_category.items():
+            total = sum(s.total_trades for s in cat_stats)
+            if total < 10:
+                continue
+
+            wins = sum(s.winning_trades for s in cat_stats)
+            win_rate = wins / total
+
+            if win_rate > 0.6:
+                result[category] = 0.015  # Good category → lower edge bar
+            elif win_rate >= 0.4:
+                result[category] = 0.025  # Average → default edge
+            else:
+                result[category] = 0.04   # Bad category → higher edge bar
+
+        if result:
+            logger.info(
+                "category_min_edges_computed",
+                categories=len(result),
+                edges={k: round(v, 3) for k, v in result.items()},
+            )
 
         return result
 
