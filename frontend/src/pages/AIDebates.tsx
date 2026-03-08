@@ -16,6 +16,9 @@ import { formatDateTime } from "../utils/date";
 
 type TabType = "debates" | "reviews" | "risk_debates" | "post_mortems";
 type DecisionFilter = "all" | "approved" | "rejected";
+type ReviewFilter = "all" | "HOLD" | "EXIT" | "REDUCE" | "INCREASE";
+type RiskFilter = "all" | "override" | "upheld";
+type PostMortemFilter = "all" | "GOOD" | "BAD" | "NEUTRAL";
 
 function CostVsPnlChart() {
   const { data: costs } = useQuery({
@@ -517,6 +520,9 @@ function Pagination({
 export default function AIDebates() {
   const [tab, setTab] = useState<TabType>("debates");
   const [decisionFilter, setDecisionFilter] = useState<DecisionFilter>("all");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
+  const [postMortemFilter, setPostMortemFilter] = useState<PostMortemFilter>("all");
   const [debatePage, setDebatePage] = useState(0);
   const [reviewPage, setReviewPage] = useState(0);
   const [riskPage, setRiskPage] = useState(0);
@@ -587,15 +593,34 @@ export default function AIDebates() {
   });
 
   const allDebates = debateData?.events ?? [];
-  const reviews = reviewData?.events ?? [];
-  const riskDebates = riskDebateData?.events ?? [];
-  const postMortems = postMortemData?.events ?? [];
 
   // Apply decision filter to debates
   const debates = allDebates.filter((e) => {
     if (decisionFilter === "all") return true;
     const isApproved = (e.metadata as Record<string, unknown>).approved === true;
     return decisionFilter === "approved" ? isApproved : !isApproved;
+  });
+
+  // Apply verdict filter to reviews
+  const allReviews = reviewData?.events ?? [];
+  const filteredReviews = allReviews.filter((e) => {
+    if (reviewFilter === "all") return true;
+    return (e.metadata as Record<string, unknown>).verdict === reviewFilter;
+  });
+
+  // Apply outcome filter to risk debates
+  const allRiskDebates = riskDebateData?.events ?? [];
+  const filteredRiskDebates = allRiskDebates.filter((e) => {
+    if (riskFilter === "all") return true;
+    const isOverride = (e.metadata as Record<string, unknown>).override === true;
+    return riskFilter === "override" ? isOverride : !isOverride;
+  });
+
+  // Apply quality filter to post-mortems
+  const allPostMortems = postMortemData?.events ?? [];
+  const filteredPostMortems = allPostMortems.filter((e) => {
+    if (postMortemFilter === "all") return true;
+    return (e.metadata as Record<string, unknown>).outcome_quality === postMortemFilter;
   });
 
   const isLoading =
@@ -609,9 +634,9 @@ export default function AIDebates() {
 
   const events =
     tab === "debates" ? debates
-    : tab === "reviews" ? reviews
-    : tab === "risk_debates" ? riskDebates
-    : postMortems;
+    : tab === "reviews" ? filteredReviews
+    : tab === "risk_debates" ? filteredRiskDebates
+    : filteredPostMortems;
 
   const currentData =
     tab === "debates" ? debateData
@@ -626,33 +651,46 @@ export default function AIDebates() {
   const rejectedCount = allDebates.filter(
     (e) => (e.metadata as Record<string, unknown>).approved === false,
   ).length;
-  const exitReviews = reviews.filter(
+  const exitReviews = allReviews.filter(
     (e) => (e.metadata as Record<string, unknown>).verdict === "EXIT",
   ).length;
-  const reduceReviews = reviews.filter(
+  const reduceReviews = allReviews.filter(
     (e) => (e.metadata as Record<string, unknown>).verdict === "REDUCE",
   ).length;
-  const increaseReviews = reviews.filter(
+  const increaseReviews = allReviews.filter(
     (e) => (e.metadata as Record<string, unknown>).verdict === "INCREASE",
   ).length;
-  const holdReviews = reviews.filter(
+  const holdReviews = allReviews.filter(
     (e) => (e.metadata as Record<string, unknown>).verdict === "HOLD",
   ).length;
   const totalDebateCost = allDebates.reduce(
     (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
     0,
   );
-  const totalReviewCost = reviews.reduce(
+  const totalReviewCost = allReviews.reduce(
     (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
     0,
   );
-  const riskOverrideCount = riskDebates.filter(
+  const riskOverrideCount = allRiskDebates.filter(
     (e) => (e.metadata as Record<string, unknown>).override === true,
   ).length;
-  const riskUpheldCount = riskDebates.filter(
+  const riskUpheldCount = allRiskDebates.filter(
     (e) => (e.metadata as Record<string, unknown>).override === false,
   ).length;
-  const totalRiskDebateCost = riskDebates.reduce(
+  const totalRiskDebateCost = allRiskDebates.reduce(
+    (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
+    0,
+  );
+  const goodPostMortems = allPostMortems.filter(
+    (e) => (e.metadata as Record<string, unknown>).outcome_quality === "GOOD",
+  ).length;
+  const badPostMortems = allPostMortems.filter(
+    (e) => (e.metadata as Record<string, unknown>).outcome_quality === "BAD",
+  ).length;
+  const neutralPostMortems = allPostMortems.filter(
+    (e) => (e.metadata as Record<string, unknown>).outcome_quality === "NEUTRAL",
+  ).length;
+  const totalPostMortemCost = allPostMortems.reduce(
     (sum, e) => sum + ((e.metadata as Record<string, unknown>).cost_usd as number ?? 0),
     0,
   );
@@ -726,7 +764,7 @@ export default function AIDebates() {
           }`}
         >
           Reviews
-          {reviews.length > 0 && (
+          {allReviews.length > 0 && (
             <span className="ml-1 text-xs opacity-70 hidden sm:inline">
               {holdReviews}H/{exitReviews}E
             </span>
@@ -741,7 +779,7 @@ export default function AIDebates() {
           }`}
         >
           Risk
-          {riskDebates.length > 0 && (
+          {allRiskDebates.length > 0 && (
             <span className="ml-1 text-xs opacity-70">
               {riskOverrideCount}/{riskUpheldCount}
             </span>
@@ -756,9 +794,9 @@ export default function AIDebates() {
           }`}
         >
           Post-Mortem
-          {postMortems.length > 0 && (
+          {allPostMortems.length > 0 && (
             <span className="ml-1 text-xs opacity-70">
-              {postMortems.length}
+              {allPostMortems.length}
             </span>
           )}
         </button>
@@ -799,28 +837,130 @@ export default function AIDebates() {
           </div>
         </div>
       )}
-      {tab === "reviews" && reviews.length > 0 && (
-        <div className="flex gap-4 text-xs text-zinc-500">
-          <span>
-            Exit rate:{" "}
-            {reviews.length > 0
-              ? ((exitReviews / reviews.length) * 100).toFixed(0)
-              : 0}
-            %
-          </span>
-          <span>Total cost: ${totalReviewCost.toFixed(4)}</span>
+      {tab === "reviews" && allReviews.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex gap-4 text-xs text-zinc-500">
+            <span>
+              Exit rate:{" "}
+              {allReviews.length > 0
+                ? ((exitReviews / allReviews.length) * 100).toFixed(0)
+                : 0}
+              %
+            </span>
+            <span>Total cost: ${totalReviewCost.toFixed(4)}</span>
+          </div>
+          {/* Verdict filter */}
+          <div className="flex flex-wrap gap-1">
+            {(["all", "HOLD", "EXIT", "REDUCE", "INCREASE"] as ReviewFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setReviewFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  reviewFilter === f
+                    ? f === "HOLD"
+                      ? "bg-blue-900/40 text-blue-400"
+                      : f === "EXIT"
+                        ? "bg-red-900/40 text-red-400"
+                        : f === "REDUCE"
+                          ? "bg-amber-900/40 text-amber-400"
+                          : f === "INCREASE"
+                            ? "bg-green-900/40 text-green-400"
+                            : "bg-indigo-600 text-white"
+                    : "bg-[#1a1d29] text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {f === "all"
+                  ? `All (${allReviews.length})`
+                  : f === "HOLD"
+                    ? `Hold (${holdReviews})`
+                    : f === "EXIT"
+                      ? `Exit (${exitReviews})`
+                      : f === "REDUCE"
+                        ? `Reduce (${reduceReviews})`
+                        : `Increase (${increaseReviews})`}
+              </button>
+            ))}
+          </div>
         </div>
       )}
-      {tab === "risk_debates" && riskDebates.length > 0 && (
-        <div className="flex gap-4 text-xs text-zinc-500">
-          <span>
-            Override rate:{" "}
-            {riskDebates.length > 0
-              ? ((riskOverrideCount / riskDebates.length) * 100).toFixed(0)
-              : 0}
-            %
-          </span>
-          <span>Total cost: ${totalRiskDebateCost.toFixed(4)}</span>
+      {tab === "risk_debates" && allRiskDebates.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex gap-4 text-xs text-zinc-500">
+            <span>
+              Override rate:{" "}
+              {allRiskDebates.length > 0
+                ? ((riskOverrideCount / allRiskDebates.length) * 100).toFixed(0)
+                : 0}
+              %
+            </span>
+            <span>Total cost: ${totalRiskDebateCost.toFixed(4)}</span>
+          </div>
+          {/* Outcome filter */}
+          <div className="flex gap-1">
+            {(["all", "override", "upheld"] as RiskFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setRiskFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  riskFilter === f
+                    ? f === "override"
+                      ? "bg-green-900/40 text-green-400"
+                      : f === "upheld"
+                        ? "bg-zinc-700 text-zinc-300"
+                        : "bg-indigo-600 text-white"
+                    : "bg-[#1a1d29] text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {f === "all"
+                  ? `All (${allRiskDebates.length})`
+                  : f === "override"
+                    ? `Override (${riskOverrideCount})`
+                    : `Upheld (${riskUpheldCount})`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {tab === "post_mortems" && allPostMortems.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex gap-4 text-xs text-zinc-500">
+            <span>
+              Good rate:{" "}
+              {allPostMortems.length > 0
+                ? ((goodPostMortems / allPostMortems.length) * 100).toFixed(0)
+                : 0}
+              %
+            </span>
+            <span>Total cost: ${totalPostMortemCost.toFixed(4)}</span>
+          </div>
+          {/* Quality filter */}
+          <div className="flex gap-1">
+            {(["all", "GOOD", "BAD", "NEUTRAL"] as PostMortemFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setPostMortemFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  postMortemFilter === f
+                    ? f === "GOOD"
+                      ? "bg-green-900/40 text-green-400"
+                      : f === "BAD"
+                        ? "bg-red-900/40 text-red-400"
+                        : f === "NEUTRAL"
+                          ? "bg-zinc-700 text-zinc-300"
+                          : "bg-indigo-600 text-white"
+                    : "bg-[#1a1d29] text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {f === "all"
+                  ? `All (${allPostMortems.length})`
+                  : f === "GOOD"
+                    ? `Good (${goodPostMortems})`
+                    : f === "BAD"
+                      ? `Bad (${badPostMortems})`
+                      : `Neutral (${neutralPostMortems})`}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
