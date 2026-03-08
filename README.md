@@ -61,6 +61,8 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | **Quarter-Kelly Sizing** | Conservative position sizing to minimize risk of ruin |
 | **Paper Trading Mode** | ON by default — test safely before going live |
 | **AI Trade Debates** | Claude Haiku-powered Proposer vs Challenger debate gate — every trade is debated before execution |
+| **Multi-Model Consensus** | 3 Haiku personas (conservative, aggressive, balanced) vote in parallel — 2/3 majority required for BUY |
+| **Debate Memory** | LLM agents receive context of last 5 trades on the same market for better decision-making |
 | **AI Position Reviewer** | LLM reviews open positions every ~30min: HOLD, EXIT, REDUCE, or INCREASE recommendations |
 | **LLM Sentiment** | Optional Claude-powered sentiment analysis replacing VADER for deeper market understanding |
 | **Multi-Source Research** | Google News + Reddit + CoinGecko sentiment, resolution criteria parsing, volume anomaly detection |
@@ -75,7 +77,7 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | **Price Momentum** | Shared PriceTracker tracks 1h momentum across all strategies — adjusts confidence for value bets |
 | **Post-Mortem Feedback** | LLM trade analysis (strategy_fit) feeds back into learner edge multipliers — tightens poor, relaxes good |
 | **Auto-Claim Positions** | Optional web3.py integration to auto-redeem winning tokens on Polygon after market resolution |
-| **Secure Dashboard** | JWT-authenticated React app with 11 pages including AI Debates viewer and Research |
+| **Secure Dashboard** | JWT-authenticated React app with 12 pages including AI Debates viewer, Research, and Market Report |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Activity Log** | Every bot decision logged with reasoning — visible in dashboard |
 | **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries + daily market reports |
@@ -419,6 +421,7 @@ Every 5 minutes, the learner recomputes statistics from the last 30 days of trad
 |:---|:---|
 | **Edge Multiplier** | Per-strategy modifier (0.5-2.0x). Winning strategies get relaxed thresholds; losing ones require higher edge |
 | **Category Confidence** | Per-category modifier (0.5-1.5x). Boosts exposure to proven categories, penalizes underperforming ones |
+| **Dynamic Category Min Edge** | Auto-computed min_edge per category based on win rate (>60%: 0.015, 40-60%: 0.025, <40%: 0.04) |
 | **Confidence Calibration** | Compares predicted probability vs actual win rate. If 95% confidence only wins 60%, edge requirements increase |
 | **Urgency Multiplier** | Daily target progress: behind target = more aggressive (expand horizons, lower edge); ahead = conservative |
 | **Strategy Auto-Pause** | If last 5 trades have <30% win rate and PnL < -$0.05, the strategy is paused for 12 hours. Manual unpause via API with 6h grace period |
@@ -630,7 +633,7 @@ Approved? --> Execute trade
 
 ## Dashboard
 
-JWT-authenticated React dashboard with **11 pages** for full visibility into the bot's operations:
+JWT-authenticated React dashboard with **12 pages** for full visibility into the bot's operations:
 
 | Page | Description |
 |:---|:---|
@@ -642,7 +645,8 @@ JWT-authenticated React dashboard with **11 pages** for full visibility into the
 | **Risk** | Drawdown chart, category exposure (pie), risk limits by tier |
 | **Research** | News sentiment analysis: per-market headlines, sentiment scores, research multipliers, volume anomaly/whale activity badges, market categories, resolution criteria, historical base rates |
 | **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, Brier scores per strategy, probability calibration chart, strategy pause status and cooldown timers |
-| **AI Debates** | Trade debate history with decision filter (All/Approved/Rejected), position reviews (HOLD/EXIT/REDUCE/INCREASE), risk debates, post-mortems. Tabbed view with approval rates and cost tracking |
+| **AI Debates** | Trade debate history with decision filters per tab — Reviews (HOLD/EXIT/REDUCE/INCREASE), Risk Debates (override/upheld), Post-Mortems (GOOD/BAD/NEUTRAL). Tabbed view with approval rates and cost tracking |
+| **Market Report** | Daily report page: portfolio summary, market sentiment, top opportunities, strategy health, risk alerts |
 | **Activity** | Bot decision log — every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
 | **Settings** | Push notification toggle, AI feature toggles (sentiment/debate/reviewer + daily budget), strategy toggles, risk parameters, strategy parameters, quality filters, system info. All persisted across restarts |
 
@@ -975,7 +979,7 @@ dbf-poly-agent/
 |       +-- websocket.py              # WS /ws/live
 |-- frontend/                         # React 18 + TypeScript + Vite
 |   +-- src/
-|       |-- pages/                    # 11 pages (Login + 10 dashboard pages)
+|       |-- pages/                    # 12 pages (Login + 11 dashboard pages)
 |       |-- components/               # Reusable UI (TradeTable, Layout, charts)
 |       |-- api/client.ts             # API client + types + 401 interceptor
 |       +-- hooks/
