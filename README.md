@@ -28,6 +28,9 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 - [AI-Powered Analysis](#ai-powered-analysis)
 - [Risk Management](#risk-management)
 - [Adaptive Learning](#adaptive-learning)
+- [Price Momentum Tracking](#price-momentum-tracking)
+- [Post-Mortem Feedback Loop](#post-mortem-feedback-loop)
+- [Auto-Claim Resolved Positions](#auto-claim-resolved-positions)
 - [Active Rebalancing](#active-rebalancing)
 - [Dashboard](#dashboard)
 - [Getting Started](#getting-started)
@@ -59,6 +62,9 @@ PolyBot is a fully autonomous prediction market trading agent designed to grow a
 | **AI Trade Debates** | Claude Haiku-powered Proposer vs Challenger debate gate — every trade is debated before execution |
 | **AI Position Reviewer** | LLM reviews open positions every ~30min: HOLD, EXIT, REDUCE, or INCREASE recommendations |
 | **LLM Sentiment** | Optional Claude-powered sentiment analysis replacing VADER for deeper market understanding |
+| **Price Momentum** | Shared PriceTracker tracks 1h momentum across all strategies — adjusts confidence for value bets |
+| **Post-Mortem Feedback** | LLM trade analysis (strategy_fit) feeds back into learner edge multipliers — tightens poor, relaxes good |
+| **Auto-Claim Positions** | Optional web3.py integration to auto-redeem winning tokens on Polygon after market resolution |
 | **Secure Dashboard** | JWT-authenticated React app with 11 pages including AI Debates viewer and Research |
 | **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
 | **Activity Log** | Every bot decision logged with reasoning — visible in dashboard |
@@ -427,6 +433,73 @@ The daily target is 1% (configurable). Progress is tracked in real-time:
 | 0-50% | 1.3x | Aggressive — lower edge requirements, expand time horizons |
 | Negative | 1.5x+ | Very aggressive — maximum opportunity seeking |
 
+### Post-Mortem Feedback Loop
+
+LLM post-mortem results (`strategy_fit`) feed back into the learner's edge multiplier computation:
+
+| Condition | Adjustment | Effect |
+|:---|:---:|:---|
+| >50% POOR_FIT (3+ post-mortems) | ×1.15 | Tighten — require higher edge |
+| >50% GOOD_FIT (3+ post-mortems) | ×0.90 | Relax — allow lower edge |
+| <3 post-mortems or mixed | ×1.0 | No change |
+
+Visible via `GET /api/learner/multipliers` → `post_mortem_influence` field.
+
+---
+
+## Price Momentum Tracking
+
+Shared `PriceTracker` (`bot/data/price_tracker.py`) provides cross-strategy momentum detection:
+
+```
+Engine Cycle
+     |
+     v
+MarketAnalyzer.scan_markets()
+     |
+     +-- record_batch(500 markets × best_bid_price)
+     +-- evict_stale(active market IDs)
+     |
+     v
+Strategies read momentum:
+  - ValueBetting: confidence ±5% based on 1h momentum alignment
+  - SwingTrading: shared tracker + internal history (backward compat)
+```
+
+| Property | Value |
+|:---|:---|
+| Max tracked markets | 500 |
+| History depth | 360 ticks/market (~6h at 1-min cycles) |
+| Memory footprint | ~2.8 MB max |
+| Stale eviction | Markets not seen in 15+ minutes |
+| `momentum(market_id, 60)` | % change over 60-min window |
+| `trend(market_id)` | "rising" / "falling" / "flat" (±0.5% threshold) |
+
+---
+
+## Auto-Claim Resolved Positions
+
+Optional web3.py integration to automatically redeem winning tokens on Polygon after market resolution.
+
+```
+Market resolves → _close_if_resolved() → _try_redeem()
+     |                                        |
+     v                                        v
+Close position in DB              PositionRedeemer.redeem(condition_id)
+Record PnL                              |
+                                         v
+                                    CTF.redeemPositions(USDC, 0x0, conditionId, [1, 2])
+                                         |
+                                    Fire-and-forget (never crashes cycle)
+```
+
+| Config | Default | Description |
+|:---|:---:|:---|
+| `use_auto_claim` | `false` | Toggle via Settings dashboard |
+| `polygon_rpc_url` | `https://polygon-rpc.com` | Polygon RPC endpoint |
+
+**Requirements:** `POLY_PRIVATE_KEY` env var, web3.py dependency, live trading mode. Disabled in paper mode.
+
 ---
 
 ## Active Rebalancing
@@ -570,6 +643,7 @@ All configuration is via environment variables (`.env` file):
 | `POLY_API_SECRET` | -- | Polymarket API secret |
 | `POLY_API_PASSPHRASE` | -- | Polymarket API passphrase |
 | `POLY_PRIVATE_KEY` | -- | Wallet private key (required for live mode) |
+| `POLYGON_RPC_URL` | `https://polygon-rpc.com` | Polygon RPC for auto-claim |
 | `FORCE_HTTPS_COOKIES` | `false` | Set `true` behind HTTPS reverse proxy |
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/polybot.db` | Database connection URL |
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING) |
@@ -591,6 +665,7 @@ These parameters can be changed at runtime via the Settings page and are **persi
 - Rebalance parameters (min_rebalance_edge, min_hold_seconds)
 - Quality gate parameters (max spread, min volume, stop loss, take profit price)
 - AI features (LLM sentiment, debate gate, position reviewer toggles + daily budget)
+- Auto-claim resolved positions (web3.py Polygon redemption)
 - Blocked market types (sports, crypto, other)
 - Pause/resume trading, force-unpause strategies
 
@@ -625,7 +700,7 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (1300+ tests, ~30s) + ruff lint + frontend build
+1. **Test** — pytest (1490+ tests, ~30s) + ruff lint + frontend build
 2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
 3. **Deploy** — SSH to server, pull image, restart containers
 
@@ -689,7 +764,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1350+ tests** across **35+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
+**1490+ tests** across **38+ test files** covering bot logic, API endpoints, strategies, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -724,6 +799,9 @@ cd frontend && npx vite build
 | `test_llm_sentiment.py` | 10 tests — Haiku sentiment, clamping, errors, routing |
 | `test_config.py` | Tier config, settings validation, capital tiers |
 | `test_math_utils.py` | Kelly criterion, Sharpe ratio, drawdown |
+| `test_price_tracker.py` | 16 tests — momentum, trend, eviction, batch, cap |
+| `test_post_mortem_feedback.py` | 8 tests — PM stats, learner integration, API response |
+| `test_auto_claim.py` | 8 tests — redeemer init/success/failure, portfolio integration |
 | + 12 more | API routers, types, cache, strategies, price rounding |
 
 ---
@@ -754,6 +832,7 @@ dbf-poly-agent/
 |   |   |-- client.py                 # CLOB API wrapper (async)
 |   |   |-- gamma.py                  # Market discovery API (500 mkts/scan)
 |   |   |-- data_api.py              # Positions & balance API
+|   |   |-- redeemer.py               # Auto-claim via ConditionalTokens (web3.py)
 |   |   |-- websocket_manager.py      # Real-time price feed
 |   |   |-- heartbeat.py              # API session keepalive
 |   |   +-- types.py                  # Pydantic models
@@ -761,7 +840,8 @@ dbf-poly-agent/
 |   |   |-- database.py               # SQLite async + WAL + migrations
 |   |   |-- models.py                 # ORM models (Trade, Position, Snapshot, etc.)
 |   |   |-- repositories.py           # CRUD operations
-|   |   |-- activity.py               # Bot activity logger (decision log)
+|   |   |-- activity.py               # Bot activity logger + post-mortem stats
+|   |   |-- price_tracker.py          # Shared in-memory price momentum tracker
 |   |   |-- settings_store.py         # Persistent settings (survives restarts)
 |   |   +-- market_cache.py           # In-memory TTL cache
 |   |-- research/
@@ -805,7 +885,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 1350+ pytest tests (35+ files)
+|-- tests/                            # 1490+ pytest tests (38+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -832,6 +912,7 @@ dbf-poly-agent/
 - **Pydantic v2** — validation & settings
 - **PyJWT** — JWT authentication
 - **anthropic** — Claude Haiku AI (debate + sentiment)
+- **web3.py** — Polygon auto-claim (optional)
 - **tenacity** — retry logic
 
 </td>
@@ -865,7 +946,7 @@ dbf-poly-agent/
 ### Tooling
 - **uv** — Python package manager
 - **ruff** — Python linter
-- **pytest** — 1350+ tests
+- **pytest** — 1490+ tests
 - **pytest-asyncio** — async test support
 - **Telegram Bot** — trade alerts
 - **Health endpoint** — `/api/health`

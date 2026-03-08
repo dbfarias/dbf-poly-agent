@@ -30,6 +30,7 @@ from bot.data.activity import (
 from bot.data.database import async_session
 from bot.data.market_cache import MarketCache
 from bot.data.models import StrategyMetric
+from bot.data.price_tracker import PriceTracker
 from bot.data.repositories import StrategyMetricRepository
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
@@ -119,6 +120,9 @@ class TradingEngine:
         self.ws_manager = WebSocketManager(self.cache)
         self.heartbeat = HeartbeatManager(self.clob_client)
 
+        # Shared price tracker (in-memory, ~6h history per market)
+        self.price_tracker = PriceTracker()
+
         # Strategies (ordered by priority)
         strategies = [
             ArbitrageStrategy(self.clob_client, self.gamma_client, self.cache),
@@ -127,12 +131,19 @@ class TradingEngine:
                 self.clob_client, self.gamma_client, self.cache,
                 research_cache=self.research_cache,
             ),
-            SwingTradingStrategy(self.clob_client, self.gamma_client, self.cache),
-            ValueBettingStrategy(self.clob_client, self.gamma_client, self.cache),
+            SwingTradingStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                price_tracker=self.price_tracker,
+            ),
+            ValueBettingStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                price_tracker=self.price_tracker,
+            ),
             MarketMakingStrategy(self.clob_client, self.gamma_client, self.cache),
         ]
         self.analyzer = MarketAnalyzer(
-            self.gamma_client, self.cache, strategies, self.clob_client
+            self.gamma_client, self.cache, strategies, self.clob_client,
+            price_tracker=self.price_tracker,
         )
 
         # Populate per-strategy hold times on closer

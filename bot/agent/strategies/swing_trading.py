@@ -61,7 +61,7 @@ class SwingTradingStrategy(BaseStrategy):
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, price_tracker=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.TAKE_PROFIT_PCT = TAKE_PROFIT_PCT
         self.STOP_LOSS_PCT = STOP_LOSS_PCT
@@ -73,6 +73,8 @@ class SwingTradingStrategy(BaseStrategy):
         self.MAX_SPREAD = MAX_SPREAD
         self.MIN_VOLUME_24H = MIN_VOLUME_24H
         self.MIN_HOURS_LEFT = MIN_HOURS_LEFT
+        # Shared price tracker (optional, additional to internal history)
+        self._shared_tracker = price_tracker
         # In-memory price history: market_id → recent bestBid snapshots
         self._price_history: dict[str, deque[float]] = {}
         # Stale counter: market_id → consecutive scans without this market
@@ -113,6 +115,9 @@ class SwingTradingStrategy(BaseStrategy):
                     continue
                 self._price_history[mid] = deque(maxlen=PRICE_HISTORY_MAXLEN)
             self._price_history[mid].append(market.best_bid_price)
+            # Also feed shared tracker (if available)
+            if self._shared_tracker is not None:
+                self._shared_tracker.record(mid, market.best_bid_price)
 
     def _detect_momentum(
         self, market_id: str

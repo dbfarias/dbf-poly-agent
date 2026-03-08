@@ -45,6 +45,7 @@ class Portfolio:
         self._pnl_date: str = ""  # Track which UTC day the PnL belongs to
         self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
+        self._redeemer = None
 
     @property
     def cash(self) -> float:
@@ -390,6 +391,15 @@ class Portfolio:
         exit_reason = "resolution" if (
             market is None or market.closed or market.archived or not market.active
         ) else "external_close"
+
+        # Auto-claim: redeem resolved positions on-chain
+        if (
+            exit_reason == "resolution"
+            and settings.use_auto_claim
+            and settings.trading_mode.value == "live"
+        ):
+            await self._try_redeem(position)
+
         try:
             from bot.data.repositories import TradeRepository
 
@@ -421,6 +431,36 @@ class Portfolio:
             size=position.size,
             pnl=round(pnl, 4),
         )
+
+    async def _try_redeem(self, position: Position) -> None:
+        """Attempt to redeem resolved position on-chain (fire-and-forget)."""
+        try:
+            if self._redeemer is None:
+                from bot.polymarket.redeemer import PositionRedeemer
+
+                self._redeemer = PositionRedeemer()
+
+            condition_id = getattr(position, "condition_id", None)
+            if not condition_id:
+                logger.debug(
+                    "redeem_skip_no_condition_id",
+                    market_id=position.market_id,
+                )
+                return
+
+            tx_hash = await self._redeemer.redeem(condition_id)
+            if tx_hash:
+                logger.info(
+                    "position_redeemed",
+                    market_id=position.market_id,
+                    tx_hash=tx_hash,
+                )
+        except Exception as e:
+            logger.warning(
+                "redeem_attempt_failed",
+                market_id=position.market_id,
+                error=str(e),
+            )
 
     @staticmethod
     def _get_settlement_price(market, position: Position) -> float:

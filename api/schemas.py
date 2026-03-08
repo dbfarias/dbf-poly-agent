@@ -172,6 +172,7 @@ class BotConfig(BaseModel):
     use_multi_round_debate: bool = False
     use_llm_keywords: bool = False
     use_llm_post_mortem: bool = False
+    use_auto_claim: bool = False
     llm_daily_budget: float = 3.0
     llm_today_cost: float = 0.0
     # Current tier parameters
@@ -198,6 +199,7 @@ class BotConfigUpdate(BaseModel):
     use_multi_round_debate: bool | None = None
     use_llm_keywords: bool | None = None
     use_llm_post_mortem: bool | None = None
+    use_auto_claim: bool | None = None
     llm_daily_budget: float | None = Field(default=None, gt=0.0, le=20.0)
     # Tier config overrides
     tier_config: dict | None = None

@@ -154,11 +154,13 @@ class MarketAnalyzer:
         cache: MarketCache,
         strategies: list[BaseStrategy],
         clob_client: PolymarketClient | None = None,
+        price_tracker=None,
     ):
         self.gamma = gamma_client
         self.cache = cache
         self.strategies = strategies
         self.clob = clob_client
+        self._price_tracker = price_tracker
         self.disabled_strategies: set[str] = set()
         # Market type blocklist: skip markets classified as these types
         # Types: "sports", "crypto", "other" (from classify_market_type)
@@ -224,6 +226,16 @@ class MarketAnalyzer:
 
         # Apply quality filter before strategy evaluation
         markets = await self._filter_quality(markets)
+
+        # Feed prices into shared tracker (after quality filter)
+        if self._price_tracker:
+            prices = {
+                m.id: m.best_bid_price
+                for m in markets
+                if m.id and m.best_bid_price
+            }
+            self._price_tracker.record_batch(prices)
+            self._price_tracker.evict_stale(set(prices.keys()))
 
         # Run enabled strategies
         all_signals: list[TradeSignal] = []

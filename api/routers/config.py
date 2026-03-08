@@ -103,6 +103,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         use_multi_round_debate=settings.use_multi_round_debate,
         use_llm_keywords=settings.use_llm_keywords,
         use_llm_post_mortem=settings.use_llm_post_mortem,
+        use_auto_claim=settings.use_auto_claim,
         llm_daily_budget=settings.llm_daily_budget,
         llm_today_cost=round(llm_cost_tracker.today_cost, 4),
         current_tier=tier.value,
@@ -149,6 +150,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
     if update.use_llm_post_mortem is not None:
         settings.use_llm_post_mortem = update.use_llm_post_mortem
         changes.append(f"use_llm_post_mortem={update.use_llm_post_mortem}")
+    if update.use_auto_claim is not None:
+        settings.use_auto_claim = update.use_auto_claim
+        changes.append(f"use_auto_claim={update.use_auto_claim}")
     if update.llm_daily_budget is not None:
         settings.llm_daily_budget = update.llm_daily_budget
         llm_cost_tracker.daily_budget = update.llm_daily_budget

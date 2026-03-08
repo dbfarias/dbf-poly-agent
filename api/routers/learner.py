@@ -64,10 +64,33 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
             "status": _confidence_status(confidence),
         })
 
+    # Post-mortem influence
+    pm_influence = []
+    for strategy_name, pm in learner._pm_stats.items():
+        total = pm.get("total", 0)
+        if total == 0:
+            continue
+        good_pct = pm.get("good_fit", 0) / total
+        poor_pct = pm.get("poor_fit", 0) / total
+        if poor_pct > 0.5:
+            influence = "tightening"
+        elif good_pct > 0.5:
+            influence = "relaxing"
+        else:
+            influence = "neutral"
+        pm_influence.append({
+            "strategy": strategy_name,
+            "total": total,
+            "good_fit_pct": round(good_pct * 100, 1),
+            "poor_fit_pct": round(poor_pct * 100, 1),
+            "influence": influence,
+        })
+
     return {
         "edge_multipliers": edge_list,
         "category_confidences": cat_list,
         "paused_strategies": list(adjustments.paused_strategies),
+        "post_mortem_influence": pm_influence,
         "last_computed": (
             learner._last_computed.isoformat()
             if learner._last_computed

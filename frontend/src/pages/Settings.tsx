@@ -121,6 +121,7 @@ export default function Settings() {
     use_multi_round_debate: false,
     use_llm_keywords: false,
     use_llm_post_mortem: false,
+    use_auto_claim: false,
     llm_daily_budget: 3.0,
   });
 
@@ -144,6 +145,7 @@ export default function Settings() {
       use_multi_round_debate: config.use_multi_round_debate ?? false,
       use_llm_keywords: config.use_llm_keywords ?? false,
       use_llm_post_mortem: config.use_llm_post_mortem ?? false,
+      use_auto_claim: config.use_auto_claim ?? false,
       llm_daily_budget: config.llm_daily_budget ?? 3.0,
     });
   }, [config]);
@@ -661,6 +663,33 @@ export default function Settings() {
               <span
                 className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                   llm.use_llm_post_mortem ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Auto-Claim Resolved */}
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm text-zinc-200">Auto-Claim Resolved</h4>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Automatically redeem winning positions on Polygon (requires web3)
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !llm.use_auto_claim;
+                setLlm((p) => ({ ...p, use_auto_claim: next }));
+                configMut.mutate({ use_auto_claim: next });
+              }}
+              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                llm.use_auto_claim ? "bg-green-600" : "bg-zinc-700"
+              }`}
+              data-testid="toggle-auto-claim"
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  llm.use_auto_claim ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </button>

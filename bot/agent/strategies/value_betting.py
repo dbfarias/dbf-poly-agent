@@ -56,7 +56,7 @@ class ValueBettingStrategy(BaseStrategy):
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, price_tracker=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.MIN_EDGE = MIN_EDGE
         self.IMBALANCE_THRESHOLD = IMBALANCE_THRESHOLD
@@ -66,6 +66,7 @@ class ValueBettingStrategy(BaseStrategy):
         self.MAX_PRICE = MAX_PRICE
         self.MIN_BOOK_VOLUME = MIN_BOOK_VOLUME
         self._urgency: float = 1.0
+        self._price_tracker = price_tracker
 
     def adjust_params(self, adjustments: dict) -> None:
         """Store urgency for dynamic time horizon."""
@@ -201,6 +202,30 @@ class ValueBettingStrategy(BaseStrategy):
         elif hours_left <= 72:
             confidence += 0.04
 
+        # Momentum adjustment from shared price tracker
+        mom: float | None = None
+        if self._price_tracker is not None:
+            mom = self._price_tracker.momentum(market.id, 60)
+            if mom is not None:
+                if pick_yes and mom > 0.02:
+                    confidence += 0.05
+                elif pick_yes and mom < -0.02:
+                    confidence -= 0.05
+                elif not pick_yes and mom < -0.02:
+                    confidence += 0.05
+                elif not pick_yes and mom > 0.02:
+                    confidence -= 0.05
+
+        metadata = {
+            "category": market.category,
+            "hours_to_resolution": hours_left,
+            "imbalance": imbalance,
+            "bid_volume": bid_volume,
+            "ask_volume": ask_volume,
+        }
+        if mom is not None:
+            metadata["momentum_1h"] = mom
+
         return TradeSignal(
             strategy=self.name,
             market_id=market.id,
@@ -219,13 +244,7 @@ class ValueBettingStrategy(BaseStrategy):
                 f"(bid_vol={bid_volume:.0f}, ask_vol={ask_volume:.0f}). "
                 f"Est. prob: {estimated_prob:.1%}, {hours_left:.0f}h to resolve"
             ),
-            metadata={
-                "category": market.category,
-                "hours_to_resolution": hours_left,
-                "imbalance": imbalance,
-                "bid_volume": bid_volume,
-                "ask_volume": ask_volume,
-            },
+            metadata=metadata,
         )
 
     @staticmethod

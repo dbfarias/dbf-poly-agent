@@ -5,7 +5,7 @@ human-readable log of what the bot did and why.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import func, select
@@ -559,6 +559,57 @@ async def log_price_adjustment(
             "slippage": slippage, "reason": reason,
         }),
     ))
+
+
+async def get_post_mortem_stats(days: int = 30) -> dict[str, dict]:
+    """Aggregate strategy_fit counts per strategy from llm_post_mortem events.
+
+    Returns: {strategy_name: {"total": N, "good_fit": N, "poor_fit": N, "neutral": N}}
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        async with async_session() as session:
+            fit_expr = func.json_extract(
+                BotActivity.metadata_json, "$.strategy_fit",
+            )
+            stmt = (
+                select(
+                    BotActivity.strategy,
+                    fit_expr.label("fit"),
+                    func.count().label("cnt"),
+                )
+                .where(
+                    BotActivity.event_type == "llm_post_mortem",
+                    BotActivity.timestamp >= cutoff,
+                )
+                .group_by(BotActivity.strategy, fit_expr)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+
+        stats: dict[str, dict] = {}
+        for strategy, fit_value, count in rows:
+            if not strategy:
+                continue
+            if strategy not in stats:
+                stats[strategy] = {
+                    "total": 0, "good_fit": 0,
+                    "poor_fit": 0, "neutral": 0,
+                }
+            bucket = stats[strategy]
+            bucket["total"] += count
+            fit_upper = (fit_value or "").upper()
+            if fit_upper == "GOOD_FIT":
+                bucket["good_fit"] += count
+            elif fit_upper == "POOR_FIT":
+                bucket["poor_fit"] += count
+            else:
+                bucket["neutral"] += count
+
+        return stats
+    except Exception as e:
+        logger.warning("get_post_mortem_stats_failed", error=str(e))
+        return {}
 
 
 async def prune_old_activity() -> None:

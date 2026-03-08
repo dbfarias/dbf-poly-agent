@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
+from bot.data.activity import get_post_mortem_stats
 from bot.data.database import async_session
 from bot.data.models import StrategyMetric, Trade
 from bot.data.repositories import StrategyMetricRepository, TradeRepository
@@ -106,6 +107,9 @@ class PerformanceLearner:
         self.MULTIPLIER_MIN = MULTIPLIER_MIN
         self.MULTIPLIER_MAX = MULTIPLIER_MAX
         self.MIN_TRADES_FOR_ADJUSTMENT = MIN_TRADES_FOR_ADJUSTMENT
+
+        # Post-mortem feedback stats (populated by compute_stats)
+        self._pm_stats: dict[str, dict] = {}
 
         # Daily target context (set by engine each cycle)
         self._daily_pnl: float = 0.0
@@ -204,6 +208,30 @@ class PerformanceLearner:
             key: self._compute_edge_multiplier(s)
             for key, s in stats.items()
         }
+
+        # Post-mortem feedback: nudge edge multipliers based on strategy_fit
+        pm_stats = await get_post_mortem_stats(30)
+        self._pm_stats = pm_stats
+
+        for key in list(edge_multipliers.keys()):
+            strategy_name = key[0]
+            pm = pm_stats.get(strategy_name)
+            if pm is None or pm["total"] < 3:
+                continue
+            poor_pct = pm["poor_fit"] / pm["total"]
+            good_pct = pm["good_fit"] / pm["total"]
+            if poor_pct > 0.5:
+                # Tighten: require higher edge for poorly-fitting strategies
+                edge_multipliers[key] = min(
+                    self.MULTIPLIER_MAX,
+                    edge_multipliers[key] * 1.15,
+                )
+            elif good_pct > 0.5:
+                # Relax: lower edge bar for well-fitting strategies
+                edge_multipliers[key] = max(
+                    self.MULTIPLIER_MIN,
+                    edge_multipliers[key] * 0.90,
+                )
 
         # Compute category confidences
         category_confidences = self._compute_category_confidences(stats)

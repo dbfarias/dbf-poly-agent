@@ -183,6 +183,7 @@ export interface BotConfig {
   use_multi_round_debate: boolean;
   use_llm_keywords: boolean;
   use_llm_post_mortem: boolean;
+  use_auto_claim: boolean;
   llm_daily_budget: number;
   llm_today_cost: number;
   current_tier: string;

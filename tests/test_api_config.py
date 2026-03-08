@@ -38,6 +38,7 @@ class TestGetConfig:
             "use_llm_post_mortem",
             "llm_daily_budget",
             "llm_today_cost",
+            "use_auto_claim",
         }
         assert set(data.keys()) == expected_keys
 
