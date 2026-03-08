@@ -71,8 +71,17 @@ export function usePushNotifications() {
   const subscribe = useCallback(async () => {
     setState("loading");
     try {
-      // Register SW if not already registered
+      // Register SW and wait for it to become active
       const reg = await navigator.serviceWorker.register("/sw.js");
+      if (reg.installing || reg.waiting) {
+        const sw = reg.installing || reg.waiting;
+        await new Promise<void>((resolve) => {
+          sw!.addEventListener("statechange", () => {
+            if (sw!.state === "activated") resolve();
+          });
+          if (sw!.state === "activated") resolve();
+        });
+      }
       await navigator.serviceWorker.ready;
 
       // Get VAPID key from server
