@@ -194,7 +194,9 @@ class TradingEngine:
         self._target_notified_day: str = ""
         self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
         self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
+        self._debate_cooldown: dict[str, datetime] = {}  # {market_id: debate_again_after}
         self.market_cooldown_hours: float = 1.0  # configurable via admin API
+        self.debate_cooldown_hours: float = 1.0  # skip re-debating rejected markets
         self.min_balance_for_trades: float = settings.min_balance_for_trades
 
     @property
@@ -479,6 +481,14 @@ class TradingEngine:
             round(self._learner_adjustments.daily_progress, 2)
             if self._learner_adjustments else 0.0
         )
+
+        # Prune expired debate cooldowns (in-memory only)
+        now_utc = datetime.now(timezone.utc)
+        expired = [
+            mid for mid, dt in self._debate_cooldown.items() if dt <= now_utc
+        ]
+        for mid in expired:
+            del self._debate_cooldown[mid]
 
         logger.info(
             "cycle_complete",
@@ -821,6 +831,12 @@ class TradingEngine:
             if not var_precheck:
                 continue
 
+            # Debate cooldown: skip markets recently rejected by debate
+            if settings.use_llm_debate:
+                debate_until = self._debate_cooldown.get(signal.market_id)
+                if debate_until and datetime.now(timezone.utc) < debate_until:
+                    continue
+
             # LLM debate gate: Proposer vs Challenger
             if settings.use_llm_debate:
                 research = self.research_cache.get(signal.market_id)
@@ -933,6 +949,11 @@ class TradingEngine:
                         final_reasoning=debate_result.final_reasoning,
                     )
                     if not debate_result.approved:
+                        # Cooldown: don't re-debate this market for a while
+                        self._debate_cooldown[signal.market_id] = (
+                            datetime.now(timezone.utc)
+                            + timedelta(hours=self.debate_cooldown_hours)
+                        )
                         logger.info(
                             "signal_rejected_llm_debate",
                             strategy=signal.strategy,
