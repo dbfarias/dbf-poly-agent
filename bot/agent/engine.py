@@ -814,6 +814,13 @@ class TradingEngine:
                 if correlated_skip:
                     continue
 
+            # Pre-check VaR before spending money on LLM debate
+            var_precheck = self.risk_manager._check_daily_var(
+                self.portfolio.total_equity
+            )
+            if not var_precheck:
+                continue
+
             # LLM debate gate: Proposer vs Challenger
             if settings.use_llm_debate:
                 research = self.research_cache.get(signal.market_id)
