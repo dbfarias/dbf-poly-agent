@@ -166,7 +166,7 @@ class TestPruneConstants:
         assert MAX_SCAN_ROWS == 5000
 
     def test_max_activity_rows_exists(self):
-        assert MAX_ACTIVITY_ROWS == 5000
+        assert MAX_ACTIVITY_ROWS == 10000
 
 
 # ---------------------------------------------------------------------------

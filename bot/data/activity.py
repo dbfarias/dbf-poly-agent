@@ -16,8 +16,13 @@ from bot.data.models import BotActivity, MarketScan
 logger = structlog.get_logger()
 
 # Maximum rows kept in each table (auto-pruned periodically).
-MAX_ACTIVITY_ROWS = 5000
+MAX_ACTIVITY_ROWS = 10000
 MAX_SCAN_ROWS = 5000
+
+# Event types that should never be pruned (valuable LLM analysis history).
+_PROTECTED_EVENT_TYPES = frozenset({
+    "llm_debate", "llm_risk_debate", "llm_review", "llm_post_mortem",
+})
 
 
 async def _write(event: BotActivity) -> None:
@@ -621,12 +626,17 @@ async def prune_old_activity() -> None:
     try:
         from sqlalchemy import delete
         async with async_session() as session:
-            # Prune BotActivity
-            count = await session.scalar(select(func.count(BotActivity.id)))
+            # Prune BotActivity (preserve LLM events — they're valuable history)
+            count = await session.scalar(
+                select(func.count(BotActivity.id)).where(
+                    BotActivity.event_type.notin_(_PROTECTED_EVENT_TYPES)
+                )
+            )
             if count and count > MAX_ACTIVITY_ROWS:
                 excess = count - MAX_ACTIVITY_ROWS
                 subq = (
                     select(BotActivity.id)
+                    .where(BotActivity.event_type.notin_(_PROTECTED_EVENT_TYPES))
                     .order_by(BotActivity.timestamp.asc())
                     .limit(excess)
                     .scalar_subquery()
