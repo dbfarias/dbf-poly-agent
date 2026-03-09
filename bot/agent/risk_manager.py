@@ -343,16 +343,35 @@ class RiskManager:
         return RiskCheckResult(True)
 
     def _check_daily_var(self, bankroll: float) -> RiskCheckResult:
-        """Block trading if daily VaR exceeds limit (default -5%)."""
+        """Block trading if daily VaR exceeds limit.
+
+        Scales with bankroll: small accounts get looser limits since
+        historical VaR from early losses shouldn't permanently freeze trading.
+        - bankroll < $25:  -20% (recovery mode)
+        - bankroll < $50:  -15%
+        - bankroll < $100: -10%
+        - bankroll >= $100: -5% (strict, default)
+        """
         if self._returns_tracker is None:
             return RiskCheckResult(True)
         if len(self._returns_tracker.returns) < 7:
             return RiskCheckResult(True)  # Not enough data, allow
+
+        # Scale VaR limit with bankroll size
+        if bankroll < 25:
+            effective_limit = -0.20
+        elif bankroll < 50:
+            effective_limit = -0.15
+        elif bankroll < 100:
+            effective_limit = -0.10
+        else:
+            effective_limit = self.var_limit  # -5% default
+
         var_95 = self._returns_tracker.daily_var_95
-        if var_95 < self.var_limit:
+        if var_95 < effective_limit:
             return RiskCheckResult(
                 False,
-                f"Daily VaR too high: {var_95:.1%} < {self.var_limit:.1%}",
+                f"Daily VaR too high: {var_95:.1%} < {effective_limit:.1%}",
             )
         return RiskCheckResult(True)
 

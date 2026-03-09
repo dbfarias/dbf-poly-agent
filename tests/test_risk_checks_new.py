@@ -49,15 +49,44 @@ class TestVarCheck:
         result = rm._check_daily_var(100.0)
         assert result.passed
 
-    def test_bad_var_blocks(self):
+    def test_bad_var_blocks_large_bankroll(self):
         tracker = ReturnsTracker()
         # Consistently losing → VaR should be very negative
         for r in [-0.08, -0.10, -0.07, -0.12, -0.09, -0.11, -0.08]:
             tracker.record_return(r)
         rm = RiskManager(returns_tracker=tracker)
+        # Large bankroll uses strict -5% limit
         result = rm._check_daily_var(100.0)
         assert not result.passed
         assert "VaR" in result.reason
+
+    def test_var_scales_with_small_bankroll(self):
+        tracker = ReturnsTracker()
+        # Moderate losses: VaR around -15%
+        for r in [-0.05, -0.06, -0.04, -0.07, -0.05, -0.06, -0.05]:
+            tracker.record_return(r)
+        rm = RiskManager(returns_tracker=tracker)
+        # Small bankroll ($12) uses -20% limit → passes
+        result = rm._check_daily_var(12.0)
+        assert result.passed
+        # Large bankroll ($100) uses -5% limit → blocks
+        result = rm._check_daily_var(100.0)
+        assert not result.passed
+
+    def test_var_limit_tiers(self):
+        # VaR ~ -12.2% with these returns
+        tracker = ReturnsTracker()
+        for r in [-0.08, -0.10, -0.07, -0.12, -0.09, -0.11, -0.08]:
+            tracker.record_return(r)
+        rm = RiskManager(returns_tracker=tracker)
+        # $12 → -20% limit → passes (VaR -12.2% > -20%)
+        assert rm._check_daily_var(12.0).passed
+        # $30 → -15% limit → passes (VaR -12.2% > -15%)
+        assert rm._check_daily_var(30.0).passed
+        # $60 → -10% limit → blocks (VaR -12.2% < -10%)
+        assert not rm._check_daily_var(60.0).passed
+        # $100 → -5% limit → blocks (VaR -12.2% < -5%)
+        assert not rm._check_daily_var(100.0).passed
 
 
 class TestZscoreCheck:
