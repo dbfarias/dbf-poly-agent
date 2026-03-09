@@ -32,6 +32,7 @@ from bot.data.market_cache import MarketCache
 from bot.data.models import StrategyMetric
 from bot.data.price_tracker import PriceTracker
 from bot.data.repositories import StrategyMetricRepository
+from bot.data.returns_tracker import ReturnsTracker
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.gamma import GammaClient
@@ -114,8 +115,11 @@ class TradingEngine:
         self.data_api = DataApiClient()
         self.cache = MarketCache(default_ttl=120)
 
+        # Returns tracker for VaR/Sharpe (loaded from DB on startup)
+        self.returns_tracker = ReturnsTracker()
+
         # Components
-        self.risk_manager = RiskManager()
+        self.risk_manager = RiskManager(returns_tracker=self.returns_tracker)
         self.portfolio = Portfolio(
             self.clob_client, self.data_api, self.gamma_client,
             risk_manager=self.risk_manager,
@@ -316,6 +320,10 @@ class TradingEngine:
         await self.learner.restore_paused_strategies()
         await self.learner.restore_unpause_immunity()
 
+        # Load returns tracker for VaR/Sharpe
+        await self.returns_tracker.load_from_db()
+        await self.returns_tracker.load_trade_pnl()
+
         # Restore market cooldowns
         try:
             from bot.data.settings_store import StateStore
@@ -511,6 +519,11 @@ class TradingEngine:
         )
         try:
             self._learner_adjustments = await self.learner.compute_stats()
+            # Inject rolling_sharpe from ReturnsTracker
+            if self.returns_tracker and len(self.returns_tracker.returns) >= 7:
+                self._learner_adjustments.rolling_sharpe = round(
+                    self.returns_tracker.rolling_sharpe, 2,
+                )
             if self._learner_adjustments.paused_strategies:
                 logger.info(
                     "learner_paused_strategies",

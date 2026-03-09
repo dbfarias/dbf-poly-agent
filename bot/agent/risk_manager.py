@@ -10,6 +10,7 @@ from bot.utils.math_utils import (
     current_drawdown,
     position_size_usd,
 )
+from bot.utils.risk_metrics import mispricing_zscore
 
 logger = structlog.get_logger()
 
@@ -32,13 +33,20 @@ class RiskCheckResult:
 class RiskManager:
     """Tier-based risk management with cascading checks."""
 
-    def __init__(self):
+    # Configurable risk thresholds (exposed via admin API)
+    VAR_LIMIT = -0.05        # -5% daily VaR limit
+    ZSCORE_THRESHOLD = 1.5   # Min |Z-score| for trade approval
+
+    def __init__(self, returns_tracker=None):
         self._daily_pnl: float = 0.0
         self._daily_pnl_date: str = ""
         self._peak_equity: float = settings.initial_bankroll
         self._day_start_equity: float = settings.initial_bankroll
         self._is_paused: bool = False
         self._pnl_dirty: bool = False
+        self._returns_tracker = returns_tracker
+        self.var_limit: float = self.VAR_LIMIT
+        self.zscore_threshold: float = self.ZSCORE_THRESHOLD
 
     @property
     def is_paused(self) -> bool:
@@ -141,11 +149,13 @@ class RiskManager:
             self._check_duplicate_position(signal, open_positions),
             self._check_daily_loss(bankroll, config),
             self._check_drawdown(bankroll, config),
+            self._check_daily_var(bankroll),
             self._check_max_positions(open_positions, config, pending_count),
             self._check_total_deployed(open_positions, bankroll, config, urgency),
             self._check_category_exposure(signal, open_positions, bankroll, config),
             self._check_min_edge(signal, config, edge_multiplier),
             self._check_min_win_prob(signal, config),
+            self._check_zscore(signal),
         ]
 
         for check in checks:
@@ -332,6 +342,32 @@ class RiskManager:
             )
         return RiskCheckResult(True)
 
+    def _check_daily_var(self, bankroll: float) -> RiskCheckResult:
+        """Block trading if daily VaR exceeds limit (default -5%)."""
+        if self._returns_tracker is None:
+            return RiskCheckResult(True)
+        if len(self._returns_tracker.returns) < 7:
+            return RiskCheckResult(True)  # Not enough data, allow
+        var_95 = self._returns_tracker.daily_var_95
+        if var_95 < self.var_limit:
+            return RiskCheckResult(
+                False,
+                f"Daily VaR too high: {var_95:.1%} < {self.var_limit:.1%}",
+            )
+        return RiskCheckResult(True)
+
+    def _check_zscore(self, signal: TradeSignal) -> RiskCheckResult:
+        """Require mispricing Z-score above threshold for trade approval."""
+        std_dev = signal.metadata.get("price_std", 0.05)  # Default 5% volatility
+        z = mispricing_zscore(signal.estimated_prob, signal.market_price, std_dev)
+        signal.metadata["zscore"] = round(z, 2)
+        if abs(z) < self.zscore_threshold:
+            return RiskCheckResult(
+                False,
+                f"Z-score too low: |{z:.2f}| < {self.zscore_threshold}",
+            )
+        return RiskCheckResult(True)
+
     @staticmethod
     def _calibration_bucket(prob: float) -> str:
         """Map a probability to its calibration bucket key."""
@@ -421,6 +457,7 @@ class RiskManager:
         config = TierConfig.get(tier)
         dd = current_drawdown(bankroll, self._peak_equity)
 
+        rt = self._returns_tracker
         return {
             "tier": tier.value,
             "bankroll": bankroll,
@@ -431,4 +468,7 @@ class RiskManager:
             "daily_loss_limit_pct": config["daily_loss_limit_pct"],
             "max_positions": config["max_positions"],
             "is_paused": self._is_paused,
+            "daily_var_95": rt.daily_var_95 if rt else None,
+            "rolling_sharpe": rt.rolling_sharpe if rt else None,
+            "profit_factor": rt.profit_factor_value if rt else None,
         }

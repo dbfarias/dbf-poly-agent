@@ -47,31 +47,31 @@ class TierConfig:
         CapitalTier.TIER1: {
             "max_positions": 6,             # More slots for diverse short-term trades
             "max_per_position_pct": 0.40,   # ~$7 max per position on $17 bankroll
-            "max_deployed_pct": 0.85,       # Keep 15% cash reserve
-            "daily_loss_limit_pct": 0.10,
-            "max_drawdown_pct": 0.25,
+            "max_deployed_pct": 0.60,       # Tighter: 40% cash reserve (was 85%)
+            "daily_loss_limit_pct": 0.06,   # Tighter: 6% daily loss (was 10%)
+            "max_drawdown_pct": 0.12,       # Tighter: 12% drawdown (was 25%)
             "min_edge_pct": 0.01,
             "min_win_prob": 0.55,           # Allow more signals (strategies do own filtering)
             "max_per_category_pct": 0.40,   # Better diversification across categories
-            "kelly_fraction": 0.25,         # Higher for small bankroll (need 5-share minimums)
+            "kelly_fraction": 0.35,         # More aggressive when signal passes all gates
         },
         CapitalTier.TIER2: {
             "max_positions": 6,             # Enough slots for diversified short-term trades
             "max_per_position_pct": 0.20,   # ~$6 max per position
-            "max_deployed_pct": 0.80,       # Keep 20% cash reserve (6 positions × 20% = full use)
-            "daily_loss_limit_pct": 0.08,
-            "max_drawdown_pct": 0.15,
+            "max_deployed_pct": 0.50,       # Tighter: 50% cash reserve (was 80%)
+            "daily_loss_limit_pct": 0.06,   # Tighter (was 8%)
+            "max_drawdown_pct": 0.10,       # Tighter: 10% drawdown (was 15%)
             "min_edge_pct": 0.02,
             "min_win_prob": 0.70,
             "max_per_category_pct": 0.30,   # ~$9 max per normalized category
-            "kelly_fraction": 0.15,
+            "kelly_fraction": 0.25,         # More aggressive (was 0.15)
         },
         CapitalTier.TIER3: {
             "max_positions": 15,
             "max_per_position_pct": 0.15,
-            "max_deployed_pct": 0.85,
-            "daily_loss_limit_pct": 0.06,
-            "max_drawdown_pct": 0.12,
+            "max_deployed_pct": 0.45,       # Tighter: 55% cash reserve (was 85%)
+            "daily_loss_limit_pct": 0.05,   # Tighter (was 6%)
+            "max_drawdown_pct": 0.08,       # Tighter: 8% drawdown (was 12%)
             "min_edge_pct": 0.02,
             "min_win_prob": 0.60,
             "max_per_category_pct": 0.30,

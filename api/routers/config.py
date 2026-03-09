@@ -66,6 +66,11 @@ def _get_quality_params(engine) -> dict:
     # Engine-level params
     result["market_cooldown_hours"] = engine.market_cooldown_hours
     result["min_balance_for_trades"] = engine.min_balance_for_trades
+    # RiskManager params
+    if hasattr(engine, "risk_manager"):
+        rm = engine.risk_manager
+        result["var_limit"] = rm.var_limit
+        result["zscore_threshold"] = rm.zscore_threshold
     return result
 
 
@@ -249,6 +254,9 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                     "closer", "rebalance_resolution_max_loss_pct",
                     float, 0.01, 0.5,
                 ),
+                # RiskManager params
+                "var_limit": ("risk_manager", "var_limit", float, -0.5, 0.0),
+                "zscore_threshold": ("risk_manager", "zscore_threshold", float, 0.0, 5.0),
             }
             for key, value in update.quality_params.items():
                 spec = _quality_spec.get(key)

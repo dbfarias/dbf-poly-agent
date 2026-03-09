@@ -25,6 +25,11 @@ def make_signal(
     confidence: float = 0.85,
     metadata: dict | None = None,
 ) -> TradeSignal:
+    # Default price_std=0.03 ensures Z-score passes the 1.5 threshold
+    # for the default prob/price combo: (0.92-0.86)/0.03 = 2.0 > 1.5
+    default_meta = {"price_std": 0.02}
+    if metadata:
+        default_meta.update(metadata)
     return TradeSignal(
         strategy="time_decay",
         market_id="mkt1",
@@ -35,7 +40,7 @@ def make_signal(
         edge=edge,
         size_usd=0.0,
         confidence=confidence,
-        metadata=metadata or {},
+        metadata=default_meta,
     )
 
 
@@ -246,10 +251,10 @@ class TestCheckDailyLoss:
 
     def test_exact_boundary_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # Equity-based: bankroll=9.0, day_start=10.0 → PnL=-1.0, limit=-1.0
-        # -1.0 < -1.0 is False → passes
+        # Equity-based: bankroll=9.4, day_start=10.0 → PnL=-0.6, limit=-0.6
+        # -0.6 < -0.6 is False → passes
         rm._day_start_equity = 10.0
-        assert rm._check_daily_loss(9.0, config).passed is True
+        assert rm._check_daily_loss(9.4, config).passed is True
 
     def test_equity_based_not_accumulated(self, rm):
         """Daily loss check uses equity delta, not accumulated _daily_pnl."""
@@ -373,10 +378,10 @@ class TestCheckTotalDeployed:
 
     def test_within_deployed_limit_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # 7.0 deployed out of 10.0 → 70% < 85% max_deployed_pct → passes
+        # 5.0 deployed out of 10.0 → 50% < 60% max_deployed_pct → passes
         positions = [
-            make_position(market_id="mkt1", cost_basis=3.5),
-            make_position(market_id="mkt2", cost_basis=3.5),
+            make_position(market_id="mkt1", cost_basis=2.5),
+            make_position(market_id="mkt2", cost_basis=2.5),
         ]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
@@ -410,11 +415,11 @@ class TestCheckTotalDeployed:
 
     def test_urgency_scales_max_deployed(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # 8.8 deployed out of 10.0 = 88%. At urgency=1.0, 85% limit → FAIL
-        positions = [make_position(cost_basis=8.8)]
+        # 6.3 deployed out of 10.0 = 63%. At urgency=1.0, 60% limit → FAIL
+        positions = [make_position(cost_basis=6.3)]
         result = rm._check_total_deployed(positions, 10.0, config, urgency=1.0)
         assert result.passed is False
-        # At urgency=2.0, limit becomes min(0.95, 0.85 + 0.05) = 90% → PASS
+        # At urgency=2.0, limit becomes min(0.95, 0.60 + 0.05) = 65% → PASS
         result = rm._check_total_deployed(positions, 10.0, config, urgency=2.0)
         assert result.passed is True
 
@@ -658,6 +663,9 @@ class TestGetRiskMetrics:
             "daily_loss_limit_pct",
             "max_positions",
             "is_paused",
+            "daily_var_95",
+            "rolling_sharpe",
+            "profit_factor",
         }
         assert set(metrics.keys()) == expected_keys
 

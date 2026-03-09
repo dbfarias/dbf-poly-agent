@@ -52,7 +52,9 @@ def make_trades(
 ) -> list[Trade]:
     trades = []
     for i in range(count):
-        pnl = 0.10 if i < win_count else -0.50
+        # PnL balanced so PF > 1.0 when majority wins (avoids
+        # profit_factor edge tightening distorting PM tests)
+        pnl = 0.30 if i < win_count else -0.20
         trades.append(
             make_trade(strategy=strategy, category=category, pnl=pnl)
         )

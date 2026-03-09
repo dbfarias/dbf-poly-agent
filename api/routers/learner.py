@@ -100,6 +100,8 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
         "paused_strategies": list(adjustments.paused_strategies),
         "post_mortem_influence": pm_influence,
         "brier_scores": brier_scores,
+        "profit_factor": getattr(adjustments, "profit_factor", None),
+        "rolling_sharpe": getattr(adjustments, "rolling_sharpe", None),
         "last_computed": (
             learner._last_computed.isoformat()
             if learner._last_computed

@@ -23,18 +23,18 @@ def test_tier_config_values():
     t1 = TierConfig.get(CapitalTier.TIER1)
     assert t1["max_positions"] == 6
     assert t1["max_per_position_pct"] == 0.40
-    assert t1["max_deployed_pct"] == 0.85
+    assert t1["max_deployed_pct"] == 0.60
     assert t1["max_per_category_pct"] == 0.40
     assert t1["min_win_prob"] == 0.55
-    assert t1["kelly_fraction"] == 0.25
+    assert t1["kelly_fraction"] == 0.35
 
     t2 = TierConfig.get(CapitalTier.TIER2)
     assert t2["max_positions"] == 6
-    assert t2["max_deployed_pct"] == 0.80
+    assert t2["max_deployed_pct"] == 0.50
 
     t3 = TierConfig.get(CapitalTier.TIER3)
     assert t3["max_positions"] == 15
-    assert t3["max_deployed_pct"] == 0.85
+    assert t3["max_deployed_pct"] == 0.45
 
 
 def test_tier_risk_increases():

@@ -17,6 +17,7 @@ import structlog
 from bot.agent.market_analyzer import classify_market_type
 from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
+from bot.utils.risk_metrics import compute_vpin
 
 from .base import BaseStrategy
 from .time_decay import HOURS_MEDIUM, _max_hours_for_urgency
@@ -44,6 +45,8 @@ class ValueBettingStrategy(BaseStrategy):
     # Anti-churn: minimum hold before rebalance can sell this strategy's positions
     MIN_HOLD_SECONDS = 7200  # 2h
 
+    VPIN_THRESHOLD = 0.95  # Skip markets with nearly one-sided flow
+
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5},
         "IMBALANCE_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
@@ -58,6 +61,7 @@ class ValueBettingStrategy(BaseStrategy):
         "MEAN_REVERSION_THRESHOLD": {"type": float, "min": 0.0, "max": 0.5},
         "VELOCITY_BOOST": {"type": float, "min": 0.0, "max": 0.3},
         "VELOCITY_PENALTY": {"type": float, "min": 0.0, "max": 0.3},
+        "VPIN_THRESHOLD": {"type": float, "min": 0.0, "max": 1.0},
     }
 
     def __init__(self, *args, price_tracker=None, **kwargs):
@@ -154,6 +158,24 @@ class ValueBettingStrategy(BaseStrategy):
         # Reject thin order books (unreliable signals)
         if total_volume < self.MIN_BOOK_VOLUME:
             return None
+
+        # VPIN: measure informed flow (logged in metadata, gate is configurable)
+        vpin = compute_vpin(bid_volume, ask_volume)
+        if vpin > self.VPIN_THRESHOLD:
+            logger.info(
+                "vpin_toxic_skip",
+                market_id=market.id[:20],
+                vpin=round(vpin, 2),
+            )
+            return None
+
+        # Compute price_std from order book for Z-score check downstream
+        prices = [b.price for b in book.bids[:5]] + [a.price for a in book.asks[:5]]
+        price_std = 0.05  # default
+        if len(prices) >= 2:
+            mean_p = sum(prices) / len(prices)
+            variance = sum((p - mean_p) ** 2 for p in prices) / len(prices)
+            price_std = max(variance ** 0.5, 0.01)
 
         imbalance = (bid_volume - ask_volume) / total_volume
 
@@ -320,6 +342,8 @@ class ValueBettingStrategy(BaseStrategy):
             "ask_volume": ask_volume,
             "near_certainty": near_certainty,
             "resolution_bonus": resolution_bonus,
+            "vpin": round(vpin, 3),
+            "price_std": round(price_std, 4),
         }
         if mom is not None:
             metadata["momentum_1h"] = mom

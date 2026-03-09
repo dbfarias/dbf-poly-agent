@@ -71,7 +71,7 @@ def _make_signal(
         edge=edge,
         size_usd=5.0,
         confidence=confidence,
-        metadata=metadata or {"category": "crypto", "hours_to_resolution": 48},
+        metadata=metadata or {"category": "crypto", "hours_to_resolution": 48, "price_std": 0.02},
     )
 
 
@@ -241,7 +241,7 @@ class TestDebateFailureFallback:
         sig = _make_signal(
             market_id="risk_debate", strategy="time_decay",
             edge=0.005, estimated_prob=0.92, market_price=0.86,
-            metadata={"category": "crypto"},  # no hours_to_resolution
+            metadata={"category": "crypto", "price_std": 0.02},  # no hours_to_resolution
         )
         _setup_engine_for_evaluate(engine, [sig])
 
@@ -308,7 +308,7 @@ class TestRapidSignalSuccession:
                 edge=0.06,
                 estimated_prob=0.92,
                 market_price=0.86,
-                metadata={"category": f"cat_{i}", "hours_to_resolution": 48},
+                metadata={"category": f"cat_{i}", "hours_to_resolution": 48, "price_std": 0.02},
             )
             for i in range(5)
         ]
@@ -361,7 +361,7 @@ class TestRapidSignalSuccession:
                 edge=0.08,
                 estimated_prob=0.92,
                 market_price=0.86,
-                metadata={"category": f"pcat_{i}", "hours_to_resolution": 48},
+                metadata={"category": f"pcat_{i}", "hours_to_resolution": 48, "price_std": 0.02},
             )
             for i in range(3)
         ]
@@ -435,11 +435,11 @@ class TestCategoryExposureCrossStrategy:
         ]
         sig_crypto = _make_signal(
             market_id="new_crypto", strategy="time_decay", edge=0.06,
-            metadata={"category": "crypto", "hours_to_resolution": 48},
+            metadata={"category": "crypto", "hours_to_resolution": 48, "price_std": 0.02},
         )
         sig_politics = _make_signal(
             market_id="new_politics", strategy="value_betting", edge=0.06,
-            metadata={"category": "politics", "hours_to_resolution": 48},
+            metadata={"category": "politics", "hours_to_resolution": 48, "price_std": 0.02},
         )
 
         rm = RiskManager()
@@ -476,7 +476,7 @@ class TestCategoryExposureCrossStrategy:
         ]
         sig_arb = _make_signal(
             market_id="arb_crypto", strategy="arbitrage", edge=0.06,
-            metadata={"category": "crypto", "hours_to_resolution": 48},
+            metadata={"category": "crypto", "hours_to_resolution": 48, "price_std": 0.02},
         )
 
         rm = RiskManager()
@@ -752,7 +752,7 @@ class TestRuleConflictValidators:
 
         sig = _make_signal(
             market_id="urgency_test", edge=0.06,
-            metadata={"category": "politics", "hours_to_resolution": 48},
+            metadata={"category": "politics", "hours_to_resolution": 48, "price_std": 0.02},
         )
 
         # With no open positions, signal should pass.

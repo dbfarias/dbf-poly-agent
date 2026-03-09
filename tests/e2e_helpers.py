@@ -58,7 +58,7 @@ def _make_signal(
         edge=edge,
         size_usd=5.0,
         confidence=confidence,
-        metadata=metadata or {"category": "crypto", "hours_to_resolution": 48},
+        metadata=metadata or {"category": "crypto", "hours_to_resolution": 48, "price_std": 0.02},
     )
 
 
@@ -129,20 +129,20 @@ def _setup_engine_for_evaluate(
 ):
     """Wire up engine mocks for _evaluate_signals testing."""
     engine.portfolio = AsyncMock()
-    engine.portfolio.cash = 50.0
-    engine.portfolio.total_equity = 50.0
+    engine.portfolio.cash = 200.0
+    engine.portfolio.total_equity = 200.0
     engine.portfolio.positions = positions or []
     engine.portfolio.tier = CapitalTier.TIER1
     engine.portfolio.open_position_count = len(positions or [])
-    engine.portfolio.day_start_equity = 50.0
+    engine.portfolio.day_start_equity = 200.0
     engine.portfolio.realized_pnl_today = 0.0
 
     engine.analyzer = AsyncMock()
     engine.analyzer.scan_markets = AsyncMock(return_value=signals)
 
     engine.risk_manager = RiskManager()
-    engine.risk_manager._peak_equity = 50.0
-    engine.risk_manager._day_start_equity = 50.0
+    engine.risk_manager._peak_equity = 200.0
+    engine.risk_manager._day_start_equity = 200.0
 
     engine.order_manager = AsyncMock()
     engine.order_manager.pending_count = 0

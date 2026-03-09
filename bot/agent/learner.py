@@ -16,6 +16,7 @@ from bot.data.database import async_session
 from bot.data.models import StrategyMetric, Trade
 from bot.data.repositories import StrategyMetricRepository, TradeRepository
 from bot.research.probability_calibrator import ProbabilityCalibrator
+from bot.utils.risk_metrics import profit_factor as compute_profit_factor
 
 logger = structlog.get_logger()
 
@@ -70,6 +71,8 @@ class LearnerAdjustments:
         daily_progress: float = 0.0,
         brier_scores: dict[str, float] | None = None,
         category_min_edges: dict[str, float] | None = None,
+        profit_factor: float = 0.0,
+        rolling_sharpe: float = 0.0,
     ):
         self.edge_multipliers = edge_multipliers
         self.category_confidences = category_confidences
@@ -79,6 +82,8 @@ class LearnerAdjustments:
         self.daily_progress = daily_progress
         self.brier_scores = brier_scores or {}
         self.category_min_edges = category_min_edges or {}
+        self.profit_factor = profit_factor
+        self.rolling_sharpe = rolling_sharpe
 
 
 class PerformanceLearner:
@@ -280,6 +285,24 @@ class PerformanceLearner:
         urgency = self._compute_urgency()
         daily_progress = self._compute_daily_progress()
 
+        # Profit factor from resolved trades
+        gross_profit = sum(t.pnl for t in recent if t.pnl > 0)
+        gross_loss = abs(sum(t.pnl for t in recent if t.pnl < 0))
+        pf = compute_profit_factor(gross_profit, gross_loss)
+
+        # If PF < 1.0 over 10+ trades, tighten edge multipliers by 30%
+        if pf < 1.0 and len(recent) >= 10:
+            for key in list(edge_multipliers.keys()):
+                edge_multipliers[key] = min(
+                    self.MULTIPLIER_MAX,
+                    edge_multipliers[key] * 1.3,
+                )
+            logger.info(
+                "profit_factor_edge_tighten",
+                profit_factor=round(pf, 2),
+                trades=len(recent),
+            )
+
         self._last_computed = datetime.now(timezone.utc)
 
         adjustments: LearnerAdjustments = LearnerAdjustments(
@@ -291,6 +314,8 @@ class PerformanceLearner:
             daily_progress=daily_progress,
             brier_scores=brier_scores,
             category_min_edges=dict(self._category_min_edges),
+            profit_factor=round(pf, 2),
+            rolling_sharpe=0.0,  # Populated from ReturnsTracker in engine
         )
 
         logger.info(

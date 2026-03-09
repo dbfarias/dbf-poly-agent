@@ -448,7 +448,7 @@ class TestRiskCheckCascading:
     def test_category_exposure(self):
         rm = RiskManager()
         config = TierConfig.get(CapitalTier.TIER1)
-        sig = _make_signal(metadata={"category": "crypto"})
+        sig = _make_signal(metadata={"category": "crypto", "price_std": 0.02})
         # Category exposure is %-of-bankroll based; fill up the limit
         max_pct = config["max_per_category_pct"]
         cost_per = 50.0 * max_pct / 2 + 1  # Each position > half the limit
@@ -737,8 +737,8 @@ class TestCycleCommittedTracking:
             await engine._evaluate_signals(CapitalTier.TIER1)
 
         assert len(bankroll_calls) == 2
-        assert bankroll_calls[0] == 50.0  # Full bankroll
-        assert bankroll_calls[1] == 45.0  # 50 - 5 (first trade cost)
+        assert bankroll_calls[0] == 200.0  # Full bankroll
+        assert bankroll_calls[1] == 195.0  # 200 - 5 (first trade cost)
 
 
 # ---------------------------------------------------------------------------
@@ -968,7 +968,7 @@ class TestMultiStrategyPositionMix:
 
         sig = _make_signal(
             market_id="m5", strategy="price_divergence",
-            edge=0.06, metadata={"category": "politics"},
+            edge=0.06, metadata={"category": "politics", "price_std": 0.02},
         )
         approved, size, reason = await rm.evaluate_signal(
             signal=sig,
@@ -1033,7 +1033,7 @@ class TestStuckPositions:
             for i in range(6)
         ]
 
-        sig = _make_signal(market_id="m_new", edge=0.06, metadata={"category": "politics"})
+        sig = _make_signal(market_id="m_new", edge=0.06, metadata={"category": "politics", "price_std": 0.02})
 
         with patch("bot.agent.risk_manager.settings") as mock_settings:
             mock_settings.is_paper = False
