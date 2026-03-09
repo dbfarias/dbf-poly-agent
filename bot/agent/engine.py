@@ -969,11 +969,45 @@ class TradingEngine:
             # Apply research sentiment multiplier (news-driven edge adjustment)
             research = self.research_cache.get(signal.market_id)
             if research is not None:
-                r_mult = max(0.7, min(1.3, research.research_multiplier))
+                r_mult = max(0.5, min(1.5, research.research_multiplier))
                 edge_multiplier *= r_mult
                 edge_multiplier = max(0.5, min(2.0, edge_multiplier))
                 signal.metadata["research_sentiment"] = research.sentiment_score
                 signal.metadata["research_multiplier"] = r_mult
+
+                # Twitter sentiment metadata
+                twitter_sent = getattr(research, "twitter_sentiment", 0.0)
+                tw_count = getattr(research, "tweet_count", 0)
+                if tw_count > 0:
+                    signal.metadata["twitter_sentiment"] = twitter_sent
+                    signal.metadata["tweet_count"] = tw_count
+
+                # Research direction validation: check if sentiment agrees
+                # with the trade direction (buying YES vs NO)
+                if research.confidence >= 0.3:
+                    buying_yes = signal.metadata.get("outcome") == "Yes" or signal.outcome == "Yes"
+                    sentiment_agrees = (
+                        (buying_yes and research.sentiment_score > 0.1)
+                        or (not buying_yes and research.sentiment_score < -0.1)
+                    )
+                    if not sentiment_agrees and abs(research.sentiment_score) > 0.2:
+                        edge_multiplier *= 0.7  # Penalize against-sentiment trades
+                        signal.metadata["research_disagrees"] = True
+                        logger.info(
+                            "research_disagrees",
+                            market_id=signal.market_id[:20],
+                            sentiment=round(research.sentiment_score, 2),
+                            buying_yes=buying_yes,
+                        )
+                    elif sentiment_agrees and research.confidence >= 0.5:
+                        edge_multiplier *= 1.2  # Boost when research confirms
+                        signal.metadata["research_agrees"] = True
+                        logger.info(
+                            "research_agrees",
+                            market_id=signal.market_id[:20],
+                            sentiment=round(research.sentiment_score, 2),
+                            buying_yes=buying_yes,
+                        )
 
                 # Wire historical base rate into confidence scoring
                 br_raw = getattr(research, "historical_base_rate", 0.0)
@@ -1280,6 +1314,9 @@ class TradingEngine:
         vol_anomaly = False
         base_rate = 0.0
 
+        research_agrees: bool | None = None
+        twitter_sent = 0.0
+
         if research is not None:
             res_conf = research.confidence
             mkt_cat = research.market_category
@@ -1289,6 +1326,13 @@ class TradingEngine:
             crypto_px = research.crypto_prices
             vol_anomaly = research.is_volume_anomaly
             base_rate = research.historical_base_rate
+            twitter_sent = getattr(research, "twitter_sentiment", 0.0)
+
+            # Derive research_agrees from signal metadata (set by direction check)
+            if signal.metadata.get("research_agrees"):
+                research_agrees = True
+            elif signal.metadata.get("research_disagrees"):
+                research_agrees = False
 
         return DebateContext(
             strategy_win_rate=win_rate,
@@ -1303,6 +1347,8 @@ class TradingEngine:
             crypto_prices=crypto_px,
             is_volume_anomaly=vol_anomaly,
             historical_base_rate=base_rate,
+            research_agrees=research_agrees,
+            twitter_sentiment=twitter_sent,
         )
 
     async def _maybe_notify_risk_limit(self, reason: str) -> None:

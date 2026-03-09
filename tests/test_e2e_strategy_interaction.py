@@ -760,9 +760,13 @@ class TestEdgeMultiplierComposition:
         engine.learner.get_edge_multiplier = MagicMock(return_value=1.5)
 
         # Research gives a boost (multiplier 0.8 = relaxed)
+        # Use low confidence so direction check doesn't apply additional boost
         research_mock = MagicMock()
-        research_mock.sentiment_score = 0.5
+        research_mock.sentiment_score = 0.05  # Neutral — no direction check effect
         research_mock.research_multiplier = 0.8
+        research_mock.confidence = 0.2  # Below 0.3 threshold — direction check skipped
+        research_mock.twitter_sentiment = 0.0
+        research_mock.tweet_count = 0
         engine.research_cache.get = MagicMock(return_value=research_mock)
 
         eval_calls: list[dict] = []

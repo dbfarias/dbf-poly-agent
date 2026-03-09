@@ -197,8 +197,8 @@ class Settings(BaseSettings):
 
     # Twitter/X research (via Tavily)
     tavily_api_key: str = ""
-    use_twitter_fetcher: bool = False
-    twitter_daily_budget: int = 30
+    use_twitter_fetcher: bool = True
+    twitter_daily_budget: int = 100
 
     # Auto-claim
     use_auto_claim: bool = False

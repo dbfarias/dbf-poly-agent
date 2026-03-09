@@ -66,3 +66,46 @@ def compute_research_multiplier(sentiment: float, article_count: int) -> float:
     # Max effect: 1.3 at sentiment=-1.0 with 5+ articles
     effect = (-sentiment - 0.15) / 0.85  # 0 to 1
     return min(1.3, 1.0 + (0.3 * effect * confidence))
+
+
+def compute_enhanced_multiplier(
+    sentiment: float,
+    twitter_sentiment: float,
+    article_count: int,
+    tweet_count: int,
+) -> float:
+    """Enhanced research multiplier that combines news + Twitter signals.
+
+    When both sources agree → amplified effect (stronger signal).
+    When they diverge → neutralized (confused signal → stay neutral).
+    Falls back to compute_research_multiplier when no tweets available.
+
+    Returns multiplier in [0.5, 1.5] range.
+    """
+    if tweet_count == 0:
+        return compute_research_multiplier(sentiment, article_count)
+
+    base_mult = compute_research_multiplier(sentiment, article_count)
+    twitter_mult = compute_research_multiplier(twitter_sentiment, tweet_count)
+
+    # Check agreement: both push same direction from 1.0
+    news_direction = base_mult - 1.0  # positive = cautious, negative = permissive
+    twitter_direction = twitter_mult - 1.0
+
+    both_agree = (news_direction > 0 and twitter_direction > 0) or (
+        news_direction < 0 and twitter_direction < 0
+    )
+
+    if both_agree:
+        # Amplify: average the deviations and boost by 40%
+        avg_deviation = (news_direction + twitter_direction) / 2.0
+        amplified = 1.0 + avg_deviation * 1.4
+        return max(0.5, min(1.5, amplified))
+
+    # Diverge: neutralize toward 1.0
+    # Stronger divergence → closer to 1.0
+    divergence = abs(news_direction - twitter_direction)
+    dampening = min(1.0, divergence * 2.0)  # 0.5 divergence → full dampening
+    avg_mult = (base_mult + twitter_mult) / 2.0
+    neutralized = avg_mult + (1.0 - avg_mult) * dampening
+    return max(0.5, min(1.5, neutralized))

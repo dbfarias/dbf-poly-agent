@@ -185,14 +185,37 @@ class ValueBettingStrategy(BaseStrategy):
         vol_factor = max(0.8, min(1.2, 0.8 + (total_volume - 200) / 4500))
         edge_val = base_edge * vol_factor
 
-        # Time-to-resolution bonus: shorter markets → signal more actionable
-        if hours_left <= 24:
-            edge_val *= 1.15
+        # Time-to-resolution bonus: granular scale for near-resolution markets
+        if hours_left <= 6:
+            resolution_bonus = 1.6
+        elif hours_left <= 12:
+            resolution_bonus = 1.4
+        elif hours_left <= 24:
+            resolution_bonus = 1.25
+        elif hours_left <= 48:
+            resolution_bonus = 1.15
         elif hours_left <= 72:
-            edge_val *= 1.05
+            resolution_bonus = 1.05
+        else:
+            resolution_bonus = 1.0
+        edge_val *= resolution_bonus
 
         if edge_val < self.MIN_EDGE:
             return None
+
+        # Near-certainty detector: markets close to resolution with extreme prices
+        # are highly predictable — boost edge and confidence
+        near_certainty = False
+        if hours_left <= 48 and (yes_price >= 0.80 or (1.0 - yes_price) >= 0.80):
+            edge_val *= 1.5  # +50% edge boost
+            near_certainty = True
+            self.logger.info(
+                "near_certainty_boost_applied",
+                market_id=market.id[:20],
+                hours_left=round(hours_left, 1),
+                yes_price=yes_price,
+                edge_after_boost=round(edge_val, 4),
+            )
 
         # Mean-reversion filter: skip when short-term momentum aligns with
         # imbalance direction (likely a spike that will revert)
@@ -238,10 +261,20 @@ class ValueBettingStrategy(BaseStrategy):
 
         # Confidence: base imbalance + time bonus for shorter markets
         confidence = 0.6 + min(0.2, abs(imbalance))
-        if hours_left <= 24:
+        if hours_left <= 6:
+            confidence += 0.15
+        elif hours_left <= 12:
+            confidence += 0.12
+        elif hours_left <= 24:
             confidence += 0.08
+        elif hours_left <= 48:
+            confidence += 0.05
         elif hours_left <= 72:
             confidence += 0.04
+
+        # Near-certainty confidence boost
+        if near_certainty:
+            confidence += 0.15
 
         # Momentum adjustment from shared price tracker
         mom: float | None = None
@@ -285,6 +318,8 @@ class ValueBettingStrategy(BaseStrategy):
             "imbalance": imbalance,
             "bid_volume": bid_volume,
             "ask_volume": ask_volume,
+            "near_certainty": near_certainty,
+            "resolution_bonus": resolution_bonus,
         }
         if mom is not None:
             metadata["momentum_1h"] = mom

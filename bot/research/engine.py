@@ -18,7 +18,7 @@ from bot.research.news_fetcher import NewsFetcher
 from bot.research.pattern_analyzer import PatternAnalyzer
 from bot.research.reddit_fetcher import RedditFetcher
 from bot.research.resolution_parser import parse_resolution_criteria
-from bot.research.sentiment import analyze_sentiment, compute_research_multiplier
+from bot.research.sentiment import analyze_sentiment, compute_enhanced_multiplier
 from bot.research.twitter_fetcher import TwitterFetcher
 from bot.research.types import NewsItem, ResearchResult
 from bot.research.volume_detector import VolumeAnomalyDetector
@@ -123,6 +123,42 @@ class ResearchEngine:
             self.research_cache.record_scan(0)
             return
 
+        # Build twitter-eligible set: top 50 by volume + near-resolution (<48h)
+        # Priority markets always get twitter regardless
+        sorted_by_volume = sorted(
+            scan_markets,
+            key=lambda m: getattr(m, "volume", 0) or 0,
+            reverse=True,
+        )
+        twitter_eligible_ids = set(priority_ids)
+        for m in sorted_by_volume[:50]:
+            twitter_eligible_ids.add(m.id)
+        # Near-resolution markets always get twitter
+        now_utc = datetime.now(timezone.utc)
+        for m in scan_markets:
+            end = getattr(m, "end_date", None)
+            if end is not None:
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
+                hours_left = (end - now_utc).total_seconds() / 3600
+                if 0 < hours_left <= 48:
+                    twitter_eligible_ids.add(m.id)
+        self._twitter_eligible_ids = twitter_eligible_ids
+
+        # Sort scan_markets: near-resolution first, then rest
+        def _resolution_priority(m):
+            end = getattr(m, "end_date", None)
+            if end is None:
+                return 9999.0
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            hours = (end - now_utc).total_seconds() / 3600
+            if hours <= 48:
+                return hours  # Near-resolution at front
+            return 1000.0 + hours
+
+        scan_markets = sorted(scan_markets, key=_resolution_priority)
+
         # Update volume anomaly detector and correlation groups
         anomaly_ids = self.volume_detector.update(scan_markets)
         self.correlation_detector.update(scan_markets)
@@ -217,9 +253,10 @@ class ResearchEngine:
             keywords, category=category, max_results=5,
         )
 
-        # Fetch Twitter/X posts (priority markets only to stay within daily budget)
+        # Fetch Twitter/X posts (top 50 by volume + near-resolution + priority)
         twitter_items: list[NewsItem] = []
-        if settings.use_twitter_fetcher and market_id in self._priority_market_ids:
+        twitter_eligible = getattr(self, "_twitter_eligible_ids", set())
+        if settings.use_twitter_fetcher and market_id in twitter_eligible:
             twitter_items = await self.twitter_fetcher.fetch_tweets(
                 keywords, category=category, max_results=5,
             )
@@ -242,20 +279,28 @@ class ResearchEngine:
             if not is_dup:
                 merged_items.append(item)
 
-        # Compute headline sentiment
-        headlines = [item.title for item in merged_items]
-        if settings.use_llm_sentiment and headlines:
-            sentiment_score = await analyze_sentiment_llm(question, headlines)
+        # Compute headline sentiment (news + reddit only, without twitter)
+        news_headlines = [item.title for item in merged_items if item.source != "Twitter/X"]
+        all_headlines = [item.title for item in merged_items]
+        if settings.use_llm_sentiment and all_headlines:
+            sentiment_score = await analyze_sentiment_llm(question, all_headlines)
         else:
-            sentiment_score = analyze_sentiment(headlines)
+            sentiment_score = analyze_sentiment(news_headlines) if news_headlines else 0.0
+
+        # Separate Twitter sentiment
+        tweet_headlines = [item.title for item in twitter_items]
+        twitter_sentiment = analyze_sentiment(tweet_headlines) if tweet_headlines else 0.0
+        tweet_count = len(twitter_items)
 
         # Confidence based on article count (0-1)
         confidence = min(len(merged_items) / 10.0, 1.0)
 
-        # Compute research multiplier
-        research_multiplier = compute_research_multiplier(
+        # Compute research multiplier (enhanced when tweets available)
+        research_multiplier = compute_enhanced_multiplier(
             sentiment=sentiment_score,
+            twitter_sentiment=twitter_sentiment,
             article_count=len(merged_items),
+            tweet_count=tweet_count,
         )
 
         # Classify market category (regex fast-path + LLM fallback)
@@ -304,4 +349,6 @@ class ResearchEngine:
             whale_activity=whale_activity,
             market_category=market_category,
             historical_base_rate=historical_base_rate,
+            twitter_sentiment=twitter_sentiment,
+            tweet_count=tweet_count,
         )

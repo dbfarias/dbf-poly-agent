@@ -105,7 +105,8 @@ class TwitterFetcher:
             "query": query,
             "include_domains": ["twitter.com", "x.com"],
             "max_results": max_results,
-            "search_depth": "basic",
+            "search_depth": "advanced",
+            "topic": "news",
         }
 
         client = await self._get_client()
