@@ -4,8 +4,6 @@
 
 ### Autonomous Polymarket Trading Agent
 
-An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.com), targeting conservative daily returns through micro-operations. Includes a full React dashboard for real-time monitoring.
-
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -13,19 +11,37 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 
 ---
 
-**$5 to $500** | **6 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Tier-Based Risk** | **Adaptive Learning** | **PWA Push Notifications** | **Real-Time Dashboard**
+**6 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
 ---
 
+## Executive Summary
+
+PolyBot is a fully autonomous prediction market trading agent for [Polymarket](https://polymarket.com). It operates 24/7 as a single Python process (FastAPI + asyncio trading engine), with a React dashboard for real-time monitoring and configuration.
+
+**How it works:** Every 60 seconds, the bot scans ~600 markets via the Gamma API, runs 6 parallel trading strategies to generate signals, then passes each signal through a **14-stage risk pipeline** before execution. The pipeline includes quantitative gates (Value-at-Risk, Z-Score, VPIN toxic flow detection), an AI debate between two Claude Haiku agents (Proposer vs Challenger), and traditional risk checks (drawdown, position limits, deployed capital). Only signals that survive all 14 stages are executed.
+
+**Key differentiators:**
+- **Quantitative risk management** — Parametric VaR (95% confidence), mispricing Z-Score normalization, VPIN toxic flow filter, profit factor tracking, rolling Sharpe ratio
+- **AI-powered trade filtering** — Every trade is debated by two LLM agents before execution; post-mortem analysis feeds back into the learning engine
+- **Multi-source research** — Google News, Reddit, Twitter/X (via Tavily), CoinGecko, order book whale detection, volume anomaly tracking, cross-market correlation
+- **Self-tuning** — PerformanceLearner adjusts edge multipliers, category confidence, and urgency every 5 minutes based on trade history
+- **Market type filtering** — Sports/esports markets (coin flips for the bot) are automatically blocked via keyword classification
+
+**Architecture:** Bot + API run in the same process on a $5/month AWS Lightsail instance. SQLite (WAL mode) for persistence. Docker Compose for deployment. GitHub Actions CI/CD with 1350+ tests.
+
+---
+
 ## Table of Contents
 
-- [Overview](#overview)
+- [Trade Pipeline](#trade-pipeline)
 - [Growth Model](#growth-model)
 - [Architecture](#architecture)
 - [Trading Strategies](#trading-strategies)
 - [AI-Powered Analysis](#ai-powered-analysis)
+- [Quantitative Risk Gates](#quantitative-risk-gates)
 - [Risk Management](#risk-management)
 - [Adaptive Learning](#adaptive-learning)
 - [Research Engine](#research-engine)
@@ -45,44 +61,87 @@ An AI-powered trading bot that operates 24/7 on [Polymarket](https://polymarket.
 
 ---
 
-## Overview
+## Trade Pipeline
 
-PolyBot is a fully autonomous prediction market trading agent designed to grow a small bankroll ($5) through conservative, high-probability trades. It runs as a single Python process (bot + API) with a React dashboard for monitoring.
+Every 60 seconds, the engine runs the complete signal-to-execution pipeline. A signal must pass **all 14 stages** to become a trade:
 
-### Key Features
+```
+                         POLYMARKET GAMMA API (~600 markets)
+                                     |
+                                     v
+                    +--------------------------------+
+                    |  1. MARKET SCAN & QUALITY      |
+                    |     - Order book depth          |
+                    |     - Spread < 15%              |
+                    |     - Volume > $500             |
+                    |     - Sports/esports blocked    |
+                    +----------------+---------------+
+                                     |
+                                     v
+                    +--------------------------------+
+                    |  2. STRATEGY EVALUATION         |
+                    |     6 parallel strategies:      |
+                    |     - Time Decay                |
+                    |     - Arbitrage                 |
+                    |     - Value Betting (+VPIN)     |
+                    |     - Price Divergence          |
+                    |     - Swing Trading             |
+                    |     - Market Making             |
+                    +----------------+---------------+
+                                     |
+                              Signal generated
+                                     |
+        +----------------------------v----------------------------+
+        |                    RISK PIPELINE (14 gates)             |
+        |                                                          |
+        |  3. Learner pause check   — strategy auto-paused?       |
+        |  4. Market cooldown       — traded recently? (3h)       |
+        |  5. Duplicate position    — already holding this market?|
+        |  6. Correlation check     — correlated with open pos?   |
+        |  7. VaR pre-check         — daily VaR too high?         |
+        |  8. Debate cooldown       — debated & rejected < 1h?    |
+        |  9. LLM Debate            — Proposer + Challenger vote  |
+        | 10. Z-Score gate          — |Z| >= 1.5 required         |
+        | 11. Daily loss limit      — within daily loss budget?   |
+        | 12. Drawdown check        — within max drawdown?        |
+        | 13. Position limits       — slots + deployed capital    |
+        | 14. Category exposure     — per-category cap            |
+        |                                                          |
+        +----------------------------+----------------------------+
+                                     |
+                              All gates passed
+                                     |
+                                     v
+                    +--------------------------------+
+                    |  POSITION SIZING (Kelly)        |
+                    |  f* = kelly_frac * (p - c)/(1-c)|
+                    |  Min: 5 shares, $1.00 notional  |
+                    +----------------+---------------+
+                                     |
+                                     v
+                    +--------------------------------+
+                    |  ORDER EXECUTION (CLOB API)     |
+                    |  BUY timeout: 5 min             |
+                    |  SELL timeout: 10 min            |
+                    +--------------------------------+
+```
 
-| Feature | Description |
-|:---|:---|
-| **6 Trading Strategies** | Time Decay, Arbitrage, Value Betting, Price Divergence, Swing Trading, Market Making |
-| **Adaptive Learning** | Self-tuning engine (PerformanceLearner) adjusts edge/confidence/urgency from trade history every 5 min |
-| **Active Rebalancing** | Automatically closes weak losers to make room for higher-edge signals |
-| **Market Quality Filter** | Order book depth, spread, liquidity checks + Gamma API discovery (500 markets/scan) |
-| **Tier-Based Risk System** | 3 capital tiers with automatic position sizing and limit adaptation |
-| **Quarter-Kelly Sizing** | Conservative position sizing to minimize risk of ruin |
-| **Paper Trading Mode** | ON by default — test safely before going live |
-| **AI Trade Debates** | Claude Haiku-powered Proposer vs Challenger debate gate — every trade is debated before execution |
-| **Multi-Model Consensus** | 3 Haiku personas (conservative, aggressive, balanced) vote in parallel — 2/3 majority required for BUY |
-| **Debate Memory** | LLM agents receive context of last 5 trades on the same market for better decision-making |
-| **AI Position Reviewer** | LLM reviews open positions every ~30min: HOLD, EXIT, REDUCE, or INCREASE recommendations |
-| **LLM Sentiment** | Optional Claude-powered sentiment analysis replacing VADER for deeper market understanding |
-| **Multi-Source Research** | Google News + Reddit + CoinGecko sentiment, resolution criteria parsing, volume anomaly detection |
-| **LLM Category Classification** | Regex fast-path + Haiku LLM fallback for accurate market categorization |
-| **Cross-Market Correlation** | Jaccard similarity + Union-Find detects correlated markets to prevent overexposure |
-| **Volume Anomaly Detection** | Rolling 24h history detects 3x volume spikes and 10%+ price moves |
-| **Whale Activity Tracking** | WebSocket order book analysis detects large CLOB orders (>$500) |
-| **Historical Pattern Matching** | Base rate estimation from similar resolved trades |
-| **Probability Calibration** | Brier score tracking per strategy, 5-bin calibration model |
-| **Resolution Criteria Parsing** | Regex + LLM extraction of HOW markets resolve from descriptions |
-| **Daily Market Report** | Automated Telegram report: portfolio, top markets, strategy health, risk alerts |
-| **Price Momentum** | Shared PriceTracker tracks 1h momentum across all strategies — adjusts confidence for value bets |
-| **Post-Mortem Feedback** | LLM trade analysis (strategy_fit) feeds back into learner edge multipliers — tightens poor, relaxes good |
-| **Auto-Claim Positions** | Optional web3.py integration to auto-redeem winning tokens on Polygon after market resolution |
-| **Secure Dashboard** | JWT-authenticated React app with 12 pages including AI Debates viewer, Research, and Market Report |
-| **WebSocket Updates** | Live portfolio and trade updates pushed to dashboard |
-| **Activity Log** | Every bot decision logged with reasoning — visible in dashboard |
-| **Telegram Alerts** | Trade notifications, error alerts, daily performance summaries + daily market reports |
-| **Docker Deploy** | One-command deployment on AWS Lightsail (~$5/month) with HTTPS |
-| **CI/CD Pipeline** | GitHub Actions 3-job pipeline: test, build, deploy on every push to main |
+### Gate Details
+
+| # | Gate | What it checks | On failure |
+|:---:|:---|:---|:---|
+| 3 | Learner pause | Strategy win rate < 30% over last 5 trades | Signal skipped |
+| 4 | Market cooldown | Same market traded within cooldown period (default 3h) | Signal skipped |
+| 5 | Duplicate position | Already holding a position in this market | Signal skipped |
+| 6 | Correlation | Jaccard similarity > 0.5 with any open position | Signal skipped |
+| 7 | VaR pre-check | 95% daily VaR exceeds bankroll-scaled limit | Signal skipped (saves LLM cost) |
+| 8 | Debate cooldown | Market was debated and rejected within 1h | Signal skipped (saves LLM cost) |
+| 9 | LLM Debate | Proposer votes PASS, or Challenger votes REJECT | Signal rejected |
+| 10 | Z-Score | \|Z\| = \|(p_model - p_market) / sigma\| < 1.5 | Signal rejected (edge too weak) |
+| 11 | Daily loss | Daily PnL exceeds loss limit (6% Tier 1) | All trading halted |
+| 12 | Drawdown | Current drawdown exceeds max (12% Tier 1) | All trading halted |
+| 13 | Position limits | Max positions or max deployed capital reached | Triggers rebalance |
+| 14 | Category exposure | Single category > 40% of deployed capital | Signal skipped |
 
 ---
 
@@ -127,10 +186,13 @@ The bot automatically adjusts its behavior as the bankroll grows:
  +-------------------+     +-------------------+     +-------------------+
  | 6 positions max   |     | 6 positions max   |     | 15 positions max  |
  | 40% per trade     | --> | 20% per trade     | --> | 15% per trade     |
- | 85% max deployed  |     | 80% max deployed  |     | 85% max deployed  |
+ | 60% max deployed  |     | 50% max deployed  |     | 45% max deployed  |
  | Min edge: 1%      |     | Min edge: 2%      |     | Min edge: 2%      |
  | Min prob: 55%     |     | Min prob: 70%     |     | Min prob: 60%     |
- | Kelly: 25%        |     | Kelly: 15%        |     | Kelly: 20%        |
+ | Kelly: 35%        |     | Kelly: 25%        |     | Kelly: 20%        |
+ | Drawdown: 12%     |     | Drawdown: 10%     |     | Drawdown: 8%      |
+ | Daily loss: 6%    |     | Daily loss: 5%    |     | Daily loss: 4%    |
+ | VaR limit: -35%   |     | VaR limit: -20%   |     | VaR limit: -5%    |
  |                   |     |                   |     |                   |
  | Strategies:       |     | + Swing Trading   |     | + Market Making   |
  | Arbitrage         |     |                   |     |                   |
@@ -138,6 +200,8 @@ The bot automatically adjusts its behavior as the bankroll grows:
  | Value Betting     |     |                   |     |                   |
  +-------------------+     +-------------------+     +-------------------+
 ```
+
+**Design rationale:** Small bankrolls (Tier 1) get more aggressive Kelly (0.35) and relaxed VaR (-35%) because the signals that pass all 14 gates (VaR, Z-Score, VPIN, LLM Debate) are high-confidence. Tighter deployed capital (60%) and drawdown (12%) protect against downside. As capital grows, limits tighten to preserve gains.
 
 ---
 
@@ -154,7 +218,7 @@ The bot automatically adjusts its behavior as the bankroll grows:
 |   React Dashboard   |     |   FastAPI + Bot         |
 |   (Static Nginx)    |     |   (Single Process)      |
 |                     |     |                          |
-|  11 Pages:          |     |  +------------------+   |
+|  12 Pages:          |     |  +------------------+   |
 |  - Login            |<--->|  |   FastAPI App     |   |
 |  - Dashboard        | API |  |   /api/* + /ws/*  |   |
 |  - Trades           |     |  +--------+---------+   |
@@ -164,13 +228,14 @@ The bot automatically adjusts its behavior as the bankroll grows:
 |  - Research         |     |  |  (asyncio task)   |   |
 |  - Learner          |     |  |                   |   |
 |  - AI Debates       |     |  |  - 6 Strategies   |   |
-|  - Activity         |     |  |  - Risk Manager   |   |
-|  - Settings         |     |  |  - Portfolio      |   |
-+---------------------+     |  |  - Learner        |   |
-                             |  |  - Order Manager  |   |
+|  - Market Report    |     |  |  - Risk Manager   |   |
+|  - Activity         |     |  |  - Portfolio      |   |
+|  - Settings         |     |  |  - Learner        |   |
++---------------------+     |  |  - Order Manager  |   |
                              |  |  - Rebalancer     |   |
                              |  |  - Research Engine|   |
                              |  |  - LLM Debate Gate|   |
+                             |  |  - Returns Tracker|   |
                              |  +--------+---------+   |
                              |           |              |
                              |  +--------v---------+   |
@@ -179,11 +244,16 @@ The bot automatically adjusts its behavior as the bankroll grows:
                              +------------------------+
 
                              +------------------------+
-                             |   Polymarket APIs       |
-                             |  - CLOB API (orders)    |
+                             |   External APIs         |
+                             |  - Polymarket CLOB      |
                              |  - Gamma API (markets)  |
                              |  - Data API (balance)   |
                              |  - WebSocket (prices)   |
+                             |  - Anthropic (Claude)   |
+                             |  - Tavily (Twitter/X)   |
+                             |  - Google News RSS      |
+                             |  - Reddit JSON API      |
+                             |  - CoinGecko API        |
                              +------------------------+
 ```
 
@@ -235,13 +305,14 @@ Example:
 
 ### 3. Value Betting (Tier 1+)
 
-> Detect mispriced markets using order book analysis
+> Detect mispriced markets using order book analysis + VPIN
 
-Analyzes order book imbalance and volume momentum to identify markets where the true probability differs from the market price. Dynamic horizon (urgency-based, up to 168h).
+Analyzes order book imbalance and volume momentum to identify markets where the true probability differs from the market price. Includes VPIN (Volume-Synchronized Probability of Informed Trading) to skip toxic order flow.
 
 | Parameter | Value |
 |:---|:---|
 | Min edge | 2%+ |
+| VPIN threshold | 0.7 (skip toxic flow) |
 | Exit: take-profit | +3% after 6h hold |
 | Exit: stop-loss | -10% from entry |
 | Exit: floor | Below $0.40 |
@@ -257,14 +328,6 @@ Tracks price movements and detects divergence between market price and expected 
 > Buy markets with confirmed upward momentum
 
 Detects 3+ consecutive rising price ticks, enters position, and exits quickly via take-profit (1.5%), stop-loss (1.5%), or time limit (4h).
-
-```
-Exit rules:
-  +1.5%  -> Take Profit
-  -1.5%  -> Stop Loss
-  4h     -> Time exit
-  3 down -> Reversal exit
-```
 
 ### 6. Market Making (Tier 3+)
 
@@ -286,7 +349,7 @@ Places limit orders below mid-price to capture the spread. Only enabled with $10
 
 ## AI-Powered Analysis
 
-Three independent LLM features using **Claude Haiku 4.5** — each toggleable via dashboard with a shared daily budget cap.
+Five LLM features using **Claude Haiku 4.5** — each toggleable via dashboard with a shared daily budget cap.
 
 ### 1. Trade Debate Gate (Proposer vs Challenger)
 
@@ -310,6 +373,8 @@ Signal Found --> PROPOSER Agent --> BUY or PASS?
 - **Challenger** critiques the proposal — looks for flawed assumptions, missed risks, market efficiency
 - Trade only executes if Proposer says BUY **and** Challenger doesn't REJECT
 - If Proposer says PASS, Challenger is skipped (saves API cost)
+- **Debate cooldown:** When a market is rejected by debate, it enters a 1h cooldown — no re-debating the same market (saves ~$15/day)
+- **VaR pre-check:** VaR is checked before debate — if VaR would block, debate is skipped entirely (saves API cost)
 - All debates are logged to the Activity table and visible on the AI Debates dashboard page
 
 ### 2. Position Reviewer (4-Action)
@@ -334,32 +399,111 @@ Optional replacement for VADER (lexicon-based) sentiment:
 - Understands sarcasm, market implications, and nuance that VADER misses
 - Cached via ResearchCache (1h TTL) to minimize API calls
 
+### 4. Keyword Extraction
+
+LLM-powered keyword extraction from market questions for research queries. Regex fast-path for common patterns, LLM fallback for ambiguous questions.
+
+### 5. Post-Mortem Analysis
+
+After trades resolve, LLM analyzes what went right or wrong:
+- Evaluates `strategy_fit` (GOOD_FIT, POOR_FIT, NEUTRAL)
+- Results feed back into the learner's edge multiplier computation
+- Visible on the AI Debates dashboard page
+
 ### Cost Control
 
 | Feature | Est. Cost/Day | Toggle |
 |:---|:---:|:---|
-| Sentiment | ~$0.38 | `use_llm_sentiment` |
-| Debate Gate | ~$1.10 | `use_llm_debate` |
-| Position Reviewer | ~$0.20 | `use_llm_reviewer` |
-| **Total** | **~$1.68** | Daily budget cap (default $3.00) |
+| Debate Gate | ~$0.10-0.50 | `use_llm_debate` |
+| Post-Mortem | ~$0.05 | `use_post_mortem` |
+| Position Reviewer | ~$0.05 | `use_llm_reviewer` |
+| Keyword Extraction | ~$0.02 | `use_llm_keywords` |
+| Sentiment | ~$0.30 | `use_llm_sentiment` |
+| **Total** | **~$0.50-0.90** | Daily budget cap (default $3.00) |
 
-All LLM calls share a global `LlmCostTracker`. When the daily budget is exhausted, all LLM features gracefully fall back to non-LLM behavior (VADER sentiment, no debate gate, no reviews).
+All LLM calls share a global `LlmCostTracker`. When the daily budget is exhausted, all LLM features gracefully fall back to non-LLM behavior.
+
+**Cost optimizations:**
+1. VaR pre-check before debate — skip LLM if VaR would block anyway
+2. Debate cooldown per market (1h) — no re-debating rejected markets
+3. Proposer PASS skips Challenger — save 50% on weak signals
+
+---
+
+## Quantitative Risk Gates
+
+Three mathematical gates from quantitative finance, computed in real-time from trade history and order book data.
+
+### Value-at-Risk (VaR 95%)
+
+Parametric VaR estimates the worst-case daily loss at 95% confidence:
+
+```
+VaR = mu - z * sigma
+
+where:
+  mu    = mean of rolling 30-day returns
+  sigma = standard deviation of returns
+  z     = 1.645 (95% confidence)
+```
+
+VaR limits **scale with bankroll size** to prevent small accounts from being permanently frozen by early losses:
+
+| Bankroll | VaR Limit | Rationale |
+|:---:|:---:|:---|
+| < $25 | -35% | Small account, allow recovery |
+| $25 - $50 | -20% | Growing, moderate protection |
+| $50 - $100 | -10% | Approaching Tier 2, tighten |
+| $100+ | -5% | Full protection |
+
+VaR is checked **twice** in the pipeline: once as a pre-check before LLM debate (to save API costs), and once in the full risk evaluation.
+
+### Mispricing Z-Score
+
+Normalizes the edge (model probability - market price) by the order book's price standard deviation:
+
+```
+Z = (p_model - p_market) / sigma_price
+
+where:
+  p_model  = bot's estimated probability
+  p_market = current market price
+  sigma    = standard deviation of bid/ask prices in order book
+```
+
+**Threshold: |Z| >= 1.5** — signals with Z-score below 1.5 are rejected as "not statistically significant enough." This prevents trading on noise.
+
+### VPIN (Volume-Synchronized Probability of Informed Trading)
+
+Detects toxic order flow in the order book before entering a market:
+
+```
+VPIN = |V_buy - V_sell| / (V_buy + V_sell)
+
+where:
+  V_buy  = total bid volume (size * price)
+  V_sell = total ask volume (size * price)
+```
+
+**Threshold: VPIN > 0.7** — markets with VPIN above 0.7 are skipped as potentially manipulated or informed-trader-dominated. Computed in the Value Betting strategy from live order book data.
+
+### Returns Tracker
+
+Rolling 30-day returns tracker that computes VaR, Sharpe ratio, and Profit Factor from equity snapshots:
+
+| Metric | Formula | Healthy Value |
+|:---|:---|:---|
+| Daily VaR 95% | mu - 1.645 * sigma | > -5% |
+| Rolling Sharpe | mean(returns) / std(returns) * sqrt(365) | > 1.0 |
+| Profit Factor | gross_profit / gross_loss | > 1.5 |
+
+All three metrics are exposed via `GET /api/risk/metrics` and visible on the Risk dashboard.
 
 ---
 
 ## Risk Management
 
-Multi-layered risk system with **10 cascading checks** — every trade must pass all gates:
-
-```
-Signal --> Paused? --> Duplicate? --> AI Debate --> Daily Loss --> Drawdown
-            |            |              |              |             |
-            x STOP       x STOP     x REJECT          x STOP       x STOP
-                                                                     |
-   EXECUTE <-- Win Prob <-- Min Edge <-- Category <-- Deployed <-- Max Pos
-      |           |           |            |            |            |
-      OK          x SKIP      x SKIP       x SKIP      x SKIP     x SKIP
-```
+Multi-layered risk system with **14 cascading checks** — every trade must pass all gates:
 
 ### Risk Limits by Tier
 
@@ -367,13 +511,15 @@ Signal --> Paused? --> Duplicate? --> AI Debate --> Daily Loss --> Drawdown
 |:---|:---:|:---:|:---:|
 | Max Positions | 6 | 6 | 15 |
 | Max Per Position | 40% | 20% | 15% |
-| Max Deployed | 85% | 80% | 85% |
-| Daily Loss Limit | 10% | 8% | 6% |
-| Max Drawdown | 25% | 15% | 12% |
+| Max Deployed | 60% | 50% | 45% |
+| Daily Loss Limit | 6% | 5% | 4% |
+| Max Drawdown | 12% | 10% | 8% |
 | Min Edge Required | 1% | 2% | 2% |
 | Min Win Probability | 55% | 70% | 60% |
 | Max Per Category | 40% | 30% | 30% |
-| Kelly Fraction | 25% | 15% | 20% |
+| Kelly Fraction | 35% | 25% | 20% |
+| VaR Limit (daily) | -35% | -20% | -5% |
+| Z-Score Min | 1.5 | 1.5 | 1.5 |
 
 ### Position Sizing
 
@@ -385,10 +531,11 @@ f* = kelly_fraction x (p - c) / (1 - c)
 where:
   p = estimated real probability
   c = market price (cost)
-  kelly_fraction = 0.15-0.25 per tier
+  kelly_fraction = 0.20-0.35 per tier
 
 Minimum: 5 shares (Polymarket CLOB requirement)
 Positions < 5 shares CANNOT be sold -- must wait for resolution
+Minimum notional: $1.00 (shares * price)
 ```
 
 ### Time-Adjusted Edge
@@ -425,15 +572,16 @@ Every 5 minutes, the learner recomputes statistics from the last 30 days of trad
 | **Confidence Calibration** | Compares predicted probability vs actual win rate. If 95% confidence only wins 60%, edge requirements increase |
 | **Urgency Multiplier** | Daily target progress: behind target = more aggressive (expand horizons, lower edge); ahead = conservative |
 | **Strategy Auto-Pause** | If last 5 trades have <30% win rate and PnL < -$0.05, the strategy is paused for 12 hours. Manual unpause via API with 6h grace period |
+| **Profit Factor Feedback** | If profit factor < 1.0 over last 30 trades, edge multipliers increase by 30% (require stronger signals) |
 
 ### Edge Multiplier Logic
 
 | Win Rate | Multiplier | Effect |
 |:---:|:---:|:---|
-| > 60% | 0.8x | Relaxed — allow lower edge |
-| 40-60% | 1.0x | Neutral — default thresholds |
-| < 40% | 1.5x | Strict — require 50% more edge |
-| No data | 1.2x | Cautious — slightly stricter |
+| > 60% | 0.8x | Relaxed -- allow lower edge |
+| 40-60% | 1.0x | Neutral -- default thresholds |
+| < 40% | 1.5x | Strict -- require 50% more edge |
+| No data | 1.2x | Cautious -- slightly stricter |
 
 ### Urgency System
 
@@ -441,10 +589,10 @@ The daily target is 1% (configurable). Progress is tracked in real-time:
 
 | Progress | Urgency | Effect |
 |:---:|:---:|:---|
-| > 100% | 0.7x | Conservative — raise edge requirements, narrow horizons |
-| 50-100% | 1.0x | Normal — default parameters |
-| 0-50% | 1.3x | Aggressive — lower edge requirements, expand time horizons |
-| Negative | 1.5x+ | Very aggressive — maximum opportunity seeking |
+| > 100% | 0.7x | Conservative -- raise edge requirements, narrow horizons |
+| 50-100% | 1.0x | Normal -- default parameters |
+| 0-50% | 1.3x | Aggressive -- lower edge requirements, expand time horizons |
+| Negative | 1.5x+ | Very aggressive -- maximum opportunity seeking |
 
 ### Post-Mortem Feedback Loop
 
@@ -452,11 +600,11 @@ LLM post-mortem results (`strategy_fit`) feed back into the learner's edge multi
 
 | Condition | Adjustment | Effect |
 |:---|:---:|:---|
-| >50% POOR_FIT (3+ post-mortems) | ×1.15 | Tighten — require higher edge |
-| >50% GOOD_FIT (3+ post-mortems) | ×0.90 | Relax — allow lower edge |
-| <3 post-mortems or mixed | ×1.0 | No change |
+| >50% POOR_FIT (3+ post-mortems) | x1.15 | Tighten -- require higher edge |
+| >50% GOOD_FIT (3+ post-mortems) | x0.90 | Relax -- allow lower edge |
+| <3 post-mortems or mixed | x1.0 | No change |
 
-Visible via `GET /api/learner/multipliers` → `post_mortem_influence` field.
+Visible via `GET /api/learner/multipliers` -> `post_mortem_influence` field.
 
 ---
 
@@ -469,17 +617,27 @@ Background engine that scans markets every 15 minutes, aggregating news, sentime
 | Source | Data | Refresh |
 |:---|:---|:---:|
 | **Google News** | Headlines + VADER/LLM sentiment | 15 min |
+| **Twitter/X** | Posts via Tavily search (scoped to twitter.com/x.com) | 15 min |
 | **Reddit** | Posts from category-specific subreddits (crypto, politics, economics, general) | 15 min |
 | **CoinGecko** | BTC/ETH prices + market sentiment | 15 min |
 | **Polymarket CLOB** | Order book whale detection (>$500 orders) | Real-time (WebSocket) |
 | **Market Descriptions** | Resolution criteria (regex + LLM parsing) | On first scan |
 
+### Research Cross-Validation
+
+Research results are cross-validated across sources. The research multiplier combines:
+- News sentiment strength and consistency
+- Twitter/X signal alignment
+- Volume anomaly detection (3x spike = flag)
+- Whale activity (large CLOB orders)
+- Historical base rate from similar resolved trades
+
 ### Volume Anomaly Detection
 
 Tracks rolling 24h volume and price history per market (96 samples at 15-min intervals):
 
-- **Volume spike:** Current `volume_24h > 3x mean(last 10 samples)` — flags sudden interest
-- **Price move:** `abs(current - mean(last 5)) / mean(last 5) > 10%` — flags sharp price changes
+- **Volume spike:** Current `volume_24h > 3x mean(last 10 samples)` -- flags sudden interest
+- **Price move:** `abs(current - mean(last 5)) / mean(last 5) > 10%` -- flags sharp price changes
 - Anomaly markets are prioritized in research scans and flagged in trading signals
 
 ### Cross-Market Correlation
@@ -498,7 +656,7 @@ Classifies markets into categories (crypto, politics, economics, sports, etc.):
 - **Regex fast-path:** Pattern matching on question keywords (zero cost)
 - **LLM fallback:** Claude Haiku classifies ambiguous markets (~$0.00003/call)
 - **Indefinite cache:** Each market classified once, cached forever
-- Used by research engine, learner, and dashboard
+- **Sports/esports blocking:** Markets classified as sports are blocked before strategy evaluation
 
 ### Historical Pattern Matching
 
@@ -507,7 +665,6 @@ Estimates base rates from similar resolved trades in the database:
 - Extracts pattern type from question (price_target, win_outcome, binary_event, etc.)
 - Finds similar past trades via Jaccard similarity on question tokens
 - Returns win rate as `historical_base_rate` in research results
-- Helps calibrate probability estimates for new markets
 
 ### Probability Calibration (Brier Scores)
 
@@ -521,11 +678,10 @@ Tracks prediction accuracy per strategy using Brier scores:
 
 Automated Telegram report generated at 23:00 UTC daily:
 
-- **Portfolio summary:** Equity, daily PnL, open positions, capital deployed
-- **Top 5 markets:** Highest-sentiment markets with keywords and multipliers
-- **Strategy health:** Win rates, total PnL, active/paused status
-- **Risk alerts:** Volume anomalies, whale activity, high drawdown warnings
-- HTML-formatted for Telegram, zero LLM cost
+- Portfolio summary, daily PnL, open positions, capital deployed
+- Top 5 markets with keywords and multipliers
+- Strategy health: win rates, total PnL, active/paused status
+- Risk alerts: volume anomalies, whale activity, high drawdown warnings
 
 ---
 
@@ -539,12 +695,12 @@ Engine Cycle
      v
 MarketAnalyzer.scan_markets()
      |
-     +-- record_batch(500 markets × best_bid_price)
+     +-- record_batch(500 markets x best_bid_price)
      +-- evict_stale(active market IDs)
      |
      v
 Strategies read momentum:
-  - ValueBetting: confidence ±5% based on 1h momentum alignment
+  - ValueBetting: confidence +/-5% based on 1h momentum alignment
   - SwingTrading: shared tracker + internal history (backward compat)
 ```
 
@@ -555,7 +711,7 @@ Strategies read momentum:
 | Memory footprint | ~2.8 MB max |
 | Stale eviction | Markets not seen in 15+ minutes |
 | `momentum(market_id, 60)` | % change over 60-min window |
-| `trend(market_id)` | "rising" / "falling" / "flat" (±0.5% threshold) |
+| `trend(market_id)` | "rising" / "falling" / "flat" (+/-0.5% threshold) |
 
 ---
 
@@ -564,7 +720,7 @@ Strategies read momentum:
 Optional web3.py integration to automatically redeem winning tokens on Polygon after market resolution.
 
 ```
-Market resolves → _close_if_resolved() → _try_redeem()
+Market resolves -> _close_if_resolved() -> _try_redeem()
      |                                        |
      v                                        v
 Close position in DB              PositionRedeemer.redeem(condition_id)
@@ -622,10 +778,10 @@ Approved? --> Execute trade
 ### Rebalance Conditions (ALL must be true)
 
 1. Signal rejected due to "Max positions" **or** "Max deployed capital"
-2. New signal edge >= **min_rebalance_edge** (default 1.5%, tunable via admin)
+2. New signal edge >= **min_rebalance_edge** (default 6%, tunable via admin)
 3. Worst position has **unrealized PnL <= 0** (never close winners)
 4. Worst position has **>= 5 shares** (can actually sell on Polymarket CLOB)
-5. Worst position held for at least **min_hold_seconds** (default 120s, tunable via admin)
+5. Worst position held for at least **min_hold_seconds** (default 7200s/2h, tunable via admin)
 6. Max **1 rebalance per cycle** (prevent churning)
 7. If sell fails (e.g. insufficient balance), tries next candidate instead of giving up
 
@@ -639,18 +795,18 @@ JWT-authenticated React dashboard with **12 pages** for full visibility into the
 |:---|:---|
 | **Login** | Secure JWT login (username/password), 24h token expiry, auto-logout on 401 |
 | **Dashboard** | Equity curve (equity + cash), daily PnL bar chart, daily target hit/miss tracker, PnL cards, daily progress vs target, active positions |
-| **Trades** | Expandable trade history — click any trade to see reasoning, edge, confidence, estimated probability, price, cost, paper/live |
+| **Trades** | Expandable trade history -- click any trade to see reasoning, edge, confidence, estimated probability, price, cost, paper/live |
 | **Strategies** | Per-strategy performance: win rate, PnL, Sharpe ratio (real-time from trade data) |
 | **Markets** | Live market scanner with opportunities and signals |
-| **Risk** | Drawdown chart, category exposure (pie), risk limits by tier |
+| **Risk** | Drawdown chart, category exposure (pie), risk limits by tier, VaR/Sharpe/Profit Factor metrics |
 | **Research** | News sentiment analysis: per-market headlines, sentiment scores, research multipliers, volume anomaly/whale activity badges, market categories, resolution criteria, historical base rates |
 | **Learner** | Adaptive learning dashboard: edge multipliers per strategy+category, category confidence cards, Brier scores per strategy, probability calibration chart, strategy pause status and cooldown timers |
-| **AI Debates** | Trade debate history with decision filters per tab — Reviews (HOLD/EXIT/REDUCE/INCREASE), Risk Debates (override/upheld), Post-Mortems (GOOD/BAD/NEUTRAL). Tabbed view with approval rates and cost tracking |
+| **AI Debates** | Trade debate history with decision filters per tab -- Reviews (HOLD/EXIT/REDUCE/INCREASE), Risk Debates (override/upheld), Post-Mortems (GOOD/BAD/NEUTRAL). Tabbed view with approval rates and cost tracking |
 | **Market Report** | Daily report page: portfolio summary, market sentiment, top opportunities, strategy health, risk alerts |
-| **Activity** | Bot decision log — every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
+| **Activity** | Bot decision log -- every signal found, rejected, approved, with reasoning and metadata. Filterable by event type |
 | **Settings** | Push notification toggle, AI feature toggles (sentiment/debate/reviewer + daily budget), strategy toggles, risk parameters, strategy parameters, quality filters, system info. All persisted across restarts |
 
-**PWA Push Notifications:** Install as a PWA (Add to Home Screen) to receive push notifications on mobile/desktop even when the browser is closed. Notifies on trade fills, errors, strategy pauses, risk limits, and daily summaries. Uses Web Push (VAPID) — configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_EMAIL` in `.env`.
+**PWA Push Notifications:** Install as a PWA (Add to Home Screen) to receive push notifications on mobile/desktop even when the browser is closed. Notifies on trade fills, errors, strategy pauses, risk limits, and daily summaries. Uses Web Push (VAPID).
 
 Features: real-time WebSocket updates (JWT-authenticated), auto-refreshing queries, global refresh button, auto-logout on token expiry.
 
@@ -717,13 +873,13 @@ All configuration is via environment variables (`.env` file):
 | `DASHBOARD_USER` | `admin` | Dashboard login username |
 | `DASHBOARD_PASSWORD` | -- | **Required for dashboard.** Dashboard login password |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated CORS origins |
-| `TRADING_MODE` | `paper` | `paper` or `live` — **paper is default** |
+| `TRADING_MODE` | `paper` | `paper` or `live` -- **paper is default** |
 | `INITIAL_BANKROLL` | `5.0` | Starting capital in USD |
 | `SCAN_INTERVAL_SECONDS` | `30` | Market scan frequency (5-3600) |
 | `SNAPSHOT_INTERVAL_SECONDS` | `300` | Portfolio snapshot frequency |
 | `DAILY_TARGET_PCT` | `0.01` | Daily profit target (1%) |
-| `MAX_DAILY_LOSS_PCT` | `0.10` | Daily loss limit (0-50%) |
-| `MAX_DRAWDOWN_PCT` | `0.25` | Max drawdown before halt (0-50%) |
+| `MAX_DAILY_LOSS_PCT` | `0.06` | Daily loss limit (6% Tier 1) |
+| `MAX_DRAWDOWN_PCT` | `0.12` | Max drawdown before halt (12% Tier 1) |
 | `POLY_API_KEY` | -- | Polymarket API key (required for live mode) |
 | `POLY_API_SECRET` | -- | Polymarket API secret |
 | `POLY_API_PASSPHRASE` | -- | Polymarket API passphrase |
@@ -734,6 +890,8 @@ All configuration is via environment variables (`.env` file):
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING) |
 | `LOG_FORMAT` | `json` | Log format (json or console) |
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key for Claude Haiku (required for AI features) |
+| `TAVILY_API_KEY` | -- | Tavily API key for Twitter/X search (optional) |
+| `USE_TWITTER_FETCHER` | `false` | Enable Twitter/X research via Tavily |
 | `TELEGRAM_BOT_TOKEN` | -- | Telegram bot token (optional) |
 | `TELEGRAM_CHAT_ID` | -- | Telegram chat ID (optional) |
 
@@ -750,6 +908,7 @@ These parameters can be changed at runtime via the Settings page and are **persi
 - Rebalance parameters (min_rebalance_edge, min_hold_seconds)
 - Quality gate parameters (max spread, min volume, stop loss, take profit price)
 - AI features (LLM sentiment, debate gate, position reviewer toggles + daily budget)
+- Debate cooldown hours (default 1h)
 - Auto-claim resolved positions (web3.py Polygon redemption)
 - Blocked market types (sports, crypto, other)
 - Pause/resume trading, force-unpause strategies
@@ -785,27 +944,28 @@ HTTPS is enabled via Let's Encrypt + DuckDNS dynamic DNS. Nginx handles SSL term
 ### CI/CD
 
 Push to `main` triggers GitHub Actions (3-job pipeline):
-1. **Test** — pytest (1768+ tests, ~2min) + ruff lint + frontend build
-2. **Build & Push** — Docker image to GitHub Container Registry (GHCR)
-3. **Deploy** — SSH to server, pull image, restart containers
+1. **Test** -- pytest (1350+ tests, ~2min) + ruff lint + frontend build
+2. **Build & Push** -- Docker image to GitHub Container Registry (GHCR)
+3. **Deploy** -- SSH to server, pull image, restart containers
 
-> **Note:** After deploy, `docker compose -f docker-compose.prod.yml up -d --force-recreate app` is needed to reload env changes.
+> **Note:** After deploy, runtime settings are restored from the database automatically. However, `docker compose -f docker-compose.prod.yml up -d --force-recreate app` is needed to reload `.env` changes.
 
 ### Monthly Cost
 
 | Item | Cost |
 |:---|:---:|
 | Lightsail 1GB | $5.00 |
+| Anthropic API (LLM) | ~$15-25 |
 | S3 Backups | ~$0.05 |
 | Monitoring | Free |
 | CI/CD | Free |
-| **Total** | **~$5.05** |
+| **Total** | **~$20-30** |
 
 ---
 
 ## Security
 
-The bot handles real money — security is enforced at every layer.
+The bot handles real money -- security is enforced at every layer.
 
 ### API Authentication
 
@@ -849,7 +1009,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/config/
 
 ## Testing
 
-**1768+ tests** across **45+ test files** covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
+**1350+ tests** across **45+ test files** covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -869,31 +1029,34 @@ cd frontend && npx vite build
 
 | Module | Description |
 |:---|:---|
-| `test_risk_manager.py` | 73 tests — all 9 cascading risk checks, tier configs |
-| `test_learner.py` | 84 tests — edge multipliers, calibration, pauses, urgency |
+| `test_risk_manager.py` | 73 tests -- all cascading risk checks, tier configs |
+| `test_risk_checks_new.py` | VaR gate, Z-Score gate, tighter tier defaults |
+| `test_risk_metrics.py` | VaR, VPIN, Z-Score, profit factor formulas |
+| `test_returns_tracker.py` | Rolling returns tracking from equity snapshots |
+| `test_learner.py` | 84 tests -- edge multipliers, calibration, pauses, urgency |
 | `test_time_decay_strategy.py` | Time decay probability, confidence, dynamic MAX_PRICE |
 | `test_swing_trading.py` | Momentum detection, exit rules, position scoring |
 | `test_engine.py` | Engine init, shutdown, liquidity checks, fill callbacks |
-| `test_rebalance.py` | 12 tests — all rebalance conditions and edge cases |
+| `test_rebalance.py` | 12 tests -- all rebalance conditions and edge cases |
 | `test_order_manager.py` | Order execution, monitoring, cancellation, min shares |
 | `test_portfolio.py` | Position tracking, PnL, sync, settlement prices |
 | `test_api_auth.py` | JWT creation, decoding, expiry, password verification |
 | `test_settings_store.py` | Persist/restore settings across restarts |
 | `test_market_analyzer.py` | Market scanning, quality filtering, deduplication |
-| `test_llm_debate.py` | 18 tests — debate parsers, cost tracker, full debate flow, position review |
-| `test_llm_sentiment.py` | 10 tests — Haiku sentiment, clamping, errors, routing |
+| `test_llm_debate.py` | Debate parsers, cost tracker, full debate flow, position review |
+| `test_llm_sentiment.py` | Haiku sentiment, clamping, errors, routing |
 | `test_config.py` | Tier config, settings validation, capital tiers |
 | `test_math_utils.py` | Kelly criterion, Sharpe ratio, drawdown |
-| `test_price_tracker.py` | 16 tests — momentum, trend, eviction, batch, cap |
-| `test_post_mortem_feedback.py` | 8 tests — PM stats, learner integration, API response |
-| `test_auto_claim.py` | 8 tests — redeemer init/success/failure, portfolio integration |
-| `test_research_improvements.py` | 37 tests — volume detector, correlation detector, Reddit fetcher, resolution parser |
-| `test_category_classifier.py` | 10 tests — regex fast-path, LLM fallback, caching |
-| `test_pattern_analyzer.py` | 25 tests — pattern extraction, base rate, Jaccard matching |
-| `test_probability_calibrator.py` | 28 tests — 5-bin calibration, Brier scores, strategy-level metrics |
-| `test_whale_detector.py` | Whale detection thresholds, token tracking, history eviction |
-| `test_market_report.py` | 13 tests — report generation, HTML formatting, edge cases |
-| + 15 more | API routers, types, cache, strategies, price rounding, E2E |
+| `test_price_tracker.py` | Momentum, trend, eviction, batch, cap |
+| `test_post_mortem_feedback.py` | PM stats, learner integration, API response |
+| `test_auto_claim.py` | Redeemer init/success/failure, portfolio integration |
+| `test_research_improvements.py` | Volume detector, correlation detector, Reddit, resolution parser |
+| `test_category_classifier.py` | Regex fast-path, LLM fallback, caching |
+| `test_pattern_analyzer.py` | Pattern extraction, base rate, Jaccard matching |
+| `test_probability_calibrator.py` | 5-bin calibration, Brier scores, strategy-level metrics |
+| `test_whale_detector.py` | Whale detection thresholds, token tracking |
+| `test_market_report.py` | Report generation, HTML formatting |
+| + more | API routers, types, cache, strategies, price rounding, E2E |
 
 ---
 
@@ -908,20 +1071,20 @@ dbf-poly-agent/
 |   |   |-- portfolio.py              # Portfolio state tracker + Polymarket sync
 |   |   |-- market_analyzer.py        # Gamma API scanner + quality filter
 |   |   |-- order_manager.py          # Order lifecycle (place, monitor, cancel)
-|   |   |-- risk_manager.py           # 9 cascading risk checks
+|   |   |-- risk_manager.py           # 14 cascading risk checks (VaR, Z-Score, etc.)
 |   |   |-- learner.py                # Adaptive learning engine
 |   |   |-- position_closer.py        # Exit logic + rebalancing
 |   |   +-- strategies/
 |   |       |-- base.py               # Abstract strategy interface
 |   |       |-- time_decay.py         # Near-resolution strategy (primary)
 |   |       |-- arbitrage.py          # YES+NO arbitrage
-|   |       |-- value_betting.py      # Order book analysis
+|   |       |-- value_betting.py      # Order book analysis + VPIN filter
 |   |       |-- price_divergence.py   # Crypto/sentiment divergence
 |   |       |-- swing_trading.py      # Momentum-based short-term
 |   |       +-- market_making.py      # Spread capture
 |   |-- polymarket/
 |   |   |-- client.py                 # CLOB API wrapper (async)
-|   |   |-- gamma.py                  # Market discovery API (500 mkts/scan)
+|   |   |-- gamma.py                  # Market discovery API (600 mkts/scan)
 |   |   |-- data_api.py              # Positions & balance API
 |   |   |-- redeemer.py               # Auto-claim via ConditionalTokens (web3.py)
 |   |   |-- websocket_manager.py      # Real-time price feed
@@ -933,6 +1096,7 @@ dbf-poly-agent/
 |   |   |-- repositories.py           # CRUD operations
 |   |   |-- activity.py               # Bot activity logger + post-mortem stats
 |   |   |-- price_tracker.py          # Shared in-memory price momentum tracker
+|   |   |-- returns_tracker.py        # Rolling 30-day returns for VaR/Sharpe/PF
 |   |   |-- settings_store.py         # Persistent settings (survives restarts)
 |   |   +-- market_cache.py           # In-memory TTL cache
 |   |-- research/
@@ -941,6 +1105,7 @@ dbf-poly-agent/
 |   |   |-- llm_debate.py             # Proposer vs Challenger debate gate + Position reviewer
 |   |   |-- sentiment.py              # VADER lexicon-based sentiment (fallback)
 |   |   |-- cache.py                  # Research result cache (1h TTL)
+|   |   |-- twitter_fetcher.py        # Twitter/X search via Tavily API
 |   |   |-- reddit_fetcher.py         # Reddit JSON API (category-mapped subreddits)
 |   |   |-- volume_detector.py        # Volume spike + price move anomaly detection
 |   |   |-- correlation_detector.py   # Jaccard + Union-Find cross-market correlation
@@ -957,6 +1122,7 @@ dbf-poly-agent/
 |   +-- utils/
 |       |-- logging_config.py         # structlog JSON logging
 |       |-- math_utils.py             # Kelly, Sharpe, drawdown
+|       |-- risk_metrics.py           # VaR, VPIN, Z-Score, profit factor
 |       |-- retry.py                  # Exponential backoff
 |       |-- notifications.py          # Telegram alerts
 |       +-- push_notifications.py    # Web Push (VAPID) notifications
@@ -972,7 +1138,7 @@ dbf-poly-agent/
 |       |-- strategies.py             # GET /api/strategies/*
 |       |-- markets.py                # GET /api/markets/*
 |       |-- push.py                   # Push notification subscriptions
-|       |-- risk.py                   # GET /api/risk/*
+|       |-- risk.py                   # GET /api/risk/* (VaR, Sharpe, PF)
 |       |-- config.py                 # GET/PUT /api/config/ + pause/resume/reset
 |       |-- activity.py               # GET /api/activity/ + event types
 |       |-- learner.py                # GET/POST /api/learner/* (multipliers, calibration, pauses, unpause)
@@ -991,7 +1157,7 @@ dbf-poly-agent/
 |   +-- scripts/                      # Backup + health check
 |-- docs/
 |   +-- STRATEGY_GUIDE.md             # Detailed strategy & decision documentation
-|-- tests/                            # 1768+ pytest tests (45+ files)
+|-- tests/                            # 1350+ pytest tests (45+ files)
 |-- docker-compose.yml                # Dev stack
 |-- docker-compose.prod.yml           # Production stack
 |-- Dockerfile.bot                    # Python (bot + API)
@@ -1008,30 +1174,30 @@ dbf-poly-agent/
 <td valign="top" width="50%">
 
 ### Backend
-- **Python 3.11** — asyncio runtime
-- **FastAPI** — REST API + WebSocket
-- **SQLAlchemy 2.0** — async ORM
-- **SQLite** — WAL mode database
-- **py-clob-client** — Polymarket CLOB
-- **httpx** — async HTTP client
-- **structlog** — JSON logging
-- **Pydantic v2** — validation & settings
-- **PyJWT** — JWT authentication
-- **anthropic** — Claude Haiku AI (debate + sentiment)
-- **web3.py** — Polygon auto-claim (optional)
-- **tenacity** — retry logic
+- **Python 3.11** -- asyncio runtime
+- **FastAPI** -- REST API + WebSocket
+- **SQLAlchemy 2.0** -- async ORM
+- **SQLite** -- WAL mode database
+- **py-clob-client** -- Polymarket CLOB
+- **httpx** -- async HTTP client
+- **structlog** -- JSON logging
+- **Pydantic v2** -- validation & settings
+- **PyJWT** -- JWT authentication
+- **anthropic** -- Claude Haiku AI (debate, sentiment, post-mortem)
+- **web3.py** -- Polygon auto-claim (optional)
+- **tenacity** -- retry logic
 
 </td>
 <td valign="top" width="50%">
 
 ### Frontend
-- **React 18** — UI framework
-- **TypeScript** — type safety
-- **Vite** — build tool
-- **TanStack Query** — data fetching
-- **Recharts** — charts & graphs
-- **Tailwind CSS** — styling
-- **Lucide React** — icons
+- **React 18** -- UI framework
+- **TypeScript** -- type safety
+- **Vite** -- build tool
+- **TanStack Query** -- data fetching
+- **Recharts** -- charts & graphs
+- **Tailwind CSS** -- styling
+- **Lucide React** -- icons
 
 </td>
 </tr>
@@ -1039,23 +1205,24 @@ dbf-poly-agent/
 <td valign="top">
 
 ### Infrastructure
-- **Docker Compose** — orchestration
-- **Nginx** — reverse proxy + static + SSL
-- **AWS Lightsail** — $5/mo hosting (Mumbai)
-- **GitHub Actions** — CI/CD (3-job pipeline)
-- **Let's Encrypt** — HTTPS certificates
-- **DuckDNS** — Dynamic DNS
+- **Docker Compose** -- orchestration
+- **Nginx** -- reverse proxy + static + SSL
+- **AWS Lightsail** -- $5/mo hosting (Mumbai)
+- **GitHub Actions** -- CI/CD (3-job pipeline)
+- **Let's Encrypt** -- HTTPS certificates
+- **DuckDNS** -- Dynamic DNS
 
 </td>
 <td valign="top">
 
 ### Tooling
-- **uv** — Python package manager
-- **ruff** — Python linter
-- **pytest** — 1768+ tests
-- **pytest-asyncio** — async test support
-- **Telegram Bot** — trade alerts
-- **Health endpoint** — `/api/health`
+- **uv** -- Python package manager
+- **ruff** -- Python linter
+- **pytest** -- 1350+ tests
+- **pytest-asyncio** -- async test support
+- **Telegram Bot** -- trade alerts + daily reports
+- **Tavily** -- Twitter/X search API
+- **Health endpoint** -- `/api/health`
 
 </td>
 </tr>
@@ -1080,12 +1247,13 @@ All endpoints except `/api/health` and `/api/auth/login` require authentication 
 | `GET` | `/api/portfolio/allocation` | Category allocation |
 | `GET` | `/api/portfolio/daily-pnl` | Daily PnL history (aggregated by day) |
 | `POST` | `/api/portfolio/positions/close` | Force-close a position |
+| `POST` | `/api/portfolio/positions/force-remove` | DB-only close (ghost positions) |
 | `GET` | `/api/trades/history` | Trade history (filterable) |
 | `GET` | `/api/trades/stats` | Trade statistics |
 | `GET` | `/api/strategies/performance` | Strategy metrics |
 | `GET` | `/api/markets/scanner` | Live market scanner |
 | `GET` | `/api/markets/opportunities` | Cached market data |
-| `GET` | `/api/risk/metrics` | Current risk state |
+| `GET` | `/api/risk/metrics` | Risk state (VaR, Sharpe, Profit Factor) |
 | `GET` | `/api/risk/limits` | Risk limits for current tier |
 | `GET` | `/api/activity/` | Activity log (filterable by type) |
 | `GET` | `/api/activity/event-types` | Available event types |
