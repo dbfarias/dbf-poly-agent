@@ -62,11 +62,11 @@ class TestVarCheck:
 
     def test_var_scales_with_small_bankroll(self):
         tracker = ReturnsTracker()
-        # Moderate losses: VaR around -15%
-        for r in [-0.05, -0.06, -0.04, -0.07, -0.05, -0.06, -0.05]:
+        # Moderate losses: VaR around -5%
+        for r in [-0.03, -0.04, -0.02, -0.05, -0.03, -0.04, -0.03]:
             tracker.record_return(r)
         rm = RiskManager(returns_tracker=tracker)
-        # Small bankroll ($12) uses -20% limit → passes
+        # Small bankroll ($12) uses -35% limit → passes easily
         result = rm._check_daily_var(12.0)
         assert result.passed
         # Large bankroll ($100) uses -5% limit → blocks
@@ -79,9 +79,9 @@ class TestVarCheck:
         for r in [-0.08, -0.10, -0.07, -0.12, -0.09, -0.11, -0.08]:
             tracker.record_return(r)
         rm = RiskManager(returns_tracker=tracker)
-        # $12 → -20% limit → passes (VaR -12.2% > -20%)
+        # $12 → -35% limit → passes (VaR -12.2% > -35%)
         assert rm._check_daily_var(12.0).passed
-        # $30 → -15% limit → passes (VaR -12.2% > -15%)
+        # $30 → -20% limit → passes (VaR -12.2% > -20%)
         assert rm._check_daily_var(30.0).passed
         # $60 → -10% limit → blocks (VaR -12.2% < -10%)
         assert not rm._check_daily_var(60.0).passed

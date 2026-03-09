@@ -829,12 +829,23 @@ class TradingEngine:
                 self.portfolio.total_equity
             )
             if not var_precheck:
+                logger.info(
+                    "signal_skipped_var_precheck",
+                    market_id=signal.market_id[:20],
+                    strategy=signal.strategy,
+                    reason=var_precheck.reason,
+                )
                 continue
 
             # Debate cooldown: skip markets recently rejected by debate
             if settings.use_llm_debate:
                 debate_until = self._debate_cooldown.get(signal.market_id)
                 if debate_until and datetime.now(timezone.utc) < debate_until:
+                    logger.debug(
+                        "signal_skipped_debate_cooldown",
+                        market_id=signal.market_id[:20],
+                        strategy=signal.strategy,
+                    )
                     continue
 
             # LLM debate gate: Proposer vs Challenger

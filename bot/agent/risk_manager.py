@@ -358,10 +358,13 @@ class RiskManager:
             return RiskCheckResult(True)  # Not enough data, allow
 
         # Scale VaR limit with bankroll size
+        # Small accounts: historical VaR from early losses shouldn't
+        # permanently freeze trading — other gates (debate, Z-score,
+        # VPIN) protect against bad trades now.
         if bankroll < 25:
-            effective_limit = -0.20
+            effective_limit = -0.35
         elif bankroll < 50:
-            effective_limit = -0.15
+            effective_limit = -0.20
         elif bankroll < 100:
             effective_limit = -0.10
         else:
