@@ -144,6 +144,9 @@ class RiskMetrics(BaseModel):
     daily_loss_limit_pct: float
     max_positions: int
     is_paused: bool
+    daily_var_95: float | None = None
+    rolling_sharpe: float | None = None
+    profit_factor: float | None = None
 
 
 class RiskLimits(BaseModel):

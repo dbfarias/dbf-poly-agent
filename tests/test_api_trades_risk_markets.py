@@ -91,6 +91,9 @@ class TestRiskMetrics:
             "daily_loss_limit_pct",
             "max_positions",
             "is_paused",
+            "daily_var_95",
+            "rolling_sharpe",
+            "profit_factor",
         }
         assert set(data.keys()) == expected_keys
 
