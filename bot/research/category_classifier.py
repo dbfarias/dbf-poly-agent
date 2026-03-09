@@ -78,6 +78,8 @@ class CategoryClassifier:
 
     async def _llm_classify(self, question: str) -> str | None:
         """Use Haiku LLM for classification. Returns None if unavailable."""
+        if not settings.use_llm_keywords:
+            return None
         if not settings.anthropic_api_key:
             return None
 

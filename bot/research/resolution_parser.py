@@ -137,6 +137,9 @@ async def _llm_parse(
     from bot.config import settings
     from bot.research.llm_debate import cost_tracker
 
+    if not settings.use_llm_keywords:
+        return None
+
     api_key = settings.anthropic_api_key
     if not api_key:
         return None
