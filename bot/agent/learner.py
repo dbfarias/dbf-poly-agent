@@ -299,7 +299,7 @@ class PerformanceLearner:
                 continue
             pf_value = spf["profit_factor"]
             trade_count = spf["trades"]
-            if trade_count < 5:
+            if trade_count < 15:
                 continue
             if pf_value < 0.8:
                 # Losing money fast: tighten edge by 40%
@@ -679,7 +679,7 @@ class PerformanceLearner:
         This avoids cliff-step oscillation at 40%/60% boundaries.
         """
         if stats.total_trades < self.MIN_TRADES_FOR_ADJUSTMENT:
-            return 1.2  # Cautious until enough data
+            return 1.0  # Neutral until enough data (was 1.2 — death spiral)
 
         win_rate = stats.actual_win_rate
 

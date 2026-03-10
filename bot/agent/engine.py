@@ -975,9 +975,22 @@ class TradingEngine:
                     )
                     continue
 
+            # Skip LLM debate for purely algorithmic strategies
+            # These signals come from real-time orderbook/price data —
+            # the LLM can't add value and only adds latency + cost
+            algo_strategies = {"crypto_short_term", "arbitrage"}
+            skip_debate = signal.strategy in algo_strategies
+            if skip_debate:
+                logger.info(
+                    "signal_skip_debate_algorithmic",
+                    strategy=signal.strategy,
+                    market_id=signal.market_id[:20],
+                    edge=round(signal.edge, 4),
+                )
+
             # Skip debate for low-edge signals (save API cost)
             min_edge_for_debate = 0.015
-            if signal.edge < min_edge_for_debate:
+            if not skip_debate and signal.edge < min_edge_for_debate:
                 logger.debug(
                     "signal_skipped_low_edge_no_debate",
                     market_id=signal.market_id[:20],
@@ -988,7 +1001,7 @@ class TradingEngine:
                 continue
 
             # LLM debate gate: Proposer vs Challenger
-            if settings.use_llm_debate:
+            if settings.use_llm_debate and not skip_debate:
                 research = self.research_cache.get(signal.market_id)
                 sentiment = (
                     research.sentiment_score if research is not None else None

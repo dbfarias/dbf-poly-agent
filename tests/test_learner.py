@@ -158,7 +158,7 @@ class TestGetEdgeMultiplier:
             avg_estimated_prob=0.92,
             actual_win_rate=0.80,
         )
-        assert learner.get_edge_multiplier("time_decay", "new") == 1.2
+        assert learner.get_edge_multiplier("time_decay", "new") == 1.0
 
     def test_multiplier_clamped_to_range(self):
         learner = PerformanceLearner()
@@ -904,8 +904,8 @@ class TestProfitFactorEdgeAdjustment:
 
                     adjustments = await learner.compute_stats()
 
-                    # 3 trades < MIN_TRADES_FOR_ADJUSTMENT → cautious 1.2
-                    # No PF tightening applied (< 5 trades for PF)
+                    # 3 trades < MIN_TRADES_FOR_ADJUSTMENT → neutral 1.0
+                    # No PF tightening applied (< 15 trades for PF)
                     key = ("time_decay", "politics")
                     if key in adjustments.edge_multipliers:
-                        assert adjustments.edge_multipliers[key] == 1.2
+                        assert adjustments.edge_multipliers[key] == 1.0

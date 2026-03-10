@@ -24,12 +24,12 @@ from .time_decay import HOURS_MEDIUM, _max_hours_for_urgency
 
 logger = structlog.get_logger()
 
-MIN_EDGE = 0.05  # 5% minimum edge for value bets (was 3% — too many thin-edge losing trades)
-IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance (was 10% — too noisy)
-SPORTS_IMBALANCE_THRESHOLD = 0.25  # 25% for sports — only obvious favorites
+MIN_EDGE = 0.02  # 2% minimum edge (was 5% — too high for the edge formula to ever reach)
+IMBALANCE_THRESHOLD = 0.08  # 8% order book imbalance (was 15% — impossible in liquid markets)
+SPORTS_IMBALANCE_THRESHOLD = 0.20  # 20% for sports — only obvious favorites
 MAX_PRICE = 0.95  # Skip markets above 95¢ (thin margin, high risk)
 MIN_PRICE = 0.05  # Skip ultra-cheap markets (speculative noise)
-MIN_BOOK_VOLUME = 200.0  # Min total order book volume (was 50 — thin books unreliable)
+MIN_BOOK_VOLUME = 150.0  # Min total order book volume (was 200)
 RELATIVE_STOP_LOSS = 0.12  # Exit if lost 12% from entry (was 5% — too tight, spread alone triggers)
 
 
@@ -199,8 +199,9 @@ class ValueBettingStrategy(BaseStrategy):
         # 2) Volume depth bonus: thicker books = more reliable signal
         # 3) Time discount: shorter resolution → higher confidence in signal
         abs_imb = abs(imbalance)
-        # nonlinear: 0.15→0.52%, 0.25→1.18%, 0.40→2.40%, 0.60→4.39%
-        base_edge = abs_imb ** 1.5 * 0.3
+        # nonlinear edge from imbalance magnitude:
+        # 0.08→0.57%, 0.15→1.45%, 0.25→3.12%, 0.40→6.32%
+        base_edge = abs_imb ** 1.5 * 0.5
 
         # Volume depth factor: scale 0.8-1.2 based on book thickness
         # 500 vol = 1.0 baseline, 2000+ = 1.2 max, <200 = 0.8 min

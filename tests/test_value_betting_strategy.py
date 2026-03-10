@@ -944,12 +944,12 @@ class TestNewFilters:
 
 class TestCategoryEdgeBoost:
     async def test_sports_low_imbalance_skipped(self):
-        """Sports markets with low imbalance are skipped (need 25%+)."""
+        """Sports markets with low imbalance are skipped (need 20%+)."""
         strategy = _make_strategy()
-        # imbalance = (300-55)/355 ≈ 69% — but let's make it ~20% (below 25%)
+        # Make imbalance ~15% (below sports threshold of 20%)
         book = _make_order_book(
-            bid_sizes=[120.0, 100.0, 80.0, 60.0, 40.0],
-            ask_sizes=[80.0, 60.0, 50.0, 40.0, 20.0],
+            bid_sizes=[115.0, 100.0, 80.0, 60.0, 40.0],
+            ask_sizes=[95.0, 80.0, 70.0, 55.0, 40.0],
         )
         strategy.get_order_book = AsyncMock(return_value=book)
         market = _make_market(
@@ -959,7 +959,7 @@ class TestCategoryEdgeBoost:
         )
 
         result = await strategy._evaluate_market(market, max_hours=168.0)
-        # imbalance ≈ (400-250)/650 ≈ 23% — below sports threshold of 25%
+        # imbalance ≈ (395-340)/735 ≈ 7.5% — below sports threshold of 20%
         assert result is None
 
     async def test_sports_high_imbalance_accepted(self):
