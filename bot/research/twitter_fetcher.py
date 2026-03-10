@@ -72,7 +72,7 @@ class TwitterFetcher:
         try:
             items = await self._search_tavily(query, max_results)
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 "twitter_search_failed",
                 error=str(e),
                 category=category,

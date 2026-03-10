@@ -964,8 +964,13 @@ class TradingEngine:
                 )
                 continue
 
+            # Algorithmic strategies bypass ALL debate logic (cooldown + debate)
+            algo_strategies = {"crypto_short_term", "arbitrage"}
+            skip_debate = signal.strategy in algo_strategies
+
             # Debate cooldown: skip markets recently rejected by debate
-            if settings.use_llm_debate:
+            # (but NOT for algorithmic strategies — they don't use debate)
+            if settings.use_llm_debate and not skip_debate:
                 debate_until = self._debate_cooldown.get(signal.market_id)
                 if debate_until and datetime.now(timezone.utc) < debate_until:
                     logger.debug(
@@ -974,12 +979,6 @@ class TradingEngine:
                         strategy=signal.strategy,
                     )
                     continue
-
-            # Skip LLM debate for purely algorithmic strategies
-            # These signals come from real-time orderbook/price data —
-            # the LLM can't add value and only adds latency + cost
-            algo_strategies = {"crypto_short_term", "arbitrage"}
-            skip_debate = signal.strategy in algo_strategies
             if skip_debate:
                 logger.info(
                     "signal_skip_debate_algorithmic",
