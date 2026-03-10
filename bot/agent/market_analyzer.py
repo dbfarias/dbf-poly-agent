@@ -318,12 +318,35 @@ class MarketAnalyzer:
         """
         exits: list[tuple[str, str]] = []
         exited_ids: set[str] = set()
+        now = datetime.now(timezone.utc)
         for position in positions:
             # 1. Strategy-specific exit check
             strategy_matched = False
             for strategy in self.strategies:
                 if strategy.name == position.strategy:
                     strategy_matched = True
+
+                    # Guard: skip strategy exit if position is too young
+                    # (prevents buy→immediate stop-loss from spread/slippage)
+                    try:
+                        min_hold = int(getattr(strategy, "MIN_HOLD_SECONDS", 0))
+                    except (TypeError, ValueError):
+                        min_hold = 0
+                    created = getattr(position, "created_at", None)
+                    if created is not None and min_hold > 0:
+                        if created.tzinfo is None:
+                            created = created.replace(tzinfo=timezone.utc)
+                        held_secs = (now - created).total_seconds()
+                        if held_secs < min_hold:
+                            logger.debug(
+                                "exit_skipped_min_hold",
+                                strategy=strategy.name,
+                                market_id=position.market_id,
+                                held_secs=int(held_secs),
+                                min_hold=min_hold,
+                            )
+                            break
+
                     try:
                         should_exit = await strategy.should_exit(
                             position.market_id,
@@ -384,10 +407,16 @@ class MarketAnalyzer:
             if created is not None
             else None
         )
+        age_secs = age_hours * 3600 if age_hours is not None else None
 
-        # Near-worthless: always exit
+        # Near-worthless: always exit (emergency, ignores min_hold)
         if position.current_price < self.NEAR_WORTHLESS_PRICE:
             return f"near_worthless (price={position.current_price:.4f})"
+
+        # Skip non-emergency exits if position is too young (< 30 min)
+        min_universal_hold = 1800  # 30 min minimum before any normal exit
+        if age_secs is not None and age_secs < min_universal_hold:
+            return None
 
         # Loss exceeds stop-loss threshold
         if position.avg_price > 0:
