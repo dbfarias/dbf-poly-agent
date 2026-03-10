@@ -288,6 +288,15 @@ class MarketAnalyzer:
         except Exception as e:
             logger.warning("breaking_markets_fetch_failed", error=str(e))
 
+        # Merge crypto 5-min markets (short-lived, need dedicated fetch)
+        try:
+            crypto_5min = await self.gamma.get_crypto_5min_markets()
+            added = self._merge_markets(markets, existing_ids, crypto_5min)
+            if added:
+                logger.info("crypto_5min_merged", new=added, total=len(markets))
+        except Exception as e:
+            logger.warning("crypto_5min_fetch_failed", error=str(e))
+
         # Apply quality filter before strategy evaluation
         markets = await self._filter_quality(markets)
 

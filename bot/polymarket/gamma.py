@@ -415,8 +415,10 @@ class GammaClient:
     async def get_crypto_5min_markets(self) -> list[GammaMarket]:
         """Fetch active 5-minute and 15-minute crypto prediction markets.
 
-        Filters by question text containing crypto + short timeframe keywords.
-        Returns markets resolving within 1 hour with > $100 24h volume.
+        Matches Polymarket's actual formats:
+        - "Bitcoin Up or Down - March 10, 4:30PM-4:35PM ET"
+        - "BTC 5 min up" / slug "btc-5min-up"
+        Returns markets resolving within 1 hour with > $50 24h volume.
         """
         now = datetime.now(timezone.utc)
         end_max = now + timedelta(hours=1)
@@ -424,7 +426,7 @@ class GammaClient:
         params = {
             "active": "true",
             "closed": "false",
-            "limit": 50,
+            "limit": 100,
             "end_date_min": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_date_max": end_max.strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
@@ -436,22 +438,41 @@ class GammaClient:
             return []
 
         import re
+        # Pattern 1: crypto + "5 min" / "15 min" / "5 minutes" / "15 minutes"
         crypto_short_re = re.compile(
             r"\b(bitcoin|btc|ethereum|eth|solana|sol)\b"
-            r".*\b(5[\s-]*min|15[\s-]*min)\b",
+            r".*\b(5[\s-]*min|15[\s-]*min)",
+            re.IGNORECASE,
+        )
+        # Pattern 2: crypto + "up or down" (Polymarket's actual 5-min format)
+        crypto_updown_re = re.compile(
+            r"\b(bitcoin|btc|ethereum|eth|solana|sol)\b.*\b(up or down)\b"
+            r"|\b(up or down)\b.*\b(bitcoin|btc|ethereum|eth|solana|sol)\b",
             re.IGNORECASE,
         )
 
-        return [
-            m for m in markets
-            if m.accepting_orders
-            and not m.archived
-            and m.volume_24h >= 100.0
-            and (
-                crypto_short_re.search(m.question)
-                or ("5min" in m.slug.lower() or "15min" in m.slug.lower())
-            )
-        ]
+        results = []
+        for m in markets:
+            if not m.accepting_orders or m.archived:
+                continue
+            if m.volume_24h < 50.0:
+                continue
+            q = m.question
+            slug = (m.slug or "").lower()
+            if (
+                crypto_short_re.search(q)
+                or crypto_updown_re.search(q)
+                or "5min" in slug
+                or "15min" in slug
+            ):
+                results.append(m)
+
+        logger.debug(
+            "crypto_5min_markets_fetched",
+            total_ending_soon=len(markets),
+            crypto_matches=len(results),
+        )
+        return results
 
     async def search_markets(self, query: str, limit: int = 20) -> list[GammaMarket]:
         """Search markets by question text."""

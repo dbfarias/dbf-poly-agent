@@ -436,10 +436,10 @@ class TradingEngine:
     async def _crypto_fast_loop(self) -> None:
         """Fast 10s loop for crypto short-term strategy.
 
-        Runs independently of the main 60s trading cycle to catch
-        5-min/15-min crypto market opportunities in real time.
+        Fetches fresh 5-min crypto markets from Gamma API every 30s,
+        scans for signals, runs risk checks, and executes trades.
         """
-        # Wait for main loop to start and populate caches
+        # Wait for main loop to start and initialize
         await asyncio.sleep(30)
 
         crypto_strategy = None
@@ -452,22 +452,208 @@ class TradingEngine:
             logger.warning("crypto_fast_loop_no_strategy")
             return
 
+        # Fresh market fetch every 30s (not every 10s to avoid rate limits)
+        crypto_markets: list = []
+        last_fetch = datetime.min.replace(tzinfo=timezone.utc)
+        fetch_interval = timedelta(seconds=30)
+
         while self._running:
             try:
-                if "crypto_short_term" not in self.analyzer.disabled_strategies:
-                    tier = self.portfolio.tier
-                    if crypto_strategy.is_enabled_for_tier(tier):
-                        markets = self.cache.get_all_markets()
-                        signals = await crypto_strategy.scan(markets)
-                        if signals:
-                            logger.info(
-                                "crypto_fast_loop_signals",
-                                count=len(signals),
-                            )
+                if "crypto_short_term" in self.analyzer.disabled_strategies:
+                    await asyncio.sleep(10)
+                    continue
+
+                tier = self.portfolio.tier
+                if not crypto_strategy.is_enabled_for_tier(tier):
+                    await asyncio.sleep(10)
+                    continue
+
+                # Fetch fresh 5-min markets periodically
+                now = datetime.now(timezone.utc)
+                if now - last_fetch >= fetch_interval:
+                    fresh = await self.gamma_client.get_crypto_5min_markets()
+                    if fresh:
+                        crypto_markets = fresh
+                        # Also merge into cache for main loop
+                        for m in fresh:
+                            self.cache.set_market(m, ttl=120)
+                    last_fetch = now
+                    logger.info(
+                        "crypto_fast_fetch",
+                        fresh_markets=len(fresh),
+                        cached_total=len(crypto_markets),
+                    )
+
+                if not crypto_markets:
+                    await asyncio.sleep(10)
+                    continue
+
+                # Scan with fresh markets + cached markets combined
+                all_markets = list(crypto_markets)
+                # Also scan cached markets for any crypto that slipped through
+                cached = self.cache.get_all_markets()
+                seen_ids = {m.id for m in all_markets}
+                for m in cached:
+                    if m.id not in seen_ids:
+                        all_markets.append(m)
+
+                signals = await crypto_strategy.scan(all_markets)
+                if not signals:
+                    await asyncio.sleep(10)
+                    continue
+
+                logger.info(
+                    "crypto_fast_loop_signals",
+                    count=len(signals),
+                )
+
+                # Execute signals through streamlined pipeline
+                await self._execute_crypto_signals(signals, tier)
+
             except Exception as e:
                 logger.error("crypto_fast_loop_error", error=str(e))
 
             await asyncio.sleep(10)
+
+    async def _execute_crypto_signals(self, signals, tier) -> None:
+        """Execute crypto short-term signals with risk checks.
+
+        Streamlined pipeline: skip LLM debate, skip exit liquidity
+        (5-min markets auto-resolve), but keep core risk checks.
+        """
+        pending_count = self.order_manager.pending_count
+        pending_markets = self.order_manager.pending_market_ids
+
+        for signal in signals:
+            logger.info(
+                "crypto_fast_evaluating",
+                market_id=signal.market_id[:20],
+                edge=round(signal.edge, 4),
+                price=signal.market_price,
+                question=signal.question[:60],
+            )
+
+            await log_signal_found(
+                strategy=signal.strategy,
+                market_id=signal.market_id,
+                question=signal.question,
+                edge=signal.edge,
+                price=signal.market_price,
+                prob=signal.estimated_prob,
+                hours=signal.metadata.get("hours_to_resolution"),
+            )
+
+            # Skip near-worthless prices
+            near_worthless = self.analyzer.NEAR_WORTHLESS_PRICE
+            if signal.market_price < near_worthless:
+                continue
+
+            # Skip cooldown
+            cooldown_until = self._market_cooldown.get(signal.market_id)
+            if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
+                continue
+
+            # Skip pending orders
+            if signal.market_id in pending_markets:
+                continue
+
+            # VaR precheck
+            var_precheck = self.risk_manager._check_daily_var(
+                self.portfolio.total_equity
+            )
+            if not var_precheck:
+                continue
+
+            # Risk manager evaluation (includes Kelly sizing)
+            edge_multiplier = 1.0
+            if self._learner_adjustments:
+                edge_multiplier = self._learner_adjustments.edge_multiplier
+
+            approved, size, reason = await self.risk_manager.evaluate_signal(
+                signal=signal,
+                bankroll=self.portfolio.total_equity,
+                open_positions=self.portfolio.positions,
+                tier=tier,
+                pending_count=pending_count,
+                edge_multiplier=edge_multiplier,
+                urgency=1.0,
+            )
+
+            if not approved:
+                logger.info(
+                    "crypto_fast_risk_rejected",
+                    market_id=signal.market_id[:20],
+                    reason=reason,
+                )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason=reason,
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
+                continue
+
+            # Skip exit liquidity check for 5-min markets:
+            # they auto-resolve, no need to sell on orderbook.
+            # Only check spread isn't insane.
+            try:
+                book = await self.clob_client.get_order_book(signal.token_id)
+                if book.spread is not None and book.spread > 0.40:
+                    logger.info(
+                        "crypto_fast_spread_too_wide",
+                        market_id=signal.market_id[:20],
+                        spread=book.spread,
+                    )
+                    continue
+            except Exception:
+                continue
+
+            signal.size_usd = size
+
+            # Execute trade
+            trade = await self.order_manager.execute_signal(signal)
+            if trade and trade.status == "filled":
+                await self.portfolio.record_trade_open(
+                    market_id=signal.market_id,
+                    token_id=signal.token_id,
+                    question=signal.question,
+                    outcome=signal.outcome,
+                    category=signal.metadata.get("category", ""),
+                    strategy=signal.strategy,
+                    side=signal.side.value,
+                    size=trade.size,
+                    price=trade.price,
+                )
+                # Short cooldown for 5-min markets (5 min, not 3h)
+                self._market_cooldown[signal.market_id] = (
+                    datetime.now(timezone.utc) + timedelta(minutes=5)
+                )
+                logger.info(
+                    "crypto_fast_trade_executed",
+                    market_id=signal.market_id[:20],
+                    question=signal.question[:60],
+                    size=trade.size,
+                    price=trade.price,
+                    cost=trade.cost_usd,
+                )
+                await event_bus.emit(
+                    "trade_filled",
+                    trade_event="buy_filled",
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    strategy=signal.strategy,
+                    side="BUY",
+                    price=trade.price,
+                    size=trade.size,
+                )
+            elif trade:
+                pending_count += 1
+                pending_markets.add(signal.market_id)
+                self._market_cooldown[signal.market_id] = (
+                    datetime.now(timezone.utc) + timedelta(minutes=5)
+                )
 
     async def _news_snipe_fast_loop(self) -> None:
         """Fast 60s loop for news sniping strategy.
@@ -1612,8 +1798,10 @@ class TradingEngine:
         """Check order book has reasonable exit liquidity before trading.
 
         Verifies:
-        1. Spread is within limits (5 cents)
+        1. Spread is within limits
         2. Best bid is near fair price (can actually sell if needed)
+
+        Crypto 5-min markets skip exit liquidity check (auto-resolve).
         """
         # Spread limit varies by strategy: short-term markets have wider spreads
         wide_spread_strategies = {"crypto_short_term", "weather_trading"}
@@ -1639,6 +1827,11 @@ class TradingEngine:
                     spread=spread,
                 )
                 return False
+
+            # Crypto 5-min markets auto-resolve → no need to check exit bid.
+            # We only need to check entry spread (done above).
+            if signal.strategy == "crypto_short_term":
+                return True
 
             # Ensure we can exit: best bid must be near fair price
             if book.best_bid is not None:

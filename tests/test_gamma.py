@@ -1372,3 +1372,125 @@ class TestGetBreakingMarkets:
             result = await client.get_breaking_markets()
 
         assert result == []
+
+
+class TestGetCrypto5minMarkets:
+    """Tests for get_crypto_5min_markets including Polymarket 'Up or Down' format."""
+
+    def _make_5min_market(self, question, volume=200.0, minutes=4.0):
+        from datetime import datetime, timedelta, timezone
+
+        end = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        return GammaMarket.model_validate({
+            "id": f"0x{hash(question) % 10**16:016x}",
+            "conditionId": f"0x{hash(question) % 10**16:016x}",
+            "question": question,
+            "slug": question.lower().replace(" ", "-")[:40],
+            "endDateIso": end.isoformat(),
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.50", "0.50"]',
+            "volume": str(volume),
+            "liquidity": "1000.0",
+            "active": True,
+            "closed": False,
+            "archived": False,
+            "groupItemTitle": "",
+            "clobTokenIds": '["tok1", "tok2"]',
+            "acceptingOrders": True,
+            "negRisk": False,
+            "volume24hr": volume,
+        })
+
+    @pytest.mark.asyncio
+    async def test_matches_up_or_down_format(self):
+        """Should match Polymarket's actual 5-min format."""
+        client = make_gamma_client()
+        market = self._make_5min_market(
+            "Bitcoin Up or Down - March 10, 4:30PM-4:35PM ET",
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[market]),
+        ):
+            result = await client.get_crypto_5min_markets()
+
+        assert len(result) == 1
+        assert "Bitcoin" in result[0].question
+
+    @pytest.mark.asyncio
+    async def test_matches_ethereum_up_or_down(self):
+        client = make_gamma_client()
+        market = self._make_5min_market(
+            "Ethereum Up or Down - March 10, 12:05PM-12:10PM ET",
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[market]),
+        ):
+            result = await client.get_crypto_5min_markets()
+
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_matches_classic_5min_format(self):
+        client = make_gamma_client()
+        market = self._make_5min_market(
+            "Will BTC go up in the next 5 minutes?",
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[market]),
+        ):
+            result = await client.get_crypto_5min_markets()
+
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_non_crypto(self):
+        client = make_gamma_client()
+        market = self._make_5min_market("Will it rain in NYC?")
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[market]),
+        ):
+            result = await client.get_crypto_5min_markets()
+
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_low_volume(self):
+        client = make_gamma_client()
+        market = self._make_5min_market(
+            "Bitcoin Up or Down - March 10, 4:30PM-4:35PM ET",
+            volume=10.0,
+        )
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(return_value=[market]),
+        ):
+            result = await client.get_crypto_5min_markets()
+
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_failure(self):
+        client = make_gamma_client()
+
+        with patch.object(
+            client,
+            "_fetch_gamma_markets",
+            new=AsyncMock(side_effect=Exception("timeout")),
+        ):
+            result = await client.get_crypto_5min_markets()
+
+        assert result == []

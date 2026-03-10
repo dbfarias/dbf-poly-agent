@@ -96,6 +96,28 @@ class TestIsCryptoShortTerm:
         m = _make_crypto_market(minutes_to_resolve=-1.0)
         assert _strat._is_crypto_short_term(m) is False
 
+    def test_bitcoin_up_or_down_format(self, _strat):
+        """Polymarket's actual format for 5-min crypto markets."""
+        m = _make_crypto_market(
+            "Bitcoin Up or Down - March 10, 4:30PM-4:35PM ET",
+            slug="bitcoin-up-or-down-march-10-430pm-435pm-et",
+        )
+        assert _strat._is_crypto_short_term(m) is True
+
+    def test_ethereum_up_or_down_format(self, _strat):
+        m = _make_crypto_market(
+            "Ethereum Up or Down - March 10, 12:05PM-12:10PM ET",
+            slug="ethereum-up-or-down",
+        )
+        assert _strat._is_crypto_short_term(m) is True
+
+    def test_solana_up_or_down_format(self, _strat):
+        m = _make_crypto_market(
+            "Solana Up or Down - March 11, 9:00AM-9:05AM ET",
+            slug="solana-up-or-down",
+        )
+        assert _strat._is_crypto_short_term(m) is True
+
 
 @pytest.fixture()
 def strategy():
