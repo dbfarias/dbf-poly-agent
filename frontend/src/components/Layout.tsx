@@ -105,7 +105,10 @@ export default function Layout({ onLogout }: LayoutProps) {
       >
         <div className="p-4 border-b border-[#2a2d3e]">
           <div className="flex items-center justify-between">
-            <h1 className="text-lg font-bold text-white" data-testid="sidebar-title">PolyBot</h1>
+            <div className="flex items-center gap-2">
+              <img src="/logo-sm.png" alt="PolyBot" className="w-7 h-7" />
+              <h1 className="text-lg font-bold text-white" data-testid="sidebar-title">PolyBot</h1>
+            </div>
             <div className="flex items-center gap-1">
               <button
                 onClick={handleRefresh}
@@ -181,7 +184,10 @@ export default function Layout({ onLogout }: LayoutProps) {
           >
             <Menu size={20} />
           </button>
-          <span className="text-sm font-bold text-white">PolyBot</span>
+          <div className="flex items-center gap-1.5">
+            <img src="/logo-sm.png" alt="PolyBot" className="w-6 h-6" />
+            <span className="text-sm font-bold text-white">PolyBot</span>
+          </div>
           <div className="flex items-center gap-1.5">
             <div
               className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}

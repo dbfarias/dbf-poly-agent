@@ -22,8 +22,11 @@ export default function Login({ onLogin, error, loading }: LoginProps) {
         className="w-full max-w-sm bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5 sm:p-8 mx-4 sm:mx-0"
         data-testid="login-form"
       >
-        <h1 className="text-xl font-bold text-white mb-1">PolyBot</h1>
-        <p className="text-sm text-zinc-500 mb-6">Sign in to your dashboard</p>
+        <div className="flex flex-col items-center mb-4">
+          <img src="/logo.png" alt="DBF PolyBot" className="w-20 h-20 mb-2" />
+          <h1 className="text-xl font-bold text-white">PolyBot</h1>
+          <p className="text-sm text-zinc-500">Sign in to your dashboard</p>
+        </div>
 
         {error && (
           <div
