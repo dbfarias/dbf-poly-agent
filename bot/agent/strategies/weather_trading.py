@@ -186,6 +186,12 @@ class WeatherTradingStrategy(BaseStrategy):
         if self._weather_fetcher is None:
             return []
 
+        weather_count = sum(1 for m in markets if _is_weather_question(m.question))
+        if weather_count > 0:
+            self.logger.info(
+                "weather_markets_in_batch", count=weather_count, total=len(markets),
+            )
+
         signals: list[TradeSignal] = []
 
         for market in markets:
@@ -212,6 +218,7 @@ class WeatherTradingStrategy(BaseStrategy):
         # Parse the question
         parsed = self._parse_weather_question(market.question)
         if parsed is None:
+            self.logger.debug("weather_parse_failed", question=market.question[:80])
             return None
 
         city = parsed["city"]
@@ -221,6 +228,9 @@ class WeatherTradingStrategy(BaseStrategy):
         # Get forecast
         forecast = await self._weather_fetcher.get_forecast(city)
         if not forecast:
+            self.logger.info(
+                "weather_no_forecast", city=city, question=market.question[:60],
+            )
             return None
 
         # Use the first daytime period as best estimate
@@ -252,6 +262,11 @@ class WeatherTradingStrategy(BaseStrategy):
 
         # Check temperature margin
         if abs(temp_diff) < self.TEMP_MARGIN_F:
+            self.logger.info(
+                "weather_margin_too_small",
+                city=city, forecast=forecast_temp, threshold=threshold,
+                diff=round(abs(temp_diff), 1), min_margin=self.TEMP_MARGIN_F,
+            )
             return None
 
         # Calculate edge
