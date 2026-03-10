@@ -299,7 +299,7 @@ class TestCheckLiquidity:
 
     @pytest.mark.asyncio
     async def test_wide_spread_fails(self):
-        """Spread > 5 cents should fail."""
+        """Spread > 10 cents should fail for standard strategies."""
         with patch("bot.agent.engine.PolymarketClient"), \
              patch("bot.agent.engine.GammaClient"), \
              patch("bot.agent.engine.DataApiClient"), \
@@ -311,7 +311,7 @@ class TestCheckLiquidity:
             engine.clob_client.get_order_book = AsyncMock(
                 return_value=OrderBook(
                     asset_id="token1",
-                    bids=[OrderBookEntry(price=0.80, size=100)],
+                    bids=[OrderBookEntry(price=0.70, size=100)],
                     asks=[OrderBookEntry(price=0.90, size=100)],
                 )
             )

@@ -1615,7 +1615,12 @@ class TradingEngine:
         1. Spread is within limits (5 cents)
         2. Best bid is near fair price (can actually sell if needed)
         """
-        max_spread = 0.05  # 5 cents max spread (CLOB pre-trade check)
+        # Spread limit varies by strategy: short-term markets have wider spreads
+        wide_spread_strategies = {"crypto_short_term", "weather_trading"}
+        if signal.strategy in wide_spread_strategies:
+            max_spread = 0.30  # 30 cents for short-term/weather (naturally wider)
+        else:
+            max_spread = 0.10  # 10 cents for standard strategies
         min_bid_ratio = MarketAnalyzer.MIN_BID_RATIO
 
         try:

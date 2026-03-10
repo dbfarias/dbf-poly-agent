@@ -35,7 +35,7 @@ class RiskManager:
 
     # Configurable risk thresholds (exposed via admin API)
     VAR_LIMIT = -0.05        # -5% daily VaR limit
-    ZSCORE_THRESHOLD = 1.5   # Min |Z-score| for trade approval
+    ZSCORE_THRESHOLD = 0.8   # Min |Z-score| for trade approval
 
     def __init__(self, returns_tracker=None):
         self._daily_pnl: float = 0.0
