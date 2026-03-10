@@ -410,6 +410,47 @@ class GammaClient:
             if m.accepting_orders and not m.archived and m.volume_24h >= min_volume_24h
         ]
 
+    async def get_crypto_5min_markets(self) -> list[GammaMarket]:
+        """Fetch active 5-minute and 15-minute crypto prediction markets.
+
+        Filters by question text containing crypto + short timeframe keywords.
+        Returns markets resolving within 1 hour with > $100 24h volume.
+        """
+        now = datetime.now(timezone.utc)
+        end_max = now + timedelta(hours=1)
+
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": 50,
+            "end_date_min": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end_date_max": end_max.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+        try:
+            markets = await self._fetch_gamma_markets(params)
+        except Exception as e:
+            logger.warning("gamma_crypto_5min_failed", error=str(e))
+            return []
+
+        import re
+        crypto_short_re = re.compile(
+            r"\b(bitcoin|btc|ethereum|eth|solana|sol)\b"
+            r".*\b(5[\s-]*min|15[\s-]*min)\b",
+            re.IGNORECASE,
+        )
+
+        return [
+            m for m in markets
+            if m.accepting_orders
+            and not m.archived
+            and m.volume_24h >= 100.0
+            and (
+                crypto_short_re.search(m.question)
+                or ("5min" in m.slug.lower() or "15min" in m.slug.lower())
+            )
+        ]
+
     async def search_markets(self, query: str, limit: int = 20) -> list[GammaMarket]:
         """Search markets by question text."""
         markets = await self.get_active_markets(limit=200)

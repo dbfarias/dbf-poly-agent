@@ -104,14 +104,28 @@ _SPORTS_VS_PATTERN = re.compile(
 )
 
 
+_WEATHER_KEYWORDS = re.compile(
+    r"\b(temperature|degrees\s*fahrenheit|degrees\s*celsius|weather forecast"
+    r"|high temp|low temp|°F|°C|heat wave|cold snap|snowfall|rainfall"
+    r"|inches of rain|inches of snow)\b",
+    re.IGNORECASE,
+)
+
+
 def classify_market_type(question: str) -> str:
-    """Classify market type by question text. Returns 'sports', 'crypto', or 'other'."""
+    """Classify market type by question text.
+
+    Returns 'sports', 'weather', 'crypto', or 'other'.
+    """
     if (
         _SPORTS_KEYWORDS.search(question)
         or _SPORTS_WIN_ON_PATTERN.search(question)
         or _SPORTS_VS_PATTERN.search(question)
     ):
         return "sports"
+    # Weather detection (before crypto — temperature markets are distinct)
+    if _WEATHER_KEYWORDS.search(question):
+        return "weather"
     # Crypto detection (from price_divergence)
     crypto_pattern = re.compile(
         r"\b(bitcoin|btc|ethereum|eth|solana|sol|xrp|cardano|ada"

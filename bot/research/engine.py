@@ -54,6 +54,7 @@ class ResearchEngine:
         self.category_classifier = CategoryClassifier()
         self.pattern_analyzer = PatternAnalyzer()
         self.whale_detector: WhaleDetector | None = None
+        self.weather_fetcher: object | None = None  # Set by TradingEngine
         self._running = False
         self._priority_market_ids: set[str] = set()
 

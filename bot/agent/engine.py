@@ -50,6 +50,8 @@ from bot.research.llm_debate import (
     cost_tracker as llm_cost_tracker,
 )
 from bot.research.market_report import generate_daily_report
+from bot.research.spot_price_ws import SpotPriceWS
+from bot.research.weather_fetcher import WeatherFetcher
 from bot.utils.notifications import (
     close_telegram_client,
     notify_daily_summary,
@@ -67,11 +69,13 @@ from bot.utils.push_notifications import (
 )
 
 from .strategies.arbitrage import ArbitrageStrategy
+from .strategies.crypto_short_term import CryptoShortTermStrategy
 from .strategies.market_making import MarketMakingStrategy
 from .strategies.price_divergence import PriceDivergenceStrategy
 from .strategies.swing_trading import SwingTradingStrategy
 from .strategies.time_decay import TimeDecayStrategy
 from .strategies.value_betting import ValueBettingStrategy
+from .strategies.weather_trading import WeatherTradingStrategy
 
 logger = structlog.get_logger()
 
@@ -135,6 +139,12 @@ class TradingEngine:
         self.research_cache = ResearchCache(default_ttl=3600)
         self.research_engine = ResearchEngine(self.research_cache, self.cache)
 
+        # Weather fetcher (NOAA API — free, no key)
+        self.weather_fetcher = WeatherFetcher()
+
+        # Spot price WebSocket (Coinbase — free, no key)
+        self.spot_ws = SpotPriceWS()
+
         # WebSocket + Heartbeat
         self.ws_manager = WebSocketManager(self.cache)
         self.heartbeat = HeartbeatManager(self.clob_client)
@@ -166,6 +176,14 @@ class TradingEngine:
                 price_tracker=self.price_tracker,
             ),
             MarketMakingStrategy(self.clob_client, self.gamma_client, self.cache),
+            WeatherTradingStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                weather_fetcher=self.weather_fetcher,
+            ),
+            CryptoShortTermStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                spot_ws=self.spot_ws,
+            ),
         ]
         self.analyzer = MarketAnalyzer(
             self.gamma_client, self.cache, strategies, self.clob_client,
@@ -373,6 +391,8 @@ class TradingEngine:
         await self.research_engine.stop()
         await self.heartbeat.stop()
         await self.ws_manager.disconnect()
+        await self.spot_ws.disconnect()
+        await self.weather_fetcher.close()
         await self.clob_client.close()
         await self.gamma_client.close()
         await self.data_api.close()
@@ -392,6 +412,42 @@ class TradingEngine:
                 exc_type=type(exc).__name__,
             )
 
+    async def _crypto_fast_loop(self) -> None:
+        """Fast 10s loop for crypto short-term strategy.
+
+        Runs independently of the main 60s trading cycle to catch
+        5-min/15-min crypto market opportunities in real time.
+        """
+        # Wait for main loop to start and populate caches
+        await asyncio.sleep(30)
+
+        crypto_strategy = None
+        for strat in self.analyzer.strategies:
+            if strat.name == "crypto_short_term":
+                crypto_strategy = strat
+                break
+
+        if crypto_strategy is None:
+            logger.warning("crypto_fast_loop_no_strategy")
+            return
+
+        while self._running:
+            try:
+                if "crypto_short_term" not in self.analyzer.disabled_strategies:
+                    tier = self.portfolio.tier
+                    if crypto_strategy.is_enabled_for_tier(tier):
+                        markets = self.cache.get_all_markets()
+                        signals = await crypto_strategy.scan(markets)
+                        if signals:
+                            logger.info(
+                                "crypto_fast_loop_signals",
+                                count=len(signals),
+                            )
+            except Exception as e:
+                logger.error("crypto_fast_loop_error", error=str(e))
+
+            await asyncio.sleep(10)
+
     async def run(self) -> None:
         """Main trading loop."""
         self._running = True
@@ -404,6 +460,10 @@ class TradingEngine:
         ws_task.add_done_callback(self._task_exception_handler)
         research_task = asyncio.create_task(self.research_engine.start())
         research_task.add_done_callback(self._task_exception_handler)
+        spot_ws_task = asyncio.create_task(self.spot_ws.connect())
+        spot_ws_task.add_done_callback(self._task_exception_handler)
+        crypto_fast_task = asyncio.create_task(self._crypto_fast_loop())
+        crypto_fast_task.add_done_callback(self._task_exception_handler)
 
         try:
             while self._running:
