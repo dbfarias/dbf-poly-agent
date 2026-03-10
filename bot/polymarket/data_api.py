@@ -104,7 +104,7 @@ class DataApiClient:
         numTrades, winRate, etc.
         """
         resp = await self._client.get(
-            "/leaderboard",
+            "/v1/leaderboard",
             params={"window": window, "limit": limit},
         )
         resp.raise_for_status()

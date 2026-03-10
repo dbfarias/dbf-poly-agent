@@ -126,25 +126,46 @@ class WhaleTracker:
             return self.tracked_count
 
         # Filter and rank
+        # API fields: proxyWallet, userName, vol, pnl, rank
+        # No winRate field — estimate from pnl/vol ratio
         qualified = []
         for entry in leaders:
-            win_rate = float(entry.get("winRate", entry.get("win_rate", 0)))
-            volume = float(entry.get("volume", entry.get("volume30d", 0)))
-            proxy = entry.get("proxyAddress", entry.get("proxy_address", ""))
+            proxy = entry.get(
+                "proxyWallet",
+                entry.get("proxyAddress", entry.get("proxy_address", "")),
+            )
+            volume = float(
+                entry.get("vol", entry.get("volume", entry.get("volume30d", 0))),
+            )
+            pnl = float(entry.get("pnl", entry.get("pnl7d", 0)))
+            username = entry.get(
+                "userName", entry.get("username", entry.get("name", "")),
+            )
 
             if not proxy:
-                continue
-            if win_rate < MIN_WIN_RATE:
                 continue
             if volume < MIN_VOLUME:
                 continue
 
+            # Estimate win rate: profitable traders with good pnl/vol ratio
+            # pnl/vol > 0.05 → ~65% win rate, > 0.10 → ~70%, etc.
+            win_rate_est = float(
+                entry.get("winRate", entry.get("win_rate", 0)),
+            )
+            if win_rate_est == 0 and volume > 0:
+                pnl_ratio = pnl / volume
+                win_rate_est = min(0.85, 0.50 + pnl_ratio * 2.0)
+                win_rate_est = max(0.0, win_rate_est)
+
+            if win_rate_est < MIN_WIN_RATE:
+                continue
+
             qualified.append({
                 "proxy_address": proxy,
-                "username": entry.get("username", entry.get("name", "")),
-                "pnl_7d": float(entry.get("pnl", entry.get("pnl7d", 0))),
+                "username": username,
+                "pnl_7d": pnl,
                 "pnl_30d": float(entry.get("pnl30d", entry.get("pnl_30d", 0))),
-                "win_rate": win_rate,
+                "win_rate": win_rate_est,
                 "volume_30d": volume,
             })
 
@@ -210,7 +231,9 @@ class WhaleTracker:
         new_trades: list[WhaleTrade] = []
 
         for trade in trades:
-            trade_id = str(trade.get("id", trade.get("tradeId", "")))
+            trade_id = str(
+                trade.get("transactionHash", trade.get("id", trade.get("tradeId", ""))),
+            )
             if not trade_id:
                 continue
 
@@ -246,7 +269,12 @@ class WhaleTracker:
 
         # Update last seen
         if trades:
-            first_id = str(trades[0].get("id", trades[0].get("tradeId", "")))
+            first_id = str(
+                trades[0].get(
+                    "transactionHash",
+                    trades[0].get("id", trades[0].get("tradeId", "")),
+                ),
+            )
             if first_id:
                 self._last_seen_trade_id[wallet.proxy_address] = first_id
 
