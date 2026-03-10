@@ -23,8 +23,8 @@ logger = structlog.get_logger()
 _DEDUP_MAX = 5000
 
 # Minimum thresholds for a snipe candidate
-MIN_KEYWORD_OVERLAP = 0.50
-MIN_SENTIMENT_ABS = 0.30
+MIN_KEYWORD_OVERLAP = 0.35
+MIN_SENTIMENT_ABS = 0.15
 MIN_PRICE = 0.20
 MAX_PRICE = 0.80
 

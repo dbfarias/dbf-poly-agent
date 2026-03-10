@@ -159,7 +159,7 @@ class TestPoll:
         ) as mock_fetch:
             mock_fetch.return_value = [news_item]
 
-            # We need keyword overlap >= 0.50 and sentiment >= 0.30
+            # We need keyword overlap >= 0.35 and sentiment >= 0.15
             # The keyword index needs to match the headline words
             with patch(
                 "bot.research.news_sniper.get_headline_sentiment",
@@ -227,7 +227,7 @@ class TestPoll:
 class TestSentimentFilter:
     @pytest.mark.asyncio
     async def test_low_sentiment_filtered(self, sniper, mock_market_cache):
-        """Headlines with abs(sentiment) < 0.30 should be filtered."""
+        """Headlines with abs(sentiment) < 0.15 should be filtered."""
         market = MagicMock()
         market.id = "m1"
         market.question = "Will inflation drop?"
