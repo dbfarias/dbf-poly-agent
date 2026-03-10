@@ -105,11 +105,11 @@ class TestZscoreCheck:
     def test_low_zscore_blocks(self):
         rm = RiskManager()
         signal = _make_signal(
-            estimated_prob=0.62,
+            estimated_prob=0.61,
             market_price=0.60,
             metadata={"price_std": 0.05},
         )
-        # Z = (0.62 - 0.60) / 0.05 = 0.4 < 1.5
+        # Z = (0.61 - 0.60) / 0.05 = 0.2 < 0.3
         result = rm._check_zscore(signal)
         assert not result.passed
         assert "Z-score" in result.reason
@@ -127,11 +127,11 @@ class TestZscoreCheck:
     def test_negative_zscore_blocks(self):
         rm = RiskManager()
         signal = _make_signal(
-            estimated_prob=0.58,
+            estimated_prob=0.59,
             market_price=0.60,
             metadata={"price_std": 0.05},
         )
-        # Z = (0.58 - 0.60) / 0.05 = -0.4, |Z| = 0.4 < 1.5
+        # Z = (0.59 - 0.60) / 0.05 = -0.2, |Z| = 0.2 < 0.3
         result = rm._check_zscore(signal)
         assert not result.passed
 
