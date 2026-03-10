@@ -565,9 +565,12 @@ class TradingEngine:
                 continue
 
             # Risk manager evaluation (includes Kelly sizing)
-            edge_multiplier = 1.0
-            if self._learner_adjustments:
-                edge_multiplier = self._learner_adjustments.edge_multiplier
+            category = signal.metadata.get("category", "")
+            edge_multiplier = (
+                self.learner.get_edge_multiplier(signal.strategy, category)
+                if self._learner_adjustments
+                else 1.0
+            )
 
             approved, size, reason = await self.risk_manager.evaluate_signal(
                 signal=signal,
