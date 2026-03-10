@@ -546,15 +546,18 @@ class TradingEngine:
             # Skip near-worthless prices
             near_worthless = self.analyzer.NEAR_WORTHLESS_PRICE
             if signal.market_price < near_worthless:
+                logger.debug("crypto_fast_skip_worthless", market_id=signal.market_id[:20])
                 continue
 
             # Skip cooldown
             cooldown_until = self._market_cooldown.get(signal.market_id)
             if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
+                logger.debug("crypto_fast_skip_cooldown", market_id=signal.market_id[:20])
                 continue
 
             # Skip pending orders
             if signal.market_id in pending_markets:
+                logger.debug("crypto_fast_skip_pending", market_id=signal.market_id[:20])
                 continue
 
             # VaR precheck
@@ -562,6 +565,7 @@ class TradingEngine:
                 self.portfolio.total_equity
             )
             if not var_precheck:
+                logger.info("crypto_fast_skip_var", reason=var_precheck.reason)
                 continue
 
             # Risk manager evaluation (includes Kelly sizing)
@@ -588,15 +592,13 @@ class TradingEngine:
                     market_id=signal.market_id[:20],
                     reason=reason,
                 )
-                await log_signal_rejected(
-                    strategy=signal.strategy,
-                    market_id=signal.market_id,
-                    question=signal.question,
-                    reason=reason,
-                    edge=signal.edge,
-                    price=signal.market_price,
-                )
                 continue
+
+            logger.info(
+                "crypto_fast_risk_passed",
+                market_id=signal.market_id[:20],
+                size=round(size, 2),
+            )
 
             # Skip exit liquidity check for 5-min markets:
             # they auto-resolve, no need to sell on orderbook.
