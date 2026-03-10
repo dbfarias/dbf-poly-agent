@@ -476,7 +476,7 @@ class TradingEngine:
                         crypto_markets = fresh
                         # Also merge into cache for main loop
                         for m in fresh:
-                            self.cache.set_market(m, ttl=120)
+                            self.cache.set_market(m.id, m, ttl=120)
                     last_fetch = now
                     logger.info(
                         "crypto_fast_fetch",
