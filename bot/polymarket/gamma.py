@@ -200,7 +200,7 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
         order: str = "volume",
-        _ascending: bool = False,
+        ascending: bool = False,
     ) -> list[GammaMarket]:
         """Fetch active markets. Gamma API primary, CLOB fallback."""
         try:
@@ -209,6 +209,8 @@ class GammaClient:
                 "closed": str(closed).lower(),
                 "limit": limit,
                 "offset": offset,
+                "order": order,
+                "ascending": str(ascending).lower(),
             }
             markets = await self._fetch_gamma_markets(params)
             if markets:

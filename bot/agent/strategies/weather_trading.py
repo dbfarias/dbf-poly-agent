@@ -19,8 +19,9 @@ logger = structlog.get_logger()
 
 # Broad detection: is this a weather question at all?
 _WEATHER_DETECT = re.compile(
-    r"\b(?:temperature|temp|°F|degrees?\s*F|weather|forecast|"
-    r"high\s+of|low\s+of|heat\s*wave|cold\s*snap)\b",
+    r"\b(?:temperature|temp|°[FC]|degrees?\s*[FC]|weather|forecast|"
+    r"high(?:est)?\s+of|low(?:est)?\s+of|heat\s*wave|cold\s*snap|"
+    r"highest\s+temp|lowest\s+temp|precipitation|rainfall|snowfall)\b",
     re.IGNORECASE,
 )
 
@@ -35,39 +36,39 @@ def _is_weather_question(question: str) -> bool:
 #   "Will the temperature in Chicago exceed 80 degrees on March 20?"
 #   "Will NYC's high temp be over 60°F on March 12?"
 _WEATHER_Q_PATTERNS = [
-    # "high temperature in CITY ... above/below X°F"
+    # "highest/high temperature in CITY on DATE ... above/below X°F/°C"
     re.compile(
-        r"(?:high|low)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
+        r"(?:highest|high|low|lowest)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
         r"(?:on|for)\s+.+?\s+(?:be\s+)?(?:above|over|exceed|reach)\s+"
-        r"(\d+(?:\.\d+)?)\s*°?\s*[fF]",
+        r"(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:high|low)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
+        r"(?:highest|high|low|lowest)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
         r"(?:on|for)\s+.+?\s+(?:be\s+)?(?:below|under)\s+"
-        r"(\d+(?:\.\d+)?)\s*°?\s*[fF]",
+        r"(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
         re.IGNORECASE,
     ),
-    # "CITY's high temp ... above/below X"
+    # "CITY's high/highest temp ... above/below X"
     re.compile(
-        r"(.+?)'s\s+(?:high|low)?\s*temp\w*\s+.*?"
-        r"(?:above|over|exceed|reach)\s+(\d+(?:\.\d+)?)\s*°?\s*[fF]?",
+        r"(.+?)'s\s+(?:highest|high|low|lowest)?\s*temp\w*\s+.*?"
+        r"(?:above|over|exceed|reach)\s+(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(.+?)'s\s+(?:high|low)?\s*temp\w*\s+.*?"
-        r"(?:below|under)\s+(\d+(?:\.\d+)?)\s*°?\s*[fF]?",
+        r"(.+?)'s\s+(?:highest|high|low|lowest)?\s*temp\w*\s+.*?"
+        r"(?:below|under)\s+(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
         re.IGNORECASE,
     ),
-    # Generic: "temperature ... CITY ... above/below X°F"
-    re.compile(
-        r"temp(?:erature)?\s+.*?in\s+(.+?)\s+.*?"
-        r"(?:above|over|exceed|reach)\s+(\d+(?:\.\d+)?)",
-        re.IGNORECASE,
-    ),
+    # Generic: "temperature ... CITY ... above/below X°F/°C"
     re.compile(
         r"temp(?:erature)?\s+.*?in\s+(.+?)\s+.*?"
-        r"(?:below|under)\s+(\d+(?:\.\d+)?)",
+        r"(?:above|over|exceed|reach)\s+(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"temp(?:erature)?\s+.*?in\s+(.+?)\s+.*?"
+        r"(?:below|under)\s+(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
         re.IGNORECASE,
     ),
 ]
@@ -115,7 +116,7 @@ class WeatherTradingStrategy(BaseStrategy):
     def _parse_weather_question(question: str) -> dict | None:
         """Parse a weather market question to extract city, threshold, direction.
 
-        Returns dict with keys: city, threshold, direction ("above"/"below")
+        Returns dict with keys: city, threshold (in °F), direction ("above"/"below")
         or None if parsing fails.
         """
         for pattern in _WEATHER_Q_PATTERNS:
@@ -128,6 +129,12 @@ class WeatherTradingStrategy(BaseStrategy):
                     flags=re.IGNORECASE,
                 ).strip()
                 threshold = float(match.group(2))
+
+                # Check temperature unit (group 3 if captured)
+                unit = match.group(3) if match.lastindex and match.lastindex >= 3 else None
+                if unit and unit.upper() == "C":
+                    # Convert Celsius threshold to Fahrenheit for comparison
+                    threshold = threshold * 9.0 / 5.0 + 32.0
 
                 # Determine direction
                 if _BELOW_KEYWORDS.search(question):

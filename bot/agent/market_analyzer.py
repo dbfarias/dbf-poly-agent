@@ -106,8 +106,8 @@ _SPORTS_VS_PATTERN = re.compile(
 
 _WEATHER_KEYWORDS = re.compile(
     r"\b(temperature|degrees\s*fahrenheit|degrees\s*celsius|weather forecast"
-    r"|high temp|low temp|°F|°C|heat wave|cold snap|snowfall|rainfall"
-    r"|inches of rain|inches of snow)\b",
+    r"|high(?:est)?\s+temp|low(?:est)?\s+temp|°F|°C|heat wave|cold snap"
+    r"|snowfall|rainfall|precipitation|inches of rain|inches of snow)\b",
     re.IGNORECASE,
 )
 
