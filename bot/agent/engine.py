@@ -846,6 +846,30 @@ class TradingEngine:
                 hours=signal.metadata.get("hours_to_resolution"),
             )
 
+            # Hard check: reject signals at prices below exit threshold
+            # (prevents buy→immediate near_worthless exit loop)
+            near_worthless = self.analyzer.NEAR_WORTHLESS_PRICE
+            if signal.market_price < near_worthless:
+                logger.info(
+                    "signal_skipped_below_exit_threshold",
+                    strategy=signal.strategy,
+                    market_id=signal.market_id[:20],
+                    price=signal.market_price,
+                    threshold=near_worthless,
+                )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason=(
+                        f"Price ${signal.market_price:.3f} below exit "
+                        f"threshold ${near_worthless:.2f}"
+                    ),
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
+                continue
+
             # Skip strategies paused by learner
             if (
                 self._learner_adjustments

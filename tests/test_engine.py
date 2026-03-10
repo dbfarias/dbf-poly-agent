@@ -1416,6 +1416,7 @@ class TestTradingCycleIntegration:
         engine.portfolio.open_position_count = 0
 
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         signal = make_signal(market_id="mkt_buy", strategy="time_decay")
         engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
 
@@ -1475,6 +1476,7 @@ class TestTradingCycleIntegration:
         engine.portfolio.tier = CapitalTier.TIER1
 
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         signal = make_signal(market_id="mkt_paused", strategy="value_betting")
         engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
 
@@ -1516,6 +1518,7 @@ class TestTradingCycleIntegration:
         engine.portfolio.tier = CapitalTier.TIER1
 
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         signal = make_signal(market_id="mkt_cool", strategy="time_decay")
         engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
 
@@ -1560,6 +1563,7 @@ class TestTradingCycleIntegration:
         engine.portfolio.tier = CapitalTier.TIER1
 
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         signal = make_signal(market_id="mkt_pending", strategy="time_decay")
         engine.analyzer.scan_markets = AsyncMock(return_value=[signal])
 
@@ -1601,6 +1605,7 @@ class TestTradingCycleIntegration:
         signal1 = make_signal(market_id="mkt_a", strategy="time_decay")
         signal2 = make_signal(market_id="mkt_b", strategy="arbitrage")
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         engine.analyzer.scan_markets = AsyncMock(return_value=[signal1, signal2])
 
         # Track bankroll passed to evaluate_signal
@@ -1663,6 +1668,7 @@ class TestTradingCycleIntegration:
         engine.portfolio.positions = [pos]
 
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         engine.analyzer.check_exits = AsyncMock(
             return_value=[("mkt_exit", "stop_loss (15% loss)")]
         )
@@ -1694,6 +1700,7 @@ class TestTradingCycleIntegration:
         signal1 = make_signal(market_id="mkt_r1", strategy="time_decay")
         signal2 = make_signal(market_id="mkt_r2", strategy="arbitrage")
         engine.analyzer = AsyncMock()
+        engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
         engine.analyzer.scan_markets = AsyncMock(return_value=[signal1, signal2])
 
         # First signal approved, second rejected

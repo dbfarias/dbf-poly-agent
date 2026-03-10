@@ -155,6 +155,7 @@ def _setup_engine_for_evaluate(
     engine.portfolio.realized_pnl_today = 0.0
 
     engine.analyzer = AsyncMock()
+    engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
     engine.analyzer.scan_markets = AsyncMock(return_value=signals)
 
     engine.risk_manager = RiskManager()
