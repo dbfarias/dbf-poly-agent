@@ -407,12 +407,16 @@ class Portfolio:
                 repo = TradeRepository(session)
                 await repo.close_trade_for_position(
                     position.market_id, pnl, exit_reason,
+                    close_price=settlement_price,
+                    position_size=position.size,
                 )
             else:
                 async with async_session() as s:
                     repo = TradeRepository(s)
                     await repo.close_trade_for_position(
                         position.market_id, pnl, exit_reason,
+                        close_price=settlement_price,
+                        position_size=position.size,
                     )
         except Exception as e:
             logger.warning(
@@ -522,7 +526,11 @@ class Portfolio:
             self._positions = await repo.get_open()
 
     async def record_trade_close(self, market_id: str, close_price: float) -> float:
-        """Record a position closing. Returns realized PnL."""
+        """Record a position closing. Returns realized PnL (gross, before fees).
+
+        Fee-adjusted PnL is computed in close_trade_for_position() where the
+        BUY trade's fee_rate_bps is available.
+        """
         position = next((p for p in self._positions if p.market_id == market_id), None)
         if not position:
             logger.warning("close_position_not_found", market_id=market_id)

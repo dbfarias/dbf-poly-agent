@@ -77,6 +77,8 @@ class TradeResponse(BaseModel):
     pnl: float
     entry_price: float = 0.0
     exit_reason: str | None = None
+    fee_rate_bps: int = 0
+    fee_amount_usd: float = 0.0
     is_paper: bool
 
 
@@ -85,6 +87,7 @@ class TradeStats(BaseModel):
     winning_trades: int
     total_pnl: float
     win_rate: float
+    total_fees_usd: float = 0.0
 
 
 # Strategies

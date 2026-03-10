@@ -165,6 +165,8 @@ class PositionCloser:
                     )
                     await repo.close_trade_for_position(
                         pos.market_id, pnl, exit_reason,
+                        close_price=pos.current_price,
+                        position_size=pos.size,
                     )
             except Exception as e:
                 logger.error("close_position_db_error", error=str(e))
@@ -242,6 +244,8 @@ class PositionCloser:
                 await repo.update_status(trade_id, "filled", pnl=pnl)
                 await repo.close_trade_for_position(
                     market_id, pnl, "deferred_sell_fill",
+                    close_price=sell_price,
+                    position_size=shares,
                 )
         except Exception as e:
             logger.error("sell_fill_db_error", error=str(e))

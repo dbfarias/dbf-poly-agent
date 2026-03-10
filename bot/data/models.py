@@ -45,6 +45,10 @@ class Trade(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     reasoning: Mapped[str] = mapped_column(Text, default="")
 
+    # Fees
+    fee_rate_bps: Mapped[int] = mapped_column(Integer, default=0)  # Fee rate in basis points
+    fee_amount_usd: Mapped[float] = mapped_column(Float, default=0.0)  # Computed fee in USD
+
     # Result
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     pnl: Mapped[float] = mapped_column(Float, default=0.0)

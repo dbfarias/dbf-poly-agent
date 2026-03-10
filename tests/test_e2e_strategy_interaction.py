@@ -347,6 +347,9 @@ class TestRebalanceCascading:
             mock_settings.use_llm_debate = False
             # Mock DB session for close_trade_for_position
             mock_ctx = AsyncMock()
+            mock_result = MagicMock()
+            mock_result.one_or_none.return_value = None
+            mock_ctx.execute = AsyncMock(return_value=mock_result)
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_ctx)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 

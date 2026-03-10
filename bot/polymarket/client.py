@@ -162,6 +162,20 @@ class PolymarketClient:
             return None
 
     @async_retry(max_attempts=3, min_wait=1, max_wait=15)
+    async def get_fee_rate(self, token_id: str) -> int:
+        """Get fee rate in basis points for a token. 0 = no fee market."""
+        if self.is_paper or self._clob_client is None:
+            return 0
+        try:
+            bps = await asyncio.to_thread(
+                self._clob_client.get_fee_rate_bps, token_id
+            )
+            return int(bps)
+        except Exception as e:
+            logger.warning("get_fee_rate_failed", token_id=token_id[:20], error=str(e))
+            return 0
+
+    @async_retry(max_attempts=3, min_wait=1, max_wait=15)
     async def get_order_book(self, token_id: str) -> OrderBook:
         """Fetch order book for a token."""
         if self.is_paper or self._clob_client is None:

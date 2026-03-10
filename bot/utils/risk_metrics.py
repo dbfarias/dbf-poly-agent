@@ -64,6 +64,20 @@ def profit_factor(gross_profit: float, gross_loss: float) -> float:
     return gross_profit / gross_loss
 
 
+def polymarket_fee(
+    price: float, shares: float, fee_rate: float, exponent: float = 2.0,
+) -> float:
+    """Compute Polymarket taker fee in USD.
+
+    Formula: shares * price * fee_rate * (price * (1 - price))^exponent
+    Most markets have fee_rate=0 (politics, economics).
+    Crypto/esports use fee_rate=0.25 or 0.0175.
+    """
+    if fee_rate <= 0 or shares <= 0 or price <= 0 or price >= 1:
+        return 0.0
+    return shares * price * fee_rate * (price * (1 - price)) ** exponent
+
+
 def ruin_probability(
     win_rate: float, bankroll: float, bet_size: float
 ) -> float:

@@ -80,11 +80,15 @@ class TradeRepository:
             )
         )
         total_pnl = await self.session.scalar(select(func.sum(Trade.pnl))) or 0.0
+        total_fees = await self.session.scalar(
+            select(func.sum(Trade.fee_amount_usd))
+        ) or 0.0
         return {
             "total_trades": total or 0,
             "winning_trades": wins or 0,
             "total_pnl": float(total_pnl),
             "win_rate": (wins / total) if total else 0.0,
+            "total_fees_usd": float(total_fees),
         }
 
     async def get_today_stats(self) -> dict:
@@ -265,6 +269,7 @@ class TradeRepository:
 
     async def close_trade_for_position(
         self, market_id: str, pnl: float, exit_reason: str,
+        close_price: float = 0.0, position_size: float = 0.0,
     ) -> bool:
         """Write final PnL and exit_reason to the original BUY trade for a position.
 
@@ -272,10 +277,15 @@ class TradeRepository:
         given market_id and stamps it with the realized PnL.  This enables the
         learner to compute accurate win-rates and per-strategy performance.
 
+        If fee data is available on the BUY trade, subtracts entry+exit fees
+        from the gross PnL to produce net PnL.
+
         Returns True if a trade was updated, False otherwise.
         """
+        from bot.utils.risk_metrics import polymarket_fee
+
         result = await self.session.execute(
-            select(Trade.id)
+            select(Trade.id, Trade.fee_rate_bps, Trade.fee_amount_usd)
             .where(
                 Trade.market_id == market_id,
                 Trade.side == "BUY",
@@ -285,15 +295,26 @@ class TradeRepository:
             .order_by(Trade.created_at.desc())
             .limit(1)
         )
-        trade_id = result.scalar_one_or_none()
-        if trade_id is None:
+        row = result.one_or_none()
+        if row is None:
             return False
+
+        trade_id = row[0]
+        fee_rate_bps = row[1] or 0
+        entry_fee = row[2] or 0.0
+
+        # Subtract fees from PnL if fee data is available
+        net_pnl = pnl
+        if fee_rate_bps > 0 and close_price > 0 and position_size > 0:
+            fee_rate = fee_rate_bps / 10_000.0
+            exit_fee = polymarket_fee(close_price, position_size, fee_rate)
+            net_pnl = pnl - entry_fee - exit_fee
 
         await self.session.execute(
             update(Trade)
             .where(Trade.id == trade_id)
             .values(
-                pnl=pnl,
+                pnl=net_pnl,
                 exit_reason=exit_reason,
                 updated_at=datetime.now(timezone.utc),
             )

@@ -230,6 +230,8 @@ async def force_close_position(
                 repo = TradeRepository(session)
                 await repo.close_trade_for_position(
                     position.market_id, pnl, req.reason,
+                    close_price=position.current_price,
+                    position_size=position.size,
                 )
         except Exception as e:
             logger.warning(
@@ -307,6 +309,8 @@ async def force_remove_position(
             repo = TradeRepository(session)
             await repo.close_trade_for_position(
                 position.market_id, req.pnl, req.reason,
+                close_price=position.current_price,
+                position_size=position.size,
             )
     except Exception as e:
         logger.warning("force_remove_db_error", error=str(e))

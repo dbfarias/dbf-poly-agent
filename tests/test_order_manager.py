@@ -108,6 +108,7 @@ def _build_manager(
     clob.place_order = AsyncMock()
     clob.cancel_order = AsyncMock()
     clob.get_order_book = AsyncMock()
+    clob.get_fee_rate = AsyncMock(return_value=0)
 
     data_api = AsyncMock()
 

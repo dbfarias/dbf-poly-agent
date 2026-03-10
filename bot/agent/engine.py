@@ -1134,6 +1134,8 @@ class TradingEngine:
                             repo = TradeRepository(session)
                             await repo.close_trade_for_position(
                                 closed_pos.market_id, pnl, "rebalance",
+                                close_price=closed_pos.current_price,
+                                position_size=closed_pos.size,
                             )
 
                         await log_position_closed(

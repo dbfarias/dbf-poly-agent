@@ -230,6 +230,8 @@ async def test_close_position_propagates_exit_reason():
         # Verify exit_reason propagated to DB
         mock_repo.close_trade_for_position.assert_awaited_once_with(
             pos.market_id, 0.25, "stop_loss (15% loss)",
+            close_price=pos.current_price,
+            position_size=pos.size,
         )
 
         # Verify exit_reason propagated to activity log

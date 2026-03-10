@@ -21,6 +21,7 @@ from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.types import OrderSide, TradeSignal
 from bot.utils.notifications import notify_trade
+from bot.utils.risk_metrics import polymarket_fee
 
 logger = structlog.get_logger()
 
@@ -152,6 +153,11 @@ class OrderManager:
             or str(result.get("status", "")).upper() == "MATCHED"
         )
 
+        # Fetch fee rate and compute fee
+        fee_rate_bps = await self.clob.get_fee_rate(signal.token_id)
+        fee_rate = fee_rate_bps / 10_000.0
+        fee_usd = polymarket_fee(actual_price, round(shares, 2), fee_rate)
+
         # Record in database
         trade = Trade(
             market_id=signal.market_id,
@@ -170,6 +176,8 @@ class OrderManager:
             confidence=signal.confidence,
             reasoning=signal.reasoning,
             status="filled" if is_filled else "pending",
+            fee_rate_bps=fee_rate_bps,
+            fee_amount_usd=round(fee_usd, 6),
             is_paper=settings.is_paper,
         )
 
@@ -456,6 +464,11 @@ class OrderManager:
             or str(result.get("status", "")).upper() == "MATCHED"
         )
 
+        # Fetch fee rate and compute fee for sell
+        fee_rate_bps = await self.clob.get_fee_rate(token_id)
+        fee_rate = fee_rate_bps / 10_000.0
+        fee_usd = polymarket_fee(sell_price, size, fee_rate)
+
         trade = Trade(
             market_id=market_id,
             token_id=token_id,
@@ -471,6 +484,8 @@ class OrderManager:
             strategy=strategy,
             status="filled" if is_filled else "pending",
             entry_price=entry_price,
+            fee_rate_bps=fee_rate_bps,
+            fee_amount_usd=round(fee_usd, 6),
             is_paper=settings.is_paper,
         )
 

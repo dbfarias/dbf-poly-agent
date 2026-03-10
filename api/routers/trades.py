@@ -42,6 +42,8 @@ async def get_trade_history(
             status=t.status,
             pnl=t.pnl,
             exit_reason=getattr(t, "exit_reason", None),
+            fee_rate_bps=getattr(t, "fee_rate_bps", 0) or 0,
+            fee_amount_usd=getattr(t, "fee_amount_usd", 0.0) or 0.0,
             is_paper=t.is_paper,
         )
         for t in trades
