@@ -76,6 +76,39 @@ class TestParseWeatherQuestion:
         result = WeatherTradingStrategy._parse_weather_question(q)
         assert result is None
 
+    def test_polymarket_or_higher(self):
+        q = "Will the highest temperature in Chicago be 54°F or higher on March 11?"
+        result = WeatherTradingStrategy._parse_weather_question(q)
+        assert result is not None
+        assert result["city"] == "chicago"
+        assert result["threshold"] == 54.0
+        assert result["direction"] == "above"
+
+    def test_polymarket_celsius_exact(self):
+        q = "Will the highest temperature in Ankara be 11°C on March 10?"
+        result = WeatherTradingStrategy._parse_weather_question(q)
+        assert result is not None
+        assert result["city"] == "ankara"
+        # 11°C = 51.8°F
+        assert abs(result["threshold"] - 51.8) < 0.1
+        assert result["direction"] == "above"
+
+    def test_polymarket_range(self):
+        q = "Will the highest temperature in Chicago be between 60-61°F on March 10?"
+        result = WeatherTradingStrategy._parse_weather_question(q)
+        assert result is not None
+        assert result["city"] == "chicago"
+        assert result["threshold"] == 60.0
+        assert result["direction"] == "above"
+
+    def test_polymarket_or_lower(self):
+        q = "Will the lowest temperature in London be 35°F or lower on March 12?"
+        result = WeatherTradingStrategy._parse_weather_question(q)
+        assert result is not None
+        assert result["city"] == "london"
+        assert result["threshold"] == 35.0
+        assert result["direction"] == "below"
+
 
 @pytest.fixture()
 def strategy():

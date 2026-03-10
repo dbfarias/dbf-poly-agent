@@ -36,7 +36,30 @@ def _is_weather_question(question: str) -> bool:
 #   "Will the temperature in Chicago exceed 80 degrees on March 20?"
 #   "Will NYC's high temp be over 60°F on March 12?"
 _WEATHER_Q_PATTERNS = [
-    # "highest/high temperature in CITY on DATE ... above/below X°F/°C"
+    # Polymarket format: "highest temperature in CITY be X°F or higher on DATE"
+    re.compile(
+        r"(?:highest|high|lowest|low)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
+        r"(?:be\s+)?(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?\s*or\s+higher",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:highest|high|lowest|low)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
+        r"(?:be\s+)?(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?\s*or\s+lower",
+        re.IGNORECASE,
+    ),
+    # Polymarket exact: "highest temperature in CITY be X°C on DATE"
+    re.compile(
+        r"(?:highest|high|lowest|low)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
+        r"(?:be\s+)?(\d+(?:\.\d+)?)\s*°\s*([fFcC])\s+on\s+",
+        re.IGNORECASE,
+    ),
+    # Range: "highest temperature in CITY be between X-Y°F on DATE"
+    re.compile(
+        r"(?:highest|high|lowest|low)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
+        r"(?:be\s+)?(?:between\s+)?(\d+(?:\.\d+)?)\s*[-–]\s*\d+\s*°?\s*([fFcC])?",
+        re.IGNORECASE,
+    ),
+    # Classic: "high temperature in CITY ... above/below X°F/°C"
     re.compile(
         r"(?:highest|high|low|lowest)?\s*temp(?:erature)?\s+in\s+(.+?)\s+"
         r"(?:on|for)\s+.+?\s+(?:be\s+)?(?:above|over|exceed|reach)\s+"
@@ -60,7 +83,7 @@ _WEATHER_Q_PATTERNS = [
         r"(?:below|under)\s+(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
         re.IGNORECASE,
     ),
-    # Generic: "temperature ... CITY ... above/below X°F/°C"
+    # Generic fallback
     re.compile(
         r"temp(?:erature)?\s+.*?in\s+(.+?)\s+.*?"
         r"(?:above|over|exceed|reach)\s+(\d+(?:\.\d+)?)\s*°?\s*([fFcC])?",
@@ -136,11 +159,19 @@ class WeatherTradingStrategy(BaseStrategy):
                     # Convert Celsius threshold to Fahrenheit for comparison
                     threshold = threshold * 9.0 / 5.0 + 32.0
 
-                # Determine direction
-                if _BELOW_KEYWORDS.search(question):
+                # Determine direction from question text
+                q_lower = question.lower()
+                if "or lower" in q_lower or _BELOW_KEYWORDS.search(question):
                     direction = "below"
+                elif "or higher" in q_lower or _ABOVE_KEYWORDS.search(question):
+                    direction = "above"
+                elif "between" in q_lower:
+                    # Range market: threshold is low end, treat as "above"
+                    direction = "above"
                 else:
-                    direction = "above"  # default
+                    # Exact value market (e.g., "be 14°C on March 10")
+                    # Treat as "above" — if forecast > threshold, YES wins
+                    direction = "above"
 
                 return {
                     "city": city_raw.lower(),
