@@ -31,6 +31,7 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
         }
 
     # Format edge multipliers for JSON (tuple keys -> objects)
+    spf_map = getattr(adjustments, "strategy_profit_factors", {}) or {}
     edge_list = []
     for (strategy, category), multiplier in adjustments.edge_multipliers.items():
         stats = learner._stats.get((strategy, category))
@@ -42,6 +43,7 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
             "total_trades": stats.total_trades if stats else 0,
             "total_pnl": round(stats.total_pnl, 4) if stats else 0.0,
             "avg_edge": round(stats.avg_edge, 4) if stats else 0.0,
+            "profit_factor": spf_map.get(strategy, 0.0),
             "status": _multiplier_status(multiplier),
         })
 
@@ -94,6 +96,9 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
         ).items()
     }
 
+    # Per-strategy profit factors
+    strategy_pfs = getattr(adjustments, "strategy_profit_factors", {}) or {}
+
     return {
         "edge_multipliers": edge_list,
         "category_confidences": cat_list,
@@ -101,6 +106,7 @@ async def get_multipliers(_: str = Depends(verify_api_key)):
         "post_mortem_influence": pm_influence,
         "brier_scores": brier_scores,
         "profit_factor": getattr(adjustments, "profit_factor", None),
+        "strategy_profit_factors": strategy_pfs,
         "rolling_sharpe": getattr(adjustments, "rolling_sharpe", None),
         "last_computed": (
             learner._last_computed.isoformat()

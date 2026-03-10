@@ -56,6 +56,7 @@ async def get_performance(_: str = Depends(verify_api_key), db: AsyncSession = D
             sharpe_ratio=adv.get("sharpe_ratio", 0.0),
             max_drawdown=adv.get("max_drawdown", 0.0),
             avg_hold_time_hours=adv.get("avg_hold_time_hours", 0.0),
+            profit_factor=adv.get("profit_factor", 0.0),
         ))
 
     return result

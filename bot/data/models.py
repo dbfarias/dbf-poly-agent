@@ -190,3 +190,4 @@ class StrategyMetric(Base):
     sharpe_ratio: Mapped[float] = mapped_column(Float, default=0.0)
     max_drawdown: Mapped[float] = mapped_column(Float, default=0.0)
     avg_hold_time_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    profit_factor: Mapped[float] = mapped_column(Float, default=0.0)

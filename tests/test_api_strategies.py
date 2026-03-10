@@ -79,6 +79,7 @@ class TestGetStrategyPerformance:
             "sharpe_ratio",
             "max_drawdown",
             "avg_hold_time_hours",
+            "profit_factor",
         }
         assert set(arb.keys()) == expected_keys
 

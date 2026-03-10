@@ -145,6 +145,7 @@ def make_metric(strategy: str = "time_decay") -> StrategyMetric:
         sharpe_ratio=1.2,
         max_drawdown=0.10,
         avg_hold_time_hours=24.0,
+        profit_factor=1.5,
     )
 
 
@@ -757,12 +758,14 @@ class TestStrategyMetricRepositoryUpsert:
             sharpe_ratio=2.0,
             max_drawdown=0.05,
             avg_hold_time_hours=12.0,
+            profit_factor=2.5,
         )
         result = await repo.upsert(second)
         assert result.total_trades == 20
         assert result.winning_trades == 15
         assert result.win_rate == pytest.approx(0.75)
         assert result.sharpe_ratio == pytest.approx(2.0)
+        assert result.profit_factor == pytest.approx(2.5)
 
 
 class TestStrategyMetricRepositoryGetAllLatest:

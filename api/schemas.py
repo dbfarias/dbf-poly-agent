@@ -102,6 +102,7 @@ class StrategyPerformance(BaseModel):
     sharpe_ratio: float
     max_drawdown: float
     avg_hold_time_hours: float
+    profit_factor: float = 0.0
 
 
 class StrategyStatus(BaseModel):

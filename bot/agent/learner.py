@@ -73,6 +73,7 @@ class LearnerAdjustments:
         category_min_edges: dict[str, float] | None = None,
         profit_factor: float = 0.0,
         rolling_sharpe: float = 0.0,
+        strategy_profit_factors: dict[str, float] | None = None,
     ):
         self.edge_multipliers = edge_multipliers
         self.category_confidences = category_confidences
@@ -84,6 +85,7 @@ class LearnerAdjustments:
         self.category_min_edges = category_min_edges or {}
         self.profit_factor = profit_factor
         self.rolling_sharpe = rolling_sharpe
+        self.strategy_profit_factors = strategy_profit_factors or {}
 
 
 class PerformanceLearner:
@@ -278,30 +280,61 @@ class PerformanceLearner:
         await self.calibrator.train(recent)
         brier_scores = self.calibrator.per_strategy_brier(recent)
 
-        # Update strategy metrics in DB
-        await self._update_strategy_metrics(stats)
-
         # Compute daily target urgency
         urgency = self._compute_urgency()
         daily_progress = self._compute_daily_progress()
 
-        # Profit factor from resolved trades
+        # Profit factor: global + per-strategy
         gross_profit = sum(t.pnl for t in recent if t.pnl > 0)
         gross_loss = abs(sum(t.pnl for t in recent if t.pnl < 0))
         pf = compute_profit_factor(gross_profit, gross_loss)
 
-        # If PF < 1.0 over 10+ trades, tighten edge multipliers by 30%
-        if pf < 1.0 and len(recent) >= 10:
-            for key in list(edge_multipliers.keys()):
+        # Per-strategy profit factor computation + edge adjustment
+        strategy_pfs = self._compute_strategy_profit_factors(recent)
+
+        for key in list(edge_multipliers.keys()):
+            strategy_name = key[0]
+            spf = strategy_pfs.get(strategy_name)
+            if spf is None:
+                continue
+            pf_value = spf["profit_factor"]
+            trade_count = spf["trades"]
+            if trade_count < 5:
+                continue
+            if pf_value < 0.8:
+                # Losing money fast: tighten edge by 40%
                 edge_multipliers[key] = min(
                     self.MULTIPLIER_MAX,
-                    edge_multipliers[key] * 1.3,
+                    edge_multipliers[key] * 1.4,
                 )
+            elif pf_value < 1.0:
+                # Marginally unprofitable: tighten by 20%
+                edge_multipliers[key] = min(
+                    self.MULTIPLIER_MAX,
+                    edge_multipliers[key] * 1.2,
+                )
+            elif pf_value > 2.0 and trade_count >= 10:
+                # Excellent PF: relax edge by 10%
+                edge_multipliers[key] = max(
+                    self.MULTIPLIER_MIN,
+                    edge_multipliers[key] * 0.9,
+                )
+
+        # Log strategies with bad profit factors
+        bad_pf = {
+            name: round(v["profit_factor"], 2)
+            for name, v in strategy_pfs.items()
+            if v["profit_factor"] < 1.0 and v["trades"] >= 5
+        }
+        if bad_pf:
             logger.info(
                 "profit_factor_edge_tighten",
-                profit_factor=round(pf, 2),
-                trades=len(recent),
+                global_pf=round(pf, 2),
+                bad_strategies=bad_pf,
             )
+
+        # Update strategy metrics in DB (with per-strategy PFs)
+        await self._update_strategy_metrics(stats, strategy_pfs)
 
         self._last_computed = datetime.now(timezone.utc)
 
@@ -316,6 +349,10 @@ class PerformanceLearner:
             category_min_edges=dict(self._category_min_edges),
             profit_factor=round(pf, 2),
             rolling_sharpe=0.0,  # Populated from ReturnsTracker in engine
+            strategy_profit_factors={
+                name: round(v["profit_factor"], 2)
+                for name, v in strategy_pfs.items()
+            },
         )
 
         logger.info(
@@ -606,6 +643,31 @@ class PerformanceLearner:
             # Negative PnL — most aggressive (but capped for safety)
             return 1.5
 
+    @staticmethod
+    def _compute_strategy_profit_factors(
+        trades: list[Trade],
+    ) -> dict[str, dict]:
+        """Compute profit factor per strategy from resolved trades.
+
+        Returns {strategy_name: {"profit_factor": float, "trades": int,
+        "gross_profit": float, "gross_loss": float}}.
+        """
+        by_strategy: dict[str, list[Trade]] = {}
+        for t in trades:
+            by_strategy.setdefault(t.strategy, []).append(t)
+
+        result: dict[str, dict] = {}
+        for name, strat_trades in by_strategy.items():
+            gp = sum(t.pnl for t in strat_trades if t.pnl > 0)
+            gl = abs(sum(t.pnl for t in strat_trades if t.pnl < 0))
+            result[name] = {
+                "profit_factor": compute_profit_factor(gp, gl),
+                "trades": len(strat_trades),
+                "gross_profit": round(gp, 4),
+                "gross_loss": round(gl, 4),
+            }
+        return result
+
     def _compute_edge_multiplier(self, stats: StrategyStats) -> float:
         """Compute edge multiplier from stats using smooth linear interpolation.
 
@@ -742,9 +804,13 @@ class PerformanceLearner:
         return calibration
 
     async def _update_strategy_metrics(
-        self, stats: dict[tuple[str, str], StrategyStats]
+        self,
+        stats: dict[tuple[str, str], StrategyStats],
+        strategy_pfs: dict[str, dict] | None = None,
     ) -> None:
         """Update StrategyMetric records in DB for dashboard display."""
+        strategy_pfs = strategy_pfs or {}
+
         # Aggregate per strategy (across categories)
         by_strategy: dict[str, list[StrategyStats]] = {}
         for (strategy, _), s in stats.items():
@@ -764,6 +830,9 @@ class PerformanceLearner:
                         else 0.0
                     )
 
+                    spf = strategy_pfs.get(strategy, {})
+                    pf_value = spf.get("profit_factor", 0.0)
+
                     metric = StrategyMetric(
                         strategy=strategy,
                         total_trades=total,
@@ -775,6 +844,7 @@ class PerformanceLearner:
                         sharpe_ratio=0.0,
                         max_drawdown=0.0,
                         avg_hold_time_hours=0.0,
+                        profit_factor=round(pf_value, 2),
                     )
                     await repo.upsert(metric)
         except Exception as e:

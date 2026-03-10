@@ -684,3 +684,228 @@ class TestComputeCategoryConfidences:
         result = learner._compute_category_confidences(stats)
         assert result["politics"] == 1.2  # High win rate
         assert result["sports"] == 0.7  # Low win rate
+
+
+# ---------------------------------------------------------------------------
+# _compute_strategy_profit_factors
+# ---------------------------------------------------------------------------
+
+
+class TestComputeStrategyProfitFactors:
+    def test_empty_trades(self):
+        result = PerformanceLearner._compute_strategy_profit_factors([])
+        assert result == {}
+
+    def test_single_strategy_profitable(self):
+        """Winning strategy should have PF > 1.0."""
+        trades = [
+            make_trade(strategy="value_betting", pnl=0.50),
+            make_trade(strategy="value_betting", pnl=0.30),
+            make_trade(strategy="value_betting", pnl=-0.20),
+        ]
+        result = PerformanceLearner._compute_strategy_profit_factors(trades)
+        assert "value_betting" in result
+        pf = result["value_betting"]
+        assert pf["trades"] == 3
+        assert pf["profit_factor"] == 4.0  # (0.50 + 0.30) / 0.20 = 4.0
+        assert pf["gross_profit"] == 0.8
+        assert pf["gross_loss"] == 0.2
+
+    def test_single_strategy_losing(self):
+        """Losing strategy should have PF < 1.0."""
+        trades = [
+            make_trade(strategy="arbitrage", pnl=-0.50),
+            make_trade(strategy="arbitrage", pnl=-0.30),
+            make_trade(strategy="arbitrage", pnl=0.10),
+        ]
+        result = PerformanceLearner._compute_strategy_profit_factors(trades)
+        pf = result["arbitrage"]
+        assert pf["profit_factor"] < 1.0  # 0.10 / 0.80 = 0.125
+        assert pf["trades"] == 3
+
+    def test_multiple_strategies(self):
+        """Each strategy gets its own PF."""
+        trades = [
+            make_trade(strategy="value_betting", pnl=1.00),
+            make_trade(strategy="value_betting", pnl=-0.50),
+            make_trade(strategy="arbitrage", pnl=0.10),
+            make_trade(strategy="arbitrage", pnl=-0.80),
+        ]
+        result = PerformanceLearner._compute_strategy_profit_factors(trades)
+        assert result["value_betting"]["profit_factor"] == 2.0  # 1.0 / 0.5
+        assert result["arbitrage"]["profit_factor"] < 1.0  # 0.1 / 0.8 = 0.125
+
+    def test_no_losses_caps_at_10(self):
+        """No losses → PF capped at 10.0."""
+        trades = [
+            make_trade(strategy="time_decay", pnl=0.50),
+            make_trade(strategy="time_decay", pnl=0.30),
+        ]
+        result = PerformanceLearner._compute_strategy_profit_factors(trades)
+        assert result["time_decay"]["profit_factor"] == 10.0
+
+    def test_no_wins_returns_zero(self):
+        """All losses → PF = 0.0."""
+        trades = [
+            make_trade(strategy="time_decay", pnl=-0.50),
+            make_trade(strategy="time_decay", pnl=-0.30),
+        ]
+        result = PerformanceLearner._compute_strategy_profit_factors(trades)
+        assert result["time_decay"]["profit_factor"] == 0.0
+
+
+class TestProfitFactorEdgeAdjustment:
+    """Test that per-strategy PF adjusts edge multipliers correctly."""
+
+    async def test_bad_pf_tightens_edge(self):
+        """Strategy with PF < 0.8 should get 40% tighter edge."""
+        learner = PerformanceLearner()
+
+        # 10 trades: 3 small wins, 7 big losses → PF < 0.8
+        trades = []
+        for i in range(10):
+            pnl = 0.05 if i < 3 else -0.30  # PF = 0.15 / 2.10 ≈ 0.07
+            trades.append(make_trade(
+                strategy="time_decay", category="politics", pnl=pnl,
+            ))
+
+        with patch("bot.agent.learner.async_session") as mock_session_ctx:
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch(
+                "bot.agent.learner.TradeRepository"
+            ) as mock_trade_repo_cls:
+                mock_trade_repo = AsyncMock()
+                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo_cls.return_value = mock_trade_repo
+
+                with patch(
+                    "bot.agent.learner.StrategyMetricRepository"
+                ) as mock_metric_repo_cls:
+                    mock_metric_repo = AsyncMock()
+                    mock_metric_repo_cls.return_value = mock_metric_repo
+
+                    adjustments = await learner.compute_stats()
+
+                    # PF < 0.8 should tighten edge multiplier
+                    key = ("time_decay", "politics")
+                    mult = adjustments.edge_multipliers[key]
+                    # Base multiplier for 30% win rate ≈ 1.633
+                    # Tightened by 1.4x → ≈ 2.0 (clamped to MAX)
+                    assert mult >= 1.5
+
+    async def test_excellent_pf_relaxes_edge(self):
+        """Strategy with PF > 2.0 and 10+ trades should get 10% relaxed edge."""
+        learner = PerformanceLearner()
+
+        # 15 trades: 12 big wins, 3 small losses → PF > 2.0
+        trades = []
+        for i in range(15):
+            pnl = 0.40 if i < 12 else -0.20  # PF = 4.80 / 0.60 = 8.0
+            trades.append(make_trade(
+                strategy="time_decay", category="politics", pnl=pnl,
+            ))
+
+        with patch("bot.agent.learner.async_session") as mock_session_ctx:
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch(
+                "bot.agent.learner.TradeRepository"
+            ) as mock_trade_repo_cls:
+                mock_trade_repo = AsyncMock()
+                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo_cls.return_value = mock_trade_repo
+
+                with patch(
+                    "bot.agent.learner.StrategyMetricRepository"
+                ) as mock_metric_repo_cls:
+                    mock_metric_repo = AsyncMock()
+                    mock_metric_repo_cls.return_value = mock_metric_repo
+
+                    adjustments = await learner.compute_stats()
+
+                    key = ("time_decay", "politics")
+                    mult = adjustments.edge_multipliers[key]
+                    # 80% win rate → base ≈ 0.467 (clamped to 0.5)
+                    # Relaxed by 0.9x → stays at 0.5 (already at min)
+                    assert mult <= 0.55
+
+    async def test_strategy_profit_factors_in_adjustments(self):
+        """compute_stats should populate strategy_profit_factors."""
+        learner = PerformanceLearner()
+
+        trades = make_trades(15, 12, strategy="value_betting", category="politics")
+
+        with patch("bot.agent.learner.async_session") as mock_session_ctx:
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch(
+                "bot.agent.learner.TradeRepository"
+            ) as mock_trade_repo_cls:
+                mock_trade_repo = AsyncMock()
+                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo_cls.return_value = mock_trade_repo
+
+                with patch(
+                    "bot.agent.learner.StrategyMetricRepository"
+                ) as mock_metric_repo_cls:
+                    mock_metric_repo = AsyncMock()
+                    mock_metric_repo_cls.return_value = mock_metric_repo
+
+                    adjustments = await learner.compute_stats()
+
+                    assert "value_betting" in adjustments.strategy_profit_factors
+                    pf = adjustments.strategy_profit_factors["value_betting"]
+                    # 12 wins * 0.30 = 3.60, 3 losses * 0.20 = 0.60
+                    # PF = 3.60 / 0.60 = 6.0
+                    assert pf == 6.0
+
+    async def test_few_trades_no_pf_adjustment(self):
+        """Strategies with < 5 trades should not get PF edge adjustment."""
+        learner = PerformanceLearner()
+
+        # 3 losing trades — PF bad but too few
+        trades = [
+            make_trade(strategy="time_decay", category="politics", pnl=-0.50)
+            for _ in range(3)
+        ]
+
+        with patch("bot.agent.learner.async_session") as mock_session_ctx:
+            mock_session = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(
+                return_value=mock_session
+            )
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            with patch(
+                "bot.agent.learner.TradeRepository"
+            ) as mock_trade_repo_cls:
+                mock_trade_repo = AsyncMock()
+                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo_cls.return_value = mock_trade_repo
+
+                with patch(
+                    "bot.agent.learner.StrategyMetricRepository"
+                ) as mock_metric_repo_cls:
+                    mock_metric_repo = AsyncMock()
+                    mock_metric_repo_cls.return_value = mock_metric_repo
+
+                    adjustments = await learner.compute_stats()
+
+                    # 3 trades < MIN_TRADES_FOR_ADJUSTMENT → cautious 1.2
+                    # No PF tightening applied (< 5 trades for PF)
+                    key = ("time_decay", "politics")
+                    if key in adjustments.edge_multipliers:
+                        assert adjustments.edge_multipliers[key] == 1.2

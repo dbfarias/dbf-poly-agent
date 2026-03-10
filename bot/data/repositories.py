@@ -260,10 +260,16 @@ class TradeRepository:
                 if dd > max_dd:
                     max_dd = dd
 
+            # Profit factor
+            gp = sum(t.pnl for t in trades if t.pnl > 0)
+            gl = abs(sum(t.pnl for t in trades if t.pnl < 0))
+            pf = gp / gl if gl > 0 else (10.0 if gp > 0 else 0.0)
+
             stats[name] = {
                 "sharpe_ratio": round(sharpe, 3),
                 "max_drawdown": round(max_dd, 4),
                 "avg_hold_time_hours": round(avg_hold, 2),
+                "profit_factor": round(pf, 2),
             }
 
         return stats
@@ -485,7 +491,8 @@ class StrategyMetricRepository:
         if existing_metric:
             for key in (
                 "total_trades", "winning_trades", "losing_trades", "win_rate",
-                "total_pnl", "avg_edge", "sharpe_ratio", "max_drawdown", "avg_hold_time_hours",
+                "total_pnl", "avg_edge", "sharpe_ratio", "max_drawdown",
+                "avg_hold_time_hours", "profit_factor",
             ):
                 setattr(existing_metric, key, getattr(metric, key))
             existing_metric.recorded_at = datetime.now(timezone.utc)
