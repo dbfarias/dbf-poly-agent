@@ -50,8 +50,10 @@ from bot.research.llm_debate import (
     cost_tracker as llm_cost_tracker,
 )
 from bot.research.market_report import generate_daily_report
+from bot.research.news_sniper import NewsSniper
 from bot.research.spot_price_ws import SpotPriceWS
 from bot.research.weather_fetcher import WeatherFetcher
+from bot.research.whale_tracker import WhaleTracker
 from bot.utils.notifications import (
     close_telegram_client,
     notify_daily_summary,
@@ -69,8 +71,10 @@ from bot.utils.push_notifications import (
 )
 
 from .strategies.arbitrage import ArbitrageStrategy
+from .strategies.copy_trading import CopyTradingStrategy
 from .strategies.crypto_short_term import CryptoShortTermStrategy
 from .strategies.market_making import MarketMakingStrategy
+from .strategies.news_sniping import NewsSniperStrategy
 from .strategies.price_divergence import PriceDivergenceStrategy
 from .strategies.swing_trading import SwingTradingStrategy
 from .strategies.time_decay import TimeDecayStrategy
@@ -145,6 +149,12 @@ class TradingEngine:
         # Spot price WebSocket (Coinbase — free, no key)
         self.spot_ws = SpotPriceWS()
 
+        # News sniper (RSS polling — free, no key)
+        self.news_sniper = NewsSniper(self.cache)
+
+        # Whale tracker (Data API leaderboard + activity polling)
+        self.whale_tracker = WhaleTracker(self.data_api)
+
         # WebSocket + Heartbeat
         self.ws_manager = WebSocketManager(self.cache)
         self.heartbeat = HeartbeatManager(self.clob_client)
@@ -183,6 +193,15 @@ class TradingEngine:
             CryptoShortTermStrategy(
                 self.clob_client, self.gamma_client, self.cache,
                 spot_ws=self.spot_ws,
+            ),
+            NewsSniperStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                news_sniper=self.news_sniper,
+            ),
+            CopyTradingStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                whale_tracker=self.whale_tracker,
+                bankroll_fn=lambda: self.portfolio.total_equity,
             ),
         ]
         self.analyzer = MarketAnalyzer(
@@ -392,6 +411,8 @@ class TradingEngine:
         await self.heartbeat.stop()
         await self.ws_manager.disconnect()
         await self.spot_ws.disconnect()
+        await self.news_sniper.close()
+        await self.whale_tracker.stop()
         await self.weather_fetcher.close()
         await self.clob_client.close()
         await self.gamma_client.close()
@@ -448,6 +469,24 @@ class TradingEngine:
 
             await asyncio.sleep(10)
 
+    async def _news_snipe_fast_loop(self) -> None:
+        """Fast 60s loop for news sniping strategy.
+
+        Polls RSS feeds and matches headlines to markets independently
+        of the main 60s trading cycle. Candidates are consumed by the
+        NewsSniperStrategy during the main scan.
+        """
+        await asyncio.sleep(45)  # Wait for caches to warm up
+
+        while self._running:
+            try:
+                if "news_sniping" not in self.analyzer.disabled_strategies:
+                    await self.news_sniper.poll()
+            except Exception as e:
+                logger.error("news_snipe_fast_loop_error", error=str(e))
+
+            await asyncio.sleep(60)
+
     async def run(self) -> None:
         """Main trading loop."""
         self._running = True
@@ -464,6 +503,10 @@ class TradingEngine:
         spot_ws_task.add_done_callback(self._task_exception_handler)
         crypto_fast_task = asyncio.create_task(self._crypto_fast_loop())
         crypto_fast_task.add_done_callback(self._task_exception_handler)
+        news_snipe_task = asyncio.create_task(self._news_snipe_fast_loop())
+        news_snipe_task.add_done_callback(self._task_exception_handler)
+        whale_tracker_task = asyncio.create_task(self.whale_tracker.start())
+        whale_tracker_task.add_done_callback(self._task_exception_handler)
 
         try:
             while self._running:

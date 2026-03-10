@@ -94,6 +94,57 @@ class DataApiClient:
         data = resp.json()
         return float(data.get("balance", 0))
 
+    @async_retry(max_attempts=3, min_wait=2, max_wait=30)
+    async def get_leaderboard(
+        self, window: str = "7d", limit: int = 100,
+    ) -> list[dict]:
+        """Fetch top traders from the leaderboard.
+
+        Returns list of dicts with: proxyAddress, username, pnl, volume,
+        numTrades, winRate, etc.
+        """
+        resp = await self._client.get(
+            "/leaderboard",
+            params={"window": window, "limit": limit},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # Normalize: API may return list or {"leaderboard": [...]}
+        if isinstance(data, dict):
+            return data.get("leaderboard", data.get("data", []))
+        return data if isinstance(data, list) else []
+
+    @async_retry(max_attempts=2, min_wait=1, max_wait=10)
+    async def get_user_activity(self, proxy_address: str) -> list[dict]:
+        """Fetch recent activity for a specific user/wallet.
+
+        Returns list of activity items (trades, positions opened/closed).
+        """
+        resp = await self._client.get(
+            "/activity",
+            params={"user": proxy_address},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict):
+            return data.get("activity", data.get("data", []))
+        return data if isinstance(data, list) else []
+
+    @async_retry(max_attempts=2, min_wait=1, max_wait=10)
+    async def get_user_trades(
+        self, proxy_address: str, limit: int = 20,
+    ) -> list[dict]:
+        """Fetch trade history for a specific user/wallet."""
+        resp = await self._client.get(
+            "/trades",
+            params={"user": proxy_address, "limit": limit},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return data
+        return data.get("trades", data.get("data", []))
+
     def _get_wallet_address(self) -> str | None:
         """Derive wallet address from private key."""
         if not settings.poly_private_key:

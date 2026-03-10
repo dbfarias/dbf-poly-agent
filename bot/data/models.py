@@ -49,6 +49,9 @@ class Trade(Base):
     fee_rate_bps: Mapped[int] = mapped_column(Integer, default=0)  # Fee rate in basis points
     fee_amount_usd: Mapped[float] = mapped_column(Float, default=0.0)  # Computed fee in USD
 
+    # Copy trading
+    source_wallet: Mapped[str] = mapped_column(String(128), default="")
+
     # Result
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     pnl: Mapped[float] = mapped_column(Float, default=0.0)
@@ -149,6 +152,26 @@ class BotActivity(Base):
     strategy: Mapped[str] = mapped_column(String(64), default="")
 
     __table_args__ = (Index("idx_activity_type_ts", "event_type", "timestamp"),)
+
+
+class TrackedWallet(Base):
+    __tablename__ = "tracked_wallets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utc_now, onupdate=_utc_now
+    )
+
+    proxy_address: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(128), default="")
+    pnl_7d: Mapped[float] = mapped_column(Float, default=0.0)
+    pnl_30d: Mapped[float] = mapped_column(Float, default=0.0)
+    win_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    volume_30d: Mapped[float] = mapped_column(Float, default=0.0)
+    last_trade_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
 
 
 class StrategyMetric(Base):

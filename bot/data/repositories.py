@@ -12,6 +12,7 @@ from bot.data.models import (
     PortfolioSnapshot,
     Position,
     StrategyMetric,
+    TrackedWallet,
     Trade,
 )
 
@@ -543,3 +544,53 @@ class SettingsRepository:
         """Read all persisted settings."""
         result = await self.session.execute(select(BotSetting))
         return {row.key: row.value for row in result.scalars().all()}
+
+
+class TrackedWalletRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def upsert(self, wallet: TrackedWallet) -> TrackedWallet:
+        """Insert or update a tracked wallet by proxy_address."""
+        existing = await self.session.execute(
+            select(TrackedWallet).where(
+                TrackedWallet.proxy_address == wallet.proxy_address
+            )
+        )
+        existing_wallet = existing.scalar_one_or_none()
+        if existing_wallet:
+            for key in (
+                "username", "pnl_7d", "pnl_30d", "win_rate",
+                "volume_30d", "last_trade_at", "is_active", "notes",
+            ):
+                setattr(existing_wallet, key, getattr(wallet, key))
+            existing_wallet.updated_at = datetime.now(timezone.utc)
+            await self.session.commit()
+            return existing_wallet
+        self.session.add(wallet)
+        await self.session.commit()
+        await self.session.refresh(wallet)
+        return wallet
+
+    async def get_active(self) -> list[TrackedWallet]:
+        """Get all active tracked wallets."""
+        result = await self.session.execute(
+            select(TrackedWallet).where(TrackedWallet.is_active.is_(True))
+        )
+        return list(result.scalars().all())
+
+    async def deactivate_all(self) -> None:
+        """Mark all wallets as inactive (before refresh cycle)."""
+        await self.session.execute(
+            update(TrackedWallet).values(is_active=False)
+        )
+        await self.session.commit()
+
+    async def get_by_address(self, proxy_address: str) -> TrackedWallet | None:
+        """Fetch a single wallet by proxy address."""
+        result = await self.session.execute(
+            select(TrackedWallet).where(
+                TrackedWallet.proxy_address == proxy_address
+            )
+        )
+        return result.scalar_one_or_none()
