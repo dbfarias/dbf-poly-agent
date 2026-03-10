@@ -237,34 +237,43 @@ class TestCheckDuplicatePosition:
 
 class TestCheckDailyLoss:
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.10
-        # Equity-based: bankroll=9.5, day_start=10.0 → PnL=-0.5, limit=-1.0
-        rm._day_start_equity = 10.0
-        assert rm._check_daily_loss(9.5, config).passed is True
+        config = TierConfig.get(CapitalTier.TIER1)
+        # Equity-based: bankroll=19, day_start=20.0 → PnL=-1.0, limit=-1.2
+        rm._day_start_equity = 20.0
+        assert rm._check_daily_loss(19.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # daily_loss_limit_pct=0.10
-        # Equity-based: bankroll=8.0, day_start=10.0 → PnL=-2.0, limit=-1.0
-        rm._day_start_equity = 10.0
-        result = rm._check_daily_loss(8.0, config)
+        config = TierConfig.get(CapitalTier.TIER1)
+        # Equity-based: bankroll=16, day_start=20.0 → PnL=-4.0, limit=-1.2
+        rm._day_start_equity = 20.0
+        result = rm._check_daily_loss(16.0, config)
         assert result.passed is False
 
     def test_exact_boundary_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
-        # Equity-based: bankroll=9.4, day_start=10.0 → PnL=-0.6, limit=-0.6
-        # -0.6 < -0.6 is False → passes
-        rm._day_start_equity = 10.0
-        assert rm._check_daily_loss(9.4, config).passed is True
+        # Equity-based: bankroll=18.8, day_start=20.0 → PnL=-1.2, limit=-1.2
+        # -1.2 < -1.2 is False → passes
+        rm._day_start_equity = 20.0
+        assert rm._check_daily_loss(18.8, config).passed is True
 
     def test_equity_based_not_accumulated(self, rm):
         """Daily loss check uses equity delta, not accumulated _daily_pnl."""
         config = TierConfig.get(CapitalTier.TIER1)
-        # Inflated _daily_pnl says +$5, but equity says -$1.5
+        # Inflated _daily_pnl says +$5, but equity says -$3.0
         rm._daily_pnl = 5.0  # Inflated (should be ignored)
-        rm._day_start_equity = 10.0
-        # bankroll=8.5 → equity-based PnL = -1.5 > -1.0 limit → FAIL
-        result = rm._check_daily_loss(8.5, config)
+        rm._day_start_equity = 20.0
+        # bankroll=17 → equity-based PnL = -3.0 > -1.2 limit → FAIL
+        result = rm._check_daily_loss(17.0, config)
         assert result.passed is False
+
+    def test_micro_account_relaxed(self, rm):
+        """Micro accounts (< $10) get relaxed daily loss limit (50%)."""
+        config = TierConfig.get(CapitalTier.TIER1)
+        rm._day_start_equity = 10.0
+        # bankroll=6 → PnL=-4.0, limit with 50% = -5.0 → PASS
+        assert rm._check_daily_loss(6.0, config).passed is True
+        # bankroll=4 → PnL=-6.0, limit with 50% = -5.0 → FAIL
+        assert rm._check_daily_loss(4.0, config).passed is False
 
 
 class TestSetDayStartEquity:

@@ -207,7 +207,12 @@ class RiskManager:
     def _check_daily_loss(self, bankroll: float, config: dict) -> RiskCheckResult:
         # Use equity-based PnL (not accumulated trade PnL which can be inflated)
         daily_pnl = bankroll - self._day_start_equity
-        limit = self._day_start_equity * config["daily_loss_limit_pct"]
+        # Micro accounts: relax daily loss limit for recovery mode.
+        # With $6 equity, a 6% limit = $0.36 — one bad trade freezes the bot.
+        pct = config["daily_loss_limit_pct"]
+        if bankroll < 10:
+            pct = max(pct, 0.50)  # Allow up to 50% daily loss
+        limit = self._day_start_equity * pct
         if daily_pnl < -limit:
             return RiskCheckResult(
                 False, f"Daily loss limit reached: ${daily_pnl:.2f} < -${limit:.2f}"
