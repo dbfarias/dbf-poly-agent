@@ -189,6 +189,7 @@ class WhaleTracker:
                         win_rate=w["win_rate"],
                         volume_30d=w["volume_30d"],
                         is_active=True,
+                        notes="",
                     )
                     persisted.append(await repo.upsert(wallet))
 

@@ -171,7 +171,7 @@ class TrackedWallet(Base):
     volume_30d: Mapped[float] = mapped_column(Float, default=0.0)
     last_trade_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    notes: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 class StrategyMetric(Base):

@@ -952,13 +952,14 @@ class TradingEngine:
                     continue
 
             # Skip debate for low-edge signals (save API cost)
-            MIN_EDGE_FOR_DEBATE = 0.04
-            if signal.edge < MIN_EDGE_FOR_DEBATE:
+            min_edge_for_debate = 0.04
+            if signal.edge < min_edge_for_debate:
                 logger.debug(
                     "signal_skipped_low_edge_no_debate",
                     market_id=signal.market_id[:20],
                     strategy=signal.strategy,
                     edge=round(signal.edge, 4),
+                    min_edge=min_edge_for_debate,
                 )
                 continue
 
