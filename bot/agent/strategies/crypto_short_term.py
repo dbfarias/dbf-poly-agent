@@ -24,6 +24,14 @@ _CRYPTO_SHORT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Polymarket real format: "Bitcoin Up or Down - March 10, 12:05PM-12:10PM ET"
+# Detect crypto keyword + "up or down" pattern (always short-term)
+_CRYPTO_UPDOWN_PATTERN = re.compile(
+    r"\b(bitcoin|btc|ethereum|eth|solana|sol)\b.*\b(up or down)\b"
+    r"|\b(up or down)\b.*\b(bitcoin|btc|ethereum|eth|solana|sol)\b",
+    re.IGNORECASE,
+)
+
 # Map question keywords to Coinbase symbols
 _SYMBOL_MAP: dict[str, str] = {
     "bitcoin": "BTC-USD",
@@ -98,10 +106,13 @@ class CryptoShortTermStrategy(BaseStrategy):
         # Pattern match: crypto + 5min/15min in question
         pattern_match = _CRYPTO_SHORT_PATTERN.search(question) is not None
 
+        # Pattern match: "Bitcoin Up or Down" (Polymarket's actual format for 5-min markets)
+        updown_match = _CRYPTO_UPDOWN_PATTERN.search(question) is not None
+
         # Slug match: e.g. "btc-5min-up"
         slug_match = has_crypto and ("5min" in slug or "15min" in slug)
 
-        if not pattern_match and not slug_match:
+        if not pattern_match and not updown_match and not slug_match:
             return False
 
         # Must resolve within MAX_MARKET_MINUTES

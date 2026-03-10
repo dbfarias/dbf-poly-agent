@@ -298,7 +298,7 @@ def _apply_disabled_strategies(engine, value) -> int:
 def _apply_blocked_market_types(engine, value) -> int:
     if not isinstance(value, list):
         return 0
-    valid = {"sports", "crypto", "other"}
+    valid = {"sports", "crypto", "meme", "other"}
     engine.analyzer.blocked_market_types = set(value) & valid
     return 1
 

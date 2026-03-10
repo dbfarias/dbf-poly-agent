@@ -102,7 +102,7 @@ class NewsSniper:
         self._market_prices = new_prices
         self._last_keyword_refresh = now
 
-        logger.debug(
+        logger.info(
             "news_sniper_keywords_refreshed",
             markets_indexed=len(new_index),
         )
@@ -164,6 +164,13 @@ class NewsSniper:
         news_items = await self._news_fetcher.fetch_news(
             top_keywords, max_results=20,
         )
+
+        if news_items:
+            logger.info(
+                "news_sniper_fetched",
+                items=len(news_items),
+                keywords=top_keywords[:5],
+            )
 
         candidates: list[SnipeCandidate] = []
 

@@ -153,14 +153,14 @@ class TestCheckStopLoss:
         assert reason is not None
         assert "near_worthless" in reason
 
-    def test_15pct_loss_triggers_exit(self):
-        pos = _position(avg_price=0.50, current_price=0.42)  # 16% loss
+    def test_20pct_loss_triggers_exit(self):
+        pos = _position(avg_price=0.50, current_price=0.39)  # 22% loss
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is not None
         assert "stop_loss" in reason
 
-    def test_14pct_loss_no_exit(self):
-        pos = _position(avg_price=0.50, current_price=0.44)  # 12% loss
+    def test_18pct_loss_no_exit(self):
+        pos = _position(avg_price=0.50, current_price=0.42)  # 16% loss, below 20% threshold
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
@@ -175,7 +175,7 @@ class TestCheckStopLoss:
         assert reason is None
 
     def test_matched_strategy_no_stop_loss_when_healthy(self):
-        pos = _position(avg_price=0.95, current_price=0.92)  # ~3% loss, below 15%
+        pos = _position(avg_price=0.95, current_price=0.92)  # ~3% loss, below 20%
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
@@ -873,3 +873,30 @@ class TestClassifyMarketType:
 
     def test_economics_not_sports(self):
         assert classify_market_type("Will inflation exceed 5%?") == "other"
+
+    def test_meme_tweet_counting(self):
+        """Tweet-counting markets should be classified as meme."""
+        assert classify_market_type(
+            "Will Elon Musk post 340-359 tweets from March 3 to March 10, 2026?"
+        ) == "meme"
+
+    def test_meme_follower_counting(self):
+        assert classify_market_type(
+            "Will @elonmusk gain 1000-2000 followers this week?"
+        ) == "meme"
+
+    def test_meme_post_counting(self):
+        assert classify_market_type(
+            "How many times will Trump post on Truth Social?"
+        ) == "meme"
+
+    def test_meme_subscriber_count(self):
+        assert classify_market_type(
+            "What will the subscriber count be on March 15?"
+        ) == "meme"
+
+    def test_non_meme_tweet_mention(self):
+        """General tweet mention is NOT meme (no counting pattern)."""
+        assert classify_market_type(
+            "Will Trump tweet about tariffs before March 15?"
+        ) == "other"

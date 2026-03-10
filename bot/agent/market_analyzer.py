@@ -111,11 +111,31 @@ _WEATHER_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+# Meme/counting markets — no informational edge, pure gambling
+# Matches: "post X-Y tweets", "post X tweets", "make X-Y posts", follower counts, etc.
+_MEME_COUNTING_KEYWORDS = re.compile(
+    r"\b("
+    r"post \d[\d,]*[\s\-]*\d*\s*tweets"
+    r"|post \d[\d,]*[\s\-]*\d*\s*times"
+    r"|make \d[\d,]*[\s\-]*\d*\s*posts"
+    r"|gain \d[\d,]*[\s\-]*\d*\s*followers"
+    r"|tweet \d[\d,]*[\s\-]*\d*\s*times"
+    r"|how many tweets"
+    r"|number of tweets"
+    r"|number of posts"
+    r"|how many times will .+ post"
+    r"|how many times will .+ tweet"
+    r"|subscriber count"
+    r"|follower count"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def classify_market_type(question: str) -> str:
     """Classify market type by question text.
 
-    Returns 'sports', 'weather', 'crypto', or 'other'.
+    Returns 'sports', 'weather', 'crypto', 'meme', or 'other'.
     """
     if (
         _SPORTS_KEYWORDS.search(question)
@@ -123,6 +143,9 @@ def classify_market_type(question: str) -> str:
         or _SPORTS_VS_PATTERN.search(question)
     ):
         return "sports"
+    # Meme/counting markets (no edge — pure gambling)
+    if _MEME_COUNTING_KEYWORDS.search(question):
+        return "meme"
     # Weather detection (before crypto — temperature markets are distinct)
     if _WEATHER_KEYWORDS.search(question):
         return "weather"
@@ -194,7 +217,7 @@ class MarketAnalyzer:
         self.disabled_strategies: set[str] = set()
         # Market type blocklist: skip markets classified as these types
         # Types: "sports", "crypto", "other" (from classify_market_type)
-        self.blocked_market_types: set[str] = set()
+        self.blocked_market_types: set[str] = {"meme"}
 
     async def scan_markets(self, tier: CapitalTier) -> list[TradeSignal]:
         """Scan all markets and return ranked signals from all enabled strategies."""
@@ -301,7 +324,7 @@ class MarketAnalyzer:
         return all_signals
 
     # Universal stop-loss thresholds
-    STOP_LOSS_PCT = 0.15  # Exit if lost 15%+ of entry price (was 40%)
+    STOP_LOSS_PCT = 0.20  # Exit if lost 20%+ of entry price (was 15% — too tight with spread)
     NEAR_WORTHLESS_PRICE = 0.10  # Always exit below 10 cents
     DEFAULT_EXIT_PRICE = 0.70  # Fallback exit for unmatched strategies
     MAX_POSITION_AGE_HOURS = 72.0  # Auto-close after 3 days (capital efficiency)
@@ -413,8 +436,8 @@ class MarketAnalyzer:
         if position.current_price < self.NEAR_WORTHLESS_PRICE:
             return f"near_worthless (price={position.current_price:.4f})"
 
-        # Skip non-emergency exits if position is too young (< 30 min)
-        min_universal_hold = 1800  # 30 min minimum before any normal exit
+        # Skip non-emergency exits if position is too young (< 1h)
+        min_universal_hold = 3600  # 1h minimum before any normal exit
         if age_secs is not None and age_secs < min_universal_hold:
             return None
 

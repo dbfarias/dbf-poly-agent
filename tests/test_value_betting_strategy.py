@@ -709,16 +709,19 @@ class TestScoreSignal:
 
 
 class TestShouldExit:
-    async def test_price_below_040_triggers_exit(self):
+    async def test_low_price_no_exit_without_avg_price(self):
+        """Low prices don't trigger exit without avg_price (no absolute floor)."""
         strategy = _make_strategy()
-        assert await strategy.should_exit("mkt1", 0.39) is True
+        # 0.39 alone doesn't trigger exit — needs avg_price for relative stop-loss
+        assert await strategy.should_exit("mkt1", 0.39) is False
 
-    async def test_price_exactly_040_no_exit(self):
-        """Boundary: 0.40 is not < 0.40, so should NOT exit."""
+    async def test_low_price_with_large_loss_triggers_exit(self):
+        """Low price with 12%+ loss from entry triggers relative stop-loss."""
         strategy = _make_strategy()
-        assert await strategy.should_exit("mkt1", 0.40) is False
+        # avg_price=0.50, current=0.39 → 22% loss → exit
+        assert await strategy.should_exit("mkt1", 0.39, avg_price=0.50) is True
 
-    async def test_price_above_040_no_exit(self):
+    async def test_price_above_no_exit(self):
         strategy = _make_strategy()
         assert await strategy.should_exit("mkt1", 0.60) is False
 
@@ -726,9 +729,11 @@ class TestShouldExit:
         strategy = _make_strategy()
         assert await strategy.should_exit("mkt1", 0.95) is False
 
-    async def test_price_near_zero_triggers_exit(self):
+    async def test_cheap_token_small_loss_no_exit(self):
+        """Cheap token (0.35) with small loss (8%) should NOT exit (threshold=12%)."""
         strategy = _make_strategy()
-        assert await strategy.should_exit("mkt1", 0.01) is True
+        # avg_price=0.35, current=0.322 → 8% loss → no exit
+        assert await strategy.should_exit("mkt1", 0.322, avg_price=0.35) is False
 
     async def test_extra_kwargs_ignored(self):
         """should_exit accepts **kwargs without raising."""
@@ -754,17 +759,17 @@ class TestShouldExit:
         )
         assert result is False
 
-    async def test_relative_stop_loss_triggers_at_5pct(self):
-        """Exit if price dropped 5%+ from entry."""
+    async def test_relative_stop_loss_triggers_at_12pct(self):
+        """Exit if price dropped 12%+ from entry."""
         strategy = _make_strategy()
-        # avg_price=0.90, current=0.85 → 5.6% loss → exit
-        assert await strategy.should_exit("mkt1", 0.85, avg_price=0.90) is True
+        # avg_price=0.90, current=0.79 → 12.2% loss → exit
+        assert await strategy.should_exit("mkt1", 0.79, avg_price=0.90) is True
 
     async def test_relative_stop_loss_no_trigger_below_threshold(self):
-        """No exit if price only dropped 4% from entry."""
+        """No exit if price only dropped 10% from entry."""
         strategy = _make_strategy()
-        # avg_price=0.90, current=0.864 → 4% loss → no exit (threshold is 5%)
-        assert await strategy.should_exit("mkt1", 0.864, avg_price=0.90) is False
+        # avg_price=0.90, current=0.81 → 10% loss → no exit (threshold is 12%)
+        assert await strategy.should_exit("mkt1", 0.81, avg_price=0.90) is False
 
     async def test_no_relative_stop_loss_without_avg_price(self):
         """Without avg_price kwarg, relative stop-loss doesn't trigger."""

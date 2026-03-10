@@ -24,13 +24,13 @@ from .time_decay import HOURS_MEDIUM, _max_hours_for_urgency
 
 logger = structlog.get_logger()
 
-MIN_EDGE = 0.03  # 3% minimum edge for value bets (was 2% — not enough)
+MIN_EDGE = 0.05  # 5% minimum edge for value bets (was 3% — too many thin-edge losing trades)
 IMBALANCE_THRESHOLD = 0.15  # 15% order book imbalance (was 10% — too noisy)
 SPORTS_IMBALANCE_THRESHOLD = 0.25  # 25% for sports — only obvious favorites
 MAX_PRICE = 0.95  # Skip markets above 95¢ (thin margin, high risk)
 MIN_PRICE = 0.05  # Skip ultra-cheap markets (speculative noise)
 MIN_BOOK_VOLUME = 200.0  # Min total order book volume (was 50 — thin books unreliable)
-RELATIVE_STOP_LOSS = 0.05  # Exit if lost 5% from entry (was 10% — too slow)
+RELATIVE_STOP_LOSS = 0.12  # Exit if lost 12% from entry (was 5% — too tight, spread alone triggers)
 
 
 class ValueBettingStrategy(BaseStrategy):
@@ -298,6 +298,14 @@ class ValueBettingStrategy(BaseStrategy):
         if near_certainty:
             confidence += 0.15
 
+        # Danger zone filter: buying at high prices (>0.75) means risking
+        # $0.75+ to win $0.25- (3:1 against you). Need much higher edge.
+        # Based on @LeisenCrypto analysis: 94%+ accuracy needed above 0.80
+        if price > 0.80 and edge_val < 0.10:
+            return None  # Widow-maker zone: need 10%+ edge
+        if price > 0.75 and edge_val < 0.07:
+            return None  # High-risk zone: need 7%+ edge
+
         # Momentum adjustment from shared price tracker
         mom: float | None = None
         if self._price_tracker is not None:
@@ -382,11 +390,9 @@ class ValueBettingStrategy(BaseStrategy):
         avg_price = kwargs.get("avg_price", 0.0)
         created_at = kwargs.get("created_at")
 
-        # Absolute floor: something went very wrong
-        if current_price < 0.40:
-            return True
-
-        # Relative stop-loss: exit if lost 10%+ from entry
+        # Relative stop-loss: exit if lost 12%+ from entry
+        # NOTE: removed absolute floor (current_price < 0.40) — it was triggering
+        # false exits on cheap No tokens bought at 0.30-0.40 range
         if avg_price > 0:
             loss_pct = (avg_price - current_price) / avg_price
             if loss_pct >= self.RELATIVE_STOP_LOSS:
