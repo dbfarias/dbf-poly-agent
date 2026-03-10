@@ -233,7 +233,7 @@ class TradingEngine:
         self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
         self._debate_cooldown: dict[str, datetime] = {}  # {market_id: debate_again_after}
         self.market_cooldown_hours: float = 1.0  # configurable via admin API
-        self.debate_cooldown_hours: float = 1.0  # skip re-debating rejected markets
+        self.debate_cooldown_hours: float = 6.0  # skip re-debating rejected markets
         self.min_balance_for_trades: float = settings.min_balance_for_trades
 
     @property
@@ -950,6 +950,17 @@ class TradingEngine:
                         strategy=signal.strategy,
                     )
                     continue
+
+            # Skip debate for low-edge signals (save API cost)
+            MIN_EDGE_FOR_DEBATE = 0.04
+            if signal.edge < MIN_EDGE_FOR_DEBATE:
+                logger.debug(
+                    "signal_skipped_low_edge_no_debate",
+                    market_id=signal.market_id[:20],
+                    strategy=signal.strategy,
+                    edge=round(signal.edge, 4),
+                )
+                continue
 
             # LLM debate gate: Proposer vs Challenger
             if settings.use_llm_debate:
