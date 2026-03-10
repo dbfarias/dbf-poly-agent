@@ -512,6 +512,9 @@ class PerformanceLearner:
 
     async def restore_paused_strategies(self) -> None:
         """Restore paused strategies from DB on startup."""
+        if self.PAUSE_WIN_RATE <= 0:
+            return  # Auto-pause disabled, don't restore
+
         try:
             from bot.data.settings_store import StateStore
 
@@ -541,7 +544,12 @@ class PerformanceLearner:
 
         Pause if: last 10 trades have <30% win rate AND total_pnl < -$1.
         Resume after 24h cooldown.
+        Disabled when PAUSE_WIN_RATE is set to 0.
         """
+        # If pause_win_rate is 0, auto-pause is disabled
+        if self.PAUSE_WIN_RATE <= 0:
+            return False
+
         # Check manual unpause immunity (grace period)
         if strategy in self._unpause_immunity:
             granted_at = self._unpause_immunity[strategy]
