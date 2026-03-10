@@ -112,7 +112,7 @@ _WEATHER_KEYWORDS = re.compile(
 )
 
 # Meme/counting markets — no informational edge, pure gambling
-# Matches: "post X-Y tweets", "post X tweets", "make X-Y posts", follower counts, etc.
+# Matches: tweet counts, video views, follower counts, post counts, etc.
 _MEME_COUNTING_KEYWORDS = re.compile(
     r"\b("
     r"post \d[\d,]*[\s\-]*\d*\s*tweets"
@@ -127,6 +127,17 @@ _MEME_COUNTING_KEYWORDS = re.compile(
     r"|how many times will .+ tweet"
     r"|subscriber count"
     r"|follower count"
+    # "post 340-359 tweets from" / "post between X and Y tweets"
+    r"|post \d[\d,]*[\s\-]+\d+\s*tweets\s*from"
+    r"|post between \d"
+    # Video view counting: "get between 57 and 59 million views"
+    r"|get between \d[\d,]*\s*and\s*\d[\d,]*\s*million\s*views"
+    r"|get \d[\d,]*[\s\-]*\d*\s*million\s*views"
+    r"|views on .+ next video"
+    r"|next video get"
+    # General counting patterns
+    r"|between \d[\d,]*\s*and\s*\d[\d,]*\s*tweets"
+    r"|between \d[\d,]*\s*and\s*\d[\d,]*\s*posts"
     r")\b",
     re.IGNORECASE,
 )
