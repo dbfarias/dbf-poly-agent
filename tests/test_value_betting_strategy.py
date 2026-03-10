@@ -1002,3 +1002,50 @@ class TestCategoryEdgeBoost:
     async def test_sports_imbalance_threshold_in_mutable(self):
         """SPORTS_IMBALANCE_THRESHOLD is configurable via admin."""
         assert "SPORTS_IMBALANCE_THRESHOLD" in ValueBettingStrategy._MUTABLE_PARAMS
+
+
+class TestCrypto5minFilter:
+    """Value betting must NOT trade crypto 5-min markets."""
+
+    @pytest.mark.asyncio()
+    async def test_bitcoin_up_or_down_skipped(self):
+        strategy = _make_strategy()
+        market = _make_market(
+            question="Bitcoin Up or Down - March 10, 4:30PM-4:35PM ET",
+            hours_to_resolution=0.08,
+        )
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_ethereum_up_or_down_skipped(self):
+        strategy = _make_strategy()
+        market = _make_market(
+            question="Ethereum Up or Down - March 10, 12:05PM-12:10PM ET",
+            hours_to_resolution=0.08,
+        )
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_solana_5min_skipped(self):
+        strategy = _make_strategy()
+        market = _make_market(
+            question="Will SOL go up in the next 5 minutes?",
+            hours_to_resolution=0.08,
+        )
+        result = await strategy._evaluate_market(market, max_hours=168.0)
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_normal_crypto_not_skipped(self):
+        """Regular crypto markets (e.g. BTC $72K) should NOT be filtered."""
+        strategy = _make_strategy()
+        market = _make_market(
+            question="Will Bitcoin reach $72,000 by March 15?",
+            hours_to_resolution=48.0,
+        )
+        # This would return None for other reasons (no book), but it should
+        # NOT be filtered by the crypto 5-min pattern
+        from bot.agent.strategies.value_betting import _CRYPTO_5MIN_PATTERN
+        assert _CRYPTO_5MIN_PATTERN.search(market.question) is None

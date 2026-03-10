@@ -9,6 +9,7 @@ Dynamic time horizon based on daily target urgency — same as time_decay:
 - Behind → medium-term (< 168h)
 """
 
+import re
 import time
 from datetime import datetime, timezone
 
@@ -21,6 +22,13 @@ from bot.utils.risk_metrics import compute_vpin
 
 from .base import BaseStrategy
 from .time_decay import HOURS_MEDIUM, _max_hours_for_urgency
+
+# Skip crypto 5-min markets (handled by crypto_short_term strategy)
+_CRYPTO_5MIN_PATTERN = re.compile(
+    r"\b(bitcoin|btc|ethereum|eth|solana|sol)\b.*\b(up or down|5[\s-]*min|15[\s-]*min)\b"
+    r"|\b(up or down|5[\s-]*min|15[\s-]*min)\b.*\b(bitcoin|btc|ethereum|eth|solana|sol)\b",
+    re.IGNORECASE,
+)
 
 logger = structlog.get_logger()
 
@@ -112,6 +120,12 @@ class ValueBettingStrategy(BaseStrategy):
         """Evaluate a market for mispricing using order book analysis."""
         # Classify market type for tiered filtering
         market_type = classify_market_type(market.question)
+
+        # Skip crypto 5-min markets — these are handled by crypto_short_term
+        # strategy which has real-time spot price data. Value betting has no
+        # edge on 5-min crypto markets (caused -$4.38 loss on Ethereum Up or Down).
+        if _CRYPTO_5MIN_PATTERN.search(market.question):
+            return None
 
         # Must resolve within dynamic max hours
         end = market.end_date

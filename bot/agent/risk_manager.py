@@ -359,9 +359,12 @@ class RiskManager:
 
         # Scale VaR limit with bankroll size
         # Small accounts: historical VaR from early losses shouldn't
-        # permanently freeze trading — other gates (debate, Z-score,
-        # VPIN) protect against bad trades now.
-        if bankroll < 25:
+        # permanently freeze trading — other gates (Z-score, VPIN,
+        # spread check) protect against bad trades now.
+        # Micro accounts need extra room to recover from early losses.
+        if bankroll < 10:
+            effective_limit = -0.50  # Recovery mode: VaR gate almost disabled
+        elif bankroll < 25:
             effective_limit = -0.35
         elif bankroll < 50:
             effective_limit = -0.20
