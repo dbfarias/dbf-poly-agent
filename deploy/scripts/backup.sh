@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Daily SQLite backup — safe for WAL mode
+# Daily SQLite backup — WAL-safe via Python checkpoint + copy
 BACKUP_DIR="/tmp/polybot-backup"
 LOCAL_BACKUP_DIR="/home/${USER:-ubuntu}/polybot/backups"
 S3_BUCKET="${S3_BACKUP_BUCKET:-}"
@@ -9,8 +9,15 @@ DATE=$(date +%Y-%m-%d_%H%M)
 
 mkdir -p "$BACKUP_DIR" "$LOCAL_BACKUP_DIR"
 
-# Use docker exec for WAL-safe backup (SQLite .backup API)
-if ! docker exec polybot-app sqlite3 /app/data/polybot.db ".backup '/tmp/backup.db'" 2>/dev/null; then
+# WAL-safe backup: checkpoint WAL into main DB, then copy the file
+# This uses Python (always available in the container) instead of sqlite3 CLI
+if ! docker exec polybot-app python3 -c "
+import sqlite3, shutil
+conn = sqlite3.connect('/app/data/polybot.db')
+conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+conn.close()
+shutil.copy2('/app/data/polybot.db', '/tmp/backup.db')
+" 2>/dev/null; then
     echo "$(date): ERROR — docker exec backup failed"
     exit 1
 fi
