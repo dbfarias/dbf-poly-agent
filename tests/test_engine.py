@@ -275,6 +275,22 @@ class TestShutdown:
 
 class TestCheckLiquidity:
     @pytest.mark.asyncio
+    async def test_paper_mode_skips_check(self):
+        """Paper mode should always pass liquidity check."""
+        with patch("bot.agent.engine.PolymarketClient"), \
+             patch("bot.agent.engine.GammaClient"), \
+             patch("bot.agent.engine.DataApiClient"), \
+             patch("bot.agent.engine.MarketCache"), \
+             patch("bot.agent.engine.WebSocketManager"), \
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = True
+            engine = TradingEngine()
+            signal = make_signal(market_price=0.85)
+            result = await engine._check_liquidity(signal)
+            assert result is True
+
+    @pytest.mark.asyncio
     async def test_good_liquidity_passes(self):
         """Tight spread and good bid should pass."""
         with patch("bot.agent.engine.PolymarketClient"), \
@@ -282,7 +298,9 @@ class TestCheckLiquidity:
              patch("bot.agent.engine.DataApiClient"), \
              patch("bot.agent.engine.MarketCache"), \
              patch("bot.agent.engine.WebSocketManager"), \
-             patch("bot.agent.engine.HeartbeatManager"):
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = False
             engine = TradingEngine()
             engine.clob_client = AsyncMock()
             engine.clob_client.get_order_book = AsyncMock(
@@ -305,7 +323,9 @@ class TestCheckLiquidity:
              patch("bot.agent.engine.DataApiClient"), \
              patch("bot.agent.engine.MarketCache"), \
              patch("bot.agent.engine.WebSocketManager"), \
-             patch("bot.agent.engine.HeartbeatManager"):
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = False
             engine = TradingEngine()
             engine.clob_client = AsyncMock()
             engine.clob_client.get_order_book = AsyncMock(
@@ -329,7 +349,9 @@ class TestCheckLiquidity:
              patch("bot.agent.engine.DataApiClient"), \
              patch("bot.agent.engine.MarketCache"), \
              patch("bot.agent.engine.WebSocketManager"), \
-             patch("bot.agent.engine.HeartbeatManager"):
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = False
             engine = TradingEngine()
             engine.clob_client = AsyncMock()
             engine.clob_client.get_order_book = AsyncMock(
@@ -353,7 +375,9 @@ class TestCheckLiquidity:
              patch("bot.agent.engine.DataApiClient"), \
              patch("bot.agent.engine.MarketCache"), \
              patch("bot.agent.engine.WebSocketManager"), \
-             patch("bot.agent.engine.HeartbeatManager"):
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = False
             engine = TradingEngine()
             engine.clob_client = AsyncMock()
             engine.clob_client.get_order_book = AsyncMock(side_effect=Exception("timeout"))
@@ -370,7 +394,9 @@ class TestCheckLiquidity:
              patch("bot.agent.engine.DataApiClient"), \
              patch("bot.agent.engine.MarketCache"), \
              patch("bot.agent.engine.WebSocketManager"), \
-             patch("bot.agent.engine.HeartbeatManager"):
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = False
             engine = TradingEngine()
             engine.clob_client = AsyncMock()
             # Spread = 0.83 - 0.80 = 0.03 (within 0.05 limit)
@@ -399,7 +425,9 @@ class TestCheckLiquidity:
              patch("bot.agent.engine.DataApiClient"), \
              patch("bot.agent.engine.MarketCache"), \
              patch("bot.agent.engine.WebSocketManager"), \
-             patch("bot.agent.engine.HeartbeatManager"):
+             patch("bot.agent.engine.HeartbeatManager"), \
+             patch("bot.agent.engine.settings") as mock_settings:
+            mock_settings.is_paper = False
             engine = TradingEngine()
             engine.clob_client = AsyncMock()
             engine.clob_client.get_order_book = AsyncMock(

@@ -1807,7 +1807,10 @@ class TradingEngine:
         2. Best bid is near fair price (can actually sell if needed)
 
         Crypto 5-min markets skip exit liquidity check (auto-resolve).
+        Paper mode skips entirely (order book is empty/simulated).
         """
+        if settings.is_paper:
+            return True
         # Spread limit varies by strategy: short-term markets have wider spreads
         wide_spread_strategies = {"crypto_short_term", "weather_trading"}
         if signal.strategy in wide_spread_strategies:
