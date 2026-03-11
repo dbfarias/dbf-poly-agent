@@ -1,4 +1,14 @@
-"""Weather fetcher — NOAA for US cities, Open-Meteo for worldwide coverage."""
+"""Weather fetcher — NOAA for US cities, Open-Meteo for worldwide coverage.
+
+Key accuracy features (from gopfan2/AlterEgo research):
+- Uses exact airport station coordinates (not city center) — Polymarket resolves
+  on Wunderground which sources from NWS airport stations (KLGA, KORD, etc.)
+- Combines real observations (past hours) with hourly forecast (upcoming hours)
+  to always get the true daily max, even after the peak has passed
+- Uses pre-mapped hourly gridpoint endpoints to avoid extra /points round-trip
+- Station observations fix the "afternoon blind spot" where forecast-only
+  misses the actual high by 3-8°F
+"""
 
 import time
 from dataclasses import dataclass
@@ -47,30 +57,72 @@ class TemperaturePeriod:
     confidence: float  # 0-1 based on forecast horizon
 
 
-# US cities use NOAA, everything else uses Open-Meteo
+# ---------------------------------------------------------------------------
+# US cities: use EXACT AIRPORT coordinates where Polymarket resolves.
+#
+# Polymarket weather markets resolve via Wunderground, which sources from
+# NWS airport weather stations. Using city-center coordinates introduces
+# 3-8°F error — fatal when buckets are 1-2°F wide.
+# ---------------------------------------------------------------------------
 _US_CITIES: dict[str, tuple[float, float]] = {
-    "new york": (40.7128, -74.0060),
-    "nyc": (40.7128, -74.0060),
-    "los angeles": (34.0522, -118.2437),
-    "la": (34.0522, -118.2437),
-    "chicago": (41.8781, -87.6298),
-    "miami": (25.7617, -80.1918),
-    "houston": (29.7604, -95.3698),
-    "phoenix": (33.4484, -112.0740),
-    "philadelphia": (39.9526, -75.1652),
-    "san antonio": (29.4241, -98.4936),
-    "san diego": (32.7157, -117.1611),
-    "dallas": (32.7767, -96.7970),
-    "denver": (39.7392, -104.9903),
-    "seattle": (47.6062, -122.3321),
-    "boston": (42.3601, -71.0589),
-    "atlanta": (33.7490, -84.3880),
-    "san francisco": (37.7749, -122.4194),
-    "minneapolis": (44.9778, -93.2650),
-    "detroit": (42.3314, -83.0458),
-    "washington": (38.9072, -77.0369),
-    "dc": (38.9072, -77.0369),
-    "washington dc": (38.9072, -77.0369),
+    # Primary Polymarket cities (airport coordinates)
+    "new york": (40.7772, -73.8726),     # KLGA LaGuardia
+    "nyc": (40.7772, -73.8726),          # KLGA LaGuardia
+    "chicago": (41.9742, -87.9073),      # KORD O'Hare
+    "miami": (25.7959, -80.2870),        # KMIA Miami Intl
+    "dallas": (32.8471, -96.8518),       # KDAL Love Field
+    "seattle": (47.4502, -122.3088),     # KSEA Sea-Tac
+    "atlanta": (33.6407, -84.4277),      # KATL Hartsfield
+    # Secondary cities (nearest major airport)
+    "los angeles": (33.9425, -118.4081), # KLAX
+    "la": (33.9425, -118.4081),          # KLAX
+    "houston": (29.9844, -95.3414),      # KIAH George Bush
+    "phoenix": (33.4373, -112.0078),     # KPHX Sky Harbor
+    "philadelphia": (39.8721, -75.2411), # KPHL
+    "san antonio": (29.5337, -98.4698),  # KSAT
+    "san diego": (32.7336, -117.1897),   # KSAN
+    "denver": (39.8561, -104.6737),      # KDEN
+    "boston": (42.3656, -71.0096),        # KBOS Logan
+    "san francisco": (37.6213, -122.3790), # KSFO
+    "minneapolis": (44.8848, -93.2223),  # KMSP
+    "detroit": (42.2124, -83.3534),      # KDTW
+    "washington": (38.8512, -77.0402),   # KDCA Reagan
+    "dc": (38.8512, -77.0402),           # KDCA Reagan
+    "washington dc": (38.8512, -77.0402), # KDCA Reagan
+}
+
+# NWS station IDs — for fetching real observations (what already happened today)
+_STATION_IDS: dict[str, str] = {
+    "new york": "KLGA", "nyc": "KLGA",
+    "chicago": "KORD",
+    "miami": "KMIA",
+    "dallas": "KDAL",
+    "seattle": "KSEA",
+    "atlanta": "KATL",
+    "los angeles": "KLAX", "la": "KLAX",
+    "houston": "KIAH",
+    "phoenix": "KPHX",
+    "philadelphia": "KPHL",
+    "san antonio": "KSAT",
+    "san diego": "KSAN",
+    "denver": "KDEN",
+    "boston": "KBOS",
+    "san francisco": "KSFO",
+    "minneapolis": "KMSP",
+    "detroit": "KDTW",
+    "washington": "KDCA", "dc": "KDCA", "washington dc": "KDCA",
+}
+
+# Pre-mapped NWS hourly forecast endpoints — avoids extra /points round-trip.
+# Format: https://api.weather.gov/gridpoints/{WFO}/{gridX},{gridY}/forecast/hourly
+_NWS_HOURLY_ENDPOINTS: dict[str, str] = {
+    "new york": "https://api.weather.gov/gridpoints/OKX/37,39/forecast/hourly",
+    "nyc": "https://api.weather.gov/gridpoints/OKX/37,39/forecast/hourly",
+    "chicago": "https://api.weather.gov/gridpoints/LOT/66,77/forecast/hourly",
+    "miami": "https://api.weather.gov/gridpoints/MFL/106,51/forecast/hourly",
+    "dallas": "https://api.weather.gov/gridpoints/FWD/87,107/forecast/hourly",
+    "seattle": "https://api.weather.gov/gridpoints/SEW/124,61/forecast/hourly",
+    "atlanta": "https://api.weather.gov/gridpoints/FFC/50,82/forecast/hourly",
 }
 
 # International cities for Open-Meteo (free, worldwide, no API key)
@@ -133,7 +185,11 @@ _INTL_CITIES: dict[str, tuple[float, float]] = {
 
 
 class WeatherFetcher:
-    """Fetches forecasts from NOAA (US) and Open-Meteo (worldwide)."""
+    """Fetches forecasts from NOAA (US) and Open-Meteo (worldwide).
+
+    For US cities, combines station observations (what already happened today)
+    with hourly forecasts (what's coming) to produce accurate daily max temps.
+    """
 
     BASE_URL = "https://api.weather.gov"
     OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -216,14 +272,187 @@ class WeatherFetcher:
     async def _fetch_noaa(
         self, city_key: str, coords: tuple[float, float],
     ) -> list[TemperaturePeriod] | None:
-        """Fetch forecast from NOAA Weather API (US only)."""
-        forecast_url = await self._fetch_gridpoint_url(coords[0], coords[1])
-        if forecast_url is None:
-            return None
-        periods = await self._fetch_forecast(forecast_url)
-        if periods is None:
-            return None
-        return self._parse_periods(city_key, periods)
+        """Fetch forecast from NOAA — combines observations + hourly forecast.
+
+        Two-phase approach (from AlterEgo/gopfan2 research):
+        1. Station observations: actual temps from past hours today
+        2. Hourly forecast: predicted temps for upcoming hours
+        Combined → accurate daily max regardless of time-of-day.
+        """
+        client = await self._get_client()
+
+        # Phase 1: Real observations from airport station
+        daily_max: dict[str, float] = {}
+        station_id = _STATION_IDS.get(city_key)
+        if station_id:
+            daily_max = await self._fetch_station_observations(
+                client, station_id,
+            )
+
+        # Phase 2: Hourly forecast (use pre-mapped endpoint if available)
+        hourly_url = _NWS_HOURLY_ENDPOINTS.get(city_key)
+        if hourly_url:
+            await self._fetch_hourly_forecast(client, hourly_url, daily_max)
+        else:
+            # Fallback: use /points → forecast URL (extra round-trip)
+            forecast_url = await self._fetch_gridpoint_url(
+                coords[0], coords[1],
+            )
+            if forecast_url:
+                # Convert half-day forecast URL to hourly
+                hourly_url = forecast_url + "/hourly"
+                if not hourly_url.endswith("/hourly"):
+                    hourly_url = forecast_url.replace(
+                        "/forecast", "/forecast/hourly",
+                    )
+                await self._fetch_hourly_forecast(
+                    client, hourly_url, daily_max,
+                )
+
+        if not daily_max:
+            # Complete fallback: use the half-day forecast endpoint
+            forecast_url = await self._fetch_gridpoint_url(
+                coords[0], coords[1],
+            )
+            if forecast_url is None:
+                return None
+            periods = await self._fetch_forecast(forecast_url)
+            if periods is None:
+                return None
+            return self._parse_periods(city_key, periods)
+
+        # Convert daily_max dict → TemperaturePeriod list
+        return self._daily_max_to_periods(city_key, daily_max)
+
+    async def _fetch_station_observations(
+        self, client: httpx.AsyncClient, station_id: str,
+    ) -> dict[str, float]:
+        """Fetch real temperature observations from an NWS airport station.
+
+        Returns dict mapping ISO date → max observed temperature (°F).
+        This captures the actual high even if it occurred hours ago.
+        """
+        daily_max: dict[str, float] = {}
+        try:
+            url = (
+                f"{self.BASE_URL}/stations/{station_id}"
+                f"/observations?limit=48"
+            )
+            response = await client.get(url)
+            if response.status_code == 429:
+                logger.warning("noaa_rate_limited", endpoint="observations")
+                return daily_max
+
+            response.raise_for_status()
+            data = response.json()
+
+            for obs in data.get("features", []):
+                props = obs.get("properties", {})
+                time_str = props.get("timestamp", "")[:10]
+                if not time_str:
+                    continue
+                temp_val = props.get("temperature", {})
+                if isinstance(temp_val, dict):
+                    temp_c = temp_val.get("value")
+                else:
+                    continue
+                if temp_c is None:
+                    continue
+                temp_f = round(_c_to_f(temp_c))
+                if time_str not in daily_max or temp_f > daily_max[time_str]:
+                    daily_max[time_str] = temp_f
+
+            logger.info(
+                "station_observations_fetched",
+                station=station_id,
+                days=len(daily_max),
+            )
+        except Exception as e:
+            logger.debug("station_observations_error", station=station_id, error=str(e))
+
+        return daily_max
+
+    async def _fetch_hourly_forecast(
+        self,
+        client: httpx.AsyncClient,
+        hourly_url: str,
+        daily_max: dict[str, float],
+    ) -> None:
+        """Fetch hourly forecast and merge into daily_max dict (in-place).
+
+        Each hourly period's temperature is compared against the running
+        daily max — keeping the highest value from observations + forecast.
+        """
+        try:
+            response = await client.get(hourly_url)
+            if response.status_code == 429:
+                logger.warning("noaa_rate_limited", endpoint="hourly")
+                return
+
+            response.raise_for_status()
+            data = response.json()
+
+            for period in data.get("properties", {}).get("periods", []):
+                date = period.get("startTime", "")[:10]
+                if not date:
+                    continue
+                temp = period.get("temperature")
+                if temp is None:
+                    continue
+                temp_f = float(temp)
+                if period.get("temperatureUnit") == "C":
+                    temp_f = round(_c_to_f(temp_f))
+                if date not in daily_max or temp_f > daily_max[date]:
+                    daily_max[date] = temp_f
+
+            logger.info(
+                "hourly_forecast_fetched",
+                url=hourly_url[:60],
+                days=len(daily_max),
+            )
+        except Exception as e:
+            logger.debug("hourly_forecast_error", error=str(e))
+
+    def _daily_max_to_periods(
+        self, city_key: str, daily_max: dict[str, float],
+    ) -> list[TemperaturePeriod]:
+        """Convert daily_max dict to TemperaturePeriod list with confidence."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        result: list[TemperaturePeriod] = []
+
+        for date_str in sorted(daily_max):
+            temp_f = daily_max[date_str]
+
+            # Compute confidence from forecast horizon
+            try:
+                forecast_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc,
+                )
+                hours_ahead = (forecast_date - now).total_seconds() / 3600
+            except ValueError:
+                hours_ahead = 999
+
+            confidence = _DEFAULT_CONFIDENCE
+            for hours_limit, conf in _CONFIDENCE_BY_HOURS:
+                if hours_ahead <= hours_limit:
+                    confidence = conf
+                    break
+
+            result.append(
+                TemperaturePeriod(
+                    city=city_key,
+                    date=date_str,
+                    period="day",
+                    temp_f=temp_f,
+                    temp_low_f=temp_f - _UNCERTAINTY_F,
+                    temp_high_f=temp_f + _UNCERTAINTY_F,
+                    confidence=confidence,
+                )
+            )
+
+        return result
 
     async def _fetch_open_meteo(
         self, city_key: str, coords: tuple[float, float],

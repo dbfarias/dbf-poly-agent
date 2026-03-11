@@ -15,7 +15,7 @@ SAMPLE_POINTS_RESPONSE = {
     }
 }
 
-# Sample NOAA forecast response
+# Sample NOAA forecast response (half-day periods, used as fallback)
 SAMPLE_FORECAST_RESPONSE = {
     "properties": {
         "periods": [
@@ -58,6 +58,37 @@ SAMPLE_FORECAST_RESPONSE = {
     }
 }
 
+# Sample station observations response (real temps from airport station)
+SAMPLE_OBSERVATIONS_RESPONSE = {
+    "features": [
+        {
+            "properties": {
+                "timestamp": "2026-03-10T14:00:00+00:00",
+                "temperature": {"value": 12.8, "unitCode": "wmoUnit:degC"},
+            }
+        },
+        {
+            "properties": {
+                "timestamp": "2026-03-10T10:00:00+00:00",
+                "temperature": {"value": 7.2, "unitCode": "wmoUnit:degC"},
+            }
+        },
+    ]
+}
+
+# Sample hourly forecast response (used by new NOAA flow)
+SAMPLE_HOURLY_RESPONSE = {
+    "properties": {
+        "periods": [
+            {"startTime": "2026-03-10T15:00:00-05:00", "temperature": 55, "temperatureUnit": "F"},
+            {"startTime": "2026-03-10T16:00:00-05:00", "temperature": 53, "temperatureUnit": "F"},
+            {"startTime": "2026-03-11T12:00:00-05:00", "temperature": 60, "temperatureUnit": "F"},
+            {"startTime": "2026-03-11T13:00:00-05:00", "temperature": 58, "temperatureUnit": "F"},
+            {"startTime": "2026-03-12T12:00:00-05:00", "temperature": 62, "temperatureUnit": "F"},
+        ]
+    }
+}
+
 
 def _make_response(json_data: dict, url: str = "https://api.weather.gov/test") -> httpx.Response:
     return httpx.Response(
@@ -74,7 +105,8 @@ class TestWeatherFetcherCityLookup:
 
     def test_known_city(self, fetcher):
         assert "new york" in fetcher.CITIES
-        assert fetcher.CITIES["new york"] == (40.7128, -74.0060)
+        # Airport coordinates (KLGA LaGuardia), not city center
+        assert fetcher.CITIES["new york"] == (40.7772, -73.8726)
 
     def test_alias_city(self, fetcher):
         assert fetcher.CITIES["nyc"] == fetcher.CITIES["new york"]
@@ -89,11 +121,12 @@ class TestWeatherFetcherCityLookup:
     @pytest.mark.asyncio
     async def test_case_insensitive_lookup(self, fetcher):
         """City lookup is case-insensitive via lowering."""
-        # Patch to avoid real HTTP calls
-        with patch.object(fetcher, "_fetch_gridpoint_url", new_callable=AsyncMock) as mock_gp:
-            mock_gp.return_value = None
-            result = await fetcher.get_forecast("New York")
-            mock_gp.assert_called_once_with(40.7128, -74.0060)
+        # Patch internal methods to avoid real HTTP calls
+        with patch.object(fetcher, "_fetch_noaa", new_callable=AsyncMock) as mock_noaa:
+            mock_noaa.return_value = None
+            await fetcher.get_forecast("New York")
+            # Should resolve to airport coords (KLGA)
+            mock_noaa.assert_called_once_with("new york", (40.7772, -73.8726))
 
 
 class TestWeatherFetcherParsing:
@@ -103,24 +136,27 @@ class TestWeatherFetcherParsing:
 
     @pytest.mark.asyncio
     async def test_parses_forecast_response(self, fetcher):
-        points_resp = _make_response(SAMPLE_POINTS_RESPONSE)
-        forecast_resp = _make_response(SAMPLE_FORECAST_RESPONSE)
+        """New NOAA flow: observations + hourly → daily max periods."""
+        obs_resp = _make_response(SAMPLE_OBSERVATIONS_RESPONSE)
+        hourly_resp = _make_response(SAMPLE_HOURLY_RESPONSE)
 
         with patch.object(fetcher, "_get_client") as mock_client:
-            mock_get = AsyncMock(side_effect=[points_resp, forecast_resp])
+            # NYC uses pre-mapped endpoints: 1 obs call + 1 hourly call
+            mock_get = AsyncMock(side_effect=[obs_resp, hourly_resp])
             mock_client.return_value.get = mock_get
             result = await fetcher.get_forecast("new york")
 
         assert result is not None
-        assert len(result) == 5
+        # 3 unique dates in hourly response
+        assert len(result) == 3
 
     @pytest.mark.asyncio
     async def test_period_fields(self, fetcher):
-        points_resp = _make_response(SAMPLE_POINTS_RESPONSE)
-        forecast_resp = _make_response(SAMPLE_FORECAST_RESPONSE)
+        obs_resp = _make_response(SAMPLE_OBSERVATIONS_RESPONSE)
+        hourly_resp = _make_response(SAMPLE_HOURLY_RESPONSE)
 
         with patch.object(fetcher, "_get_client") as mock_client:
-            mock_get = AsyncMock(side_effect=[points_resp, forecast_resp])
+            mock_get = AsyncMock(side_effect=[obs_resp, hourly_resp])
             mock_client.return_value.get = mock_get
             result = await fetcher.get_forecast("new york")
 
@@ -128,23 +164,35 @@ class TestWeatherFetcherParsing:
         assert first.city == "new york"
         assert first.date == "2026-03-10"
         assert first.period == "day"
+        # Max of obs (55°F = round(12.8°C × 9/5 + 32)) and hourly (55°F)
         assert first.temp_f == 55.0
         assert first.temp_low_f == 52.0  # 55 - 3
         assert first.temp_high_f == 58.0  # 55 + 3
 
     @pytest.mark.asyncio
-    async def test_night_period(self, fetcher):
-        points_resp = _make_response(SAMPLE_POINTS_RESPONSE)
-        forecast_resp = _make_response(SAMPLE_FORECAST_RESPONSE)
+    async def test_observations_override_forecast(self, fetcher):
+        """Station observations should be used when they have a higher temp."""
+        # Observation: 20°C = 68°F (higher than hourly forecast 55°F)
+        hot_obs = {
+            "features": [{
+                "properties": {
+                    "timestamp": "2026-03-10T14:00:00+00:00",
+                    "temperature": {"value": 20.0},
+                }
+            }]
+        }
+        obs_resp = _make_response(hot_obs)
+        hourly_resp = _make_response(SAMPLE_HOURLY_RESPONSE)
 
         with patch.object(fetcher, "_get_client") as mock_client:
-            mock_get = AsyncMock(side_effect=[points_resp, forecast_resp])
+            mock_get = AsyncMock(side_effect=[obs_resp, hourly_resp])
             mock_client.return_value.get = mock_get
             result = await fetcher.get_forecast("new york")
 
-        second = result[1]
-        assert second.period == "night"
-        assert second.temp_f == 42.0
+        first = result[0]
+        assert first.date == "2026-03-10"
+        # 20°C = 68°F, which is higher than the hourly forecast of 55°F
+        assert first.temp_f == 68.0
 
     def test_parse_periods_directly(self, fetcher):
         periods = SAMPLE_FORECAST_RESPONSE["properties"]["periods"]
@@ -197,42 +245,43 @@ class TestWeatherFetcherCache:
 
     @pytest.mark.asyncio
     async def test_caches_forecast(self, fetcher):
-        points_resp = _make_response(SAMPLE_POINTS_RESPONSE)
-        forecast_resp = _make_response(SAMPLE_FORECAST_RESPONSE)
+        obs_resp = _make_response(SAMPLE_OBSERVATIONS_RESPONSE)
+        hourly_resp = _make_response(SAMPLE_HOURLY_RESPONSE)
 
         with patch.object(fetcher, "_get_client") as mock_client:
-            mock_get = AsyncMock(side_effect=[points_resp, forecast_resp])
+            mock_get = AsyncMock(side_effect=[obs_resp, hourly_resp])
             mock_client.return_value.get = mock_get
 
             result1 = await fetcher.get_forecast("new york")
             result2 = await fetcher.get_forecast("new york")
 
-        # Only 2 HTTP calls (points + forecast), not 4
+        # Only 2 HTTP calls (observations + hourly), second call served from cache
         assert mock_get.call_count == 2
         assert result1 == result2
 
     @pytest.mark.asyncio
-    async def test_gridpoint_url_cached_permanently(self, fetcher):
-        points_resp = _make_response(SAMPLE_POINTS_RESPONSE)
-        forecast_resp = _make_response(SAMPLE_FORECAST_RESPONSE)
+    async def test_pre_mapped_cities_skip_gridpoint_lookup(self, fetcher):
+        """NYC and other primary cities use pre-mapped hourly endpoints."""
+        obs_resp = _make_response(SAMPLE_OBSERVATIONS_RESPONSE)
+        hourly_resp = _make_response(SAMPLE_HOURLY_RESPONSE)
 
         with patch.object(fetcher, "_get_client") as mock_client:
-            mock_get = AsyncMock(side_effect=[points_resp, forecast_resp])
+            mock_get = AsyncMock(side_effect=[obs_resp, hourly_resp])
             mock_client.return_value.get = mock_get
             await fetcher.get_forecast("new york")
 
-        # Gridpoint URL should be cached
-        assert "40.7128,-74.006" in fetcher._gridpoint_cache
+        # No gridpoint lookup needed for pre-mapped cities
+        assert len(fetcher._gridpoint_cache) == 0
 
     @pytest.mark.asyncio
     async def test_expired_cache_refetches(self, fetcher):
-        points_resp = _make_response(SAMPLE_POINTS_RESPONSE)
-        forecast_resp = _make_response(SAMPLE_FORECAST_RESPONSE)
+        obs_resp = _make_response(SAMPLE_OBSERVATIONS_RESPONSE)
+        hourly_resp = _make_response(SAMPLE_HOURLY_RESPONSE)
 
         with patch.object(fetcher, "_get_client") as mock_client:
             mock_get = AsyncMock(side_effect=[
-                points_resp, forecast_resp,
-                forecast_resp,  # only forecast re-fetched (gridpoint cached)
+                obs_resp, hourly_resp,       # first fetch
+                obs_resp, hourly_resp,       # re-fetch after expiry
             ])
             mock_client.return_value.get = mock_get
 
@@ -243,8 +292,8 @@ class TestWeatherFetcherCache:
 
             await fetcher.get_forecast("new york")
 
-        # 3 calls: points + forecast + forecast (re-fetch)
-        assert mock_get.call_count == 3
+        # 4 calls: (obs + hourly) × 2
+        assert mock_get.call_count == 4
 
 
 class TestWeatherFetcherCircuitBreaker:
