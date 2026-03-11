@@ -474,6 +474,30 @@ class GammaClient:
         )
         return results
 
+    async def get_event_by_slug(self, slug: str) -> dict | None:
+        """Fetch a Polymarket event by its URL slug.
+
+        Returns the raw event dict (with nested 'markets' list) or None.
+        Used for direct weather market lookup via predictable slugs like:
+        'highest-temperature-in-nyc-on-march-11-2026'
+        """
+        if not self._gamma_breaker.allow_request():
+            return None
+
+        try:
+            resp = await self._gamma_client.get("/events", params={"slug": slug})
+            resp.raise_for_status()
+            data = resp.json()
+            self._gamma_breaker.record_success()
+
+            if data and isinstance(data, list) and len(data) > 0:
+                return data[0]
+            return None
+        except Exception as e:
+            self._gamma_breaker.record_failure()
+            logger.debug("gamma_event_by_slug_failed", slug=slug, error=str(e))
+            return None
+
     async def search_markets(self, query: str, limit: int = 20) -> list[GammaMarket]:
         """Search markets by question text."""
         markets = await self.get_active_markets(limit=200)

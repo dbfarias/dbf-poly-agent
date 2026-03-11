@@ -1494,3 +1494,76 @@ class TestGetCrypto5minMarkets:
             result = await client.get_crypto_5min_markets()
 
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_event_by_slug
+# ---------------------------------------------------------------------------
+
+
+class TestGetEventBySlug:
+    @pytest.mark.asyncio
+    async def test_returns_first_event(self):
+        """Should return first event from Gamma API response."""
+        client = make_gamma_client()
+        event_data = [{"slug": "test-slug", "markets": [{"id": "m1"}]}]
+        client._gamma_client.get = AsyncMock(
+            return_value=make_httpx_response(event_data)
+        )
+
+        result = await client.get_event_by_slug("test-slug")
+
+        assert result is not None
+        assert result["slug"] == "test-slug"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_empty_response(self):
+        """Should return None when no events match the slug."""
+        client = make_gamma_client()
+        client._gamma_client.get = AsyncMock(
+            return_value=make_httpx_response([])
+        )
+
+        result = await client.get_event_by_slug("nonexistent-slug")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_error(self):
+        """Should return None on API error (graceful degradation)."""
+        client = make_gamma_client()
+        client._gamma_client.get = AsyncMock(
+            side_effect=Exception("network error")
+        )
+
+        result = await client.get_event_by_slug("test-slug")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_passes_slug_as_param(self):
+        """Should pass slug as query parameter to /events endpoint."""
+        client = make_gamma_client()
+        client._gamma_client.get = AsyncMock(
+            return_value=make_httpx_response([])
+        )
+
+        await client.get_event_by_slug("highest-temperature-in-nyc-on-march-11-2026")
+
+        client._gamma_client.get.assert_called_once_with(
+            "/events",
+            params={"slug": "highest-temperature-in-nyc-on-march-11-2026"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_respects_circuit_breaker(self):
+        """Should return None when circuit breaker is open."""
+        client = make_gamma_client()
+        client._gamma_breaker._failures = 5
+        client._gamma_breaker._state = "open"
+        import time
+        client._gamma_breaker._last_failure_time = time.monotonic()
+
+        result = await client.get_event_by_slug("test-slug")
+
+        assert result is None
