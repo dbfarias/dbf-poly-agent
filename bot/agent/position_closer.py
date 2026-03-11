@@ -152,7 +152,11 @@ class PositionCloser:
         self._sell_fail_count.pop(pos.market_id, None)
 
         if trade.status == "filled":
-            pnl = await self.portfolio.record_trade_close(pos.market_id, pos.current_price)
+            # Use actual CLOB fill price for PnL, not stale market mid-price.
+            # pos.current_price is from the order book and can be wildly different
+            # from what we actually sold at (especially on 5-min markets).
+            actual_sell_price = trade.price
+            pnl = await self.portfolio.record_trade_close(pos.market_id, actual_sell_price)
             self.risk_manager.update_daily_pnl(pnl)
 
             from bot.data.repositories import TradeRepository
@@ -165,7 +169,7 @@ class PositionCloser:
                     )
                     await repo.close_trade_for_position(
                         pos.market_id, pnl, exit_reason,
-                        close_price=pos.current_price,
+                        close_price=actual_sell_price,
                         position_size=pos.size,
                     )
             except Exception as e:
@@ -338,6 +342,9 @@ class PositionCloser:
         candidates = []
         now = datetime.now(timezone.utc)
         for pos in positions:
+            # Never rebalance crypto 5-min positions — they auto-resolve
+            if pos.strategy == "crypto_short_term":
+                continue
             # Skip ghost positions (3+ consecutive sell failures)
             if self._sell_fail_count.get(pos.market_id, 0) >= 3:
                 continue

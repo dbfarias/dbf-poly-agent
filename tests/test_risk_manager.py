@@ -266,14 +266,12 @@ class TestCheckDailyLoss:
         result = rm._check_daily_loss(17.0, config)
         assert result.passed is False
 
-    def test_micro_account_relaxed(self, rm):
-        """Micro accounts (< $10) get relaxed daily loss limit (50%)."""
+    def test_micro_account_same_limit(self, rm):
+        """Micro accounts use same daily loss limit as normal (no relaxation)."""
         config = TierConfig.get(CapitalTier.TIER1)
         rm._day_start_equity = 10.0
-        # bankroll=6 → PnL=-4.0, limit with 50% = -5.0 → PASS
-        assert rm._check_daily_loss(6.0, config).passed is True
-        # bankroll=4 → PnL=-6.0, limit with 50% = -5.0 → FAIL
-        assert rm._check_daily_loss(4.0, config).passed is False
+        # bankroll=8 → PnL=-2.0, limit=0.6 (6% of 10) → FAIL
+        assert rm._check_daily_loss(8.0, config).passed is False
 
 
 class TestSetDayStartEquity:
@@ -313,14 +311,12 @@ class TestCheckDrawdown:
         # current_drawdown returns 0.0 when peak is 0
         assert rm._check_drawdown(15.0, config).passed is True
 
-    def test_micro_account_relaxed(self, rm):
-        """Micro accounts (< $10) get relaxed drawdown limit (80%)."""
+    def test_micro_account_same_limit(self, rm):
+        """Micro accounts use same drawdown limit as normal (no relaxation)."""
         config = TierConfig.get(CapitalTier.TIER1)
-        rm._peak_equity = 25.0
-        # bankroll 8.0 → dd = 68%. Under 80% micro limit → PASS
-        assert rm._check_drawdown(8.0, config).passed is True
-        # bankroll 4.0 → dd = 84%. Over 80% micro limit → FAIL
-        assert rm._check_drawdown(4.0, config).passed is False
+        rm._peak_equity = 20.0
+        # bankroll 14 → dd = 30%. Exceeds 12% → FAIL
+        assert rm._check_drawdown(14.0, config).passed is False
 
 
 # ---------------------------------------------------------------------------

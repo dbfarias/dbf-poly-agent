@@ -307,10 +307,12 @@ async def pause_trading(_: str = Depends(verify_api_key)):
 @router.post("/trading/resume")
 async def resume_trading(_: str = Depends(verify_api_key)):
     engine = get_engine()
-    engine.risk_manager.resume()
+    # Reset peak equity to current equity so drawdown gate starts fresh
+    equity = engine.portfolio.total_equity
+    engine.risk_manager.resume(current_equity=equity)
     from bot.data.settings_store import StateStore
     await StateStore.save_trading_paused(False)
-    return {"status": "resumed"}
+    return {"status": "resumed", "peak_equity_reset_to": round(equity, 2)}
 
 
 @router.post("/risk/reset")

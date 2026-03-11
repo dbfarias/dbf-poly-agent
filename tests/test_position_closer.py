@@ -49,11 +49,12 @@ def _make_position(
     return pos
 
 
-def _make_trade(status="filled", trade_id=42):
+def _make_trade(status="filled", trade_id=42, price=0.50):
     """Return a lightweight trade mock."""
     trade = MagicMock()
     trade.status = status
     trade.id = trade_id
+    trade.price = price
     return trade
 
 
@@ -155,8 +156,8 @@ async def test_close_position_paper_filled():
         with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
             await closer.close_position(pos)
 
-        # Portfolio PnL recorded
-        pf.record_trade_close.assert_awaited_once_with(pos.market_id, pos.current_price)
+        # Portfolio PnL recorded using actual CLOB fill price (trade.price)
+        pf.record_trade_close.assert_awaited_once_with(pos.market_id, trade.price)
         rm.update_daily_pnl.assert_called_once_with(-0.50)
 
         # Event emitted with correct args
@@ -227,10 +228,10 @@ async def test_close_position_propagates_exit_reason():
         with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
             await closer.close_position(pos, exit_reason="stop_loss (15% loss)")
 
-        # Verify exit_reason propagated to DB
+        # Verify exit_reason propagated to DB (close_price = actual CLOB fill price)
         mock_repo.close_trade_for_position.assert_awaited_once_with(
             pos.market_id, 0.25, "stop_loss (15% loss)",
-            close_price=pos.current_price,
+            close_price=trade.price,
             position_size=pos.size,
         )
 

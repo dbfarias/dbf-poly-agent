@@ -755,6 +755,7 @@ class TestSellConfirmation:
         trade = MagicMock()
         trade.status = "filled"
         trade.id = 42
+        trade.price = 0.88  # actual CLOB fill price
         engine.order_manager.close_position = AsyncMock(return_value=trade)
         _rewire_closer(engine)
 
@@ -771,6 +772,7 @@ class TestSellConfirmation:
              patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
             await engine.closer.close_position(pos)
 
+        # PnL uses actual CLOB fill price (trade.price), not stale market mid-price
         engine.portfolio.record_trade_close.assert_called_once_with("mkt_pnl", 0.88)
         engine.risk_manager.update_daily_pnl.assert_called_once_with(1.5)
         mock_repo.update_status.assert_awaited_once()

@@ -67,9 +67,24 @@ class RiskManager:
         self._is_paused = True
         logger.warning("trading_paused")
 
-    def resume(self) -> None:
+    def resume(self, current_equity: float | None = None) -> None:
+        """Resume trading. Optionally reset peak equity to give a fresh baseline.
+
+        When resuming after losses, stale peak equity causes permanently high
+        drawdown. Resetting to current equity lets the bot trade again with
+        the same protective limits measured from now, not from past peaks.
+        """
         self._is_paused = False
-        logger.info("trading_resumed")
+        if current_equity is not None and current_equity > 0:
+            self._peak_equity = current_equity
+            self._day_start_equity = current_equity
+            logger.info(
+                "trading_resumed_with_reset",
+                peak_equity=current_equity,
+                day_start_equity=current_equity,
+            )
+        else:
+            logger.info("trading_resumed")
 
     def update_peak_equity(self, equity: float) -> None:
         """Update peak equity tracker.
@@ -207,12 +222,7 @@ class RiskManager:
     def _check_daily_loss(self, bankroll: float, config: dict) -> RiskCheckResult:
         # Use equity-based PnL (not accumulated trade PnL which can be inflated)
         daily_pnl = bankroll - self._day_start_equity
-        # Micro accounts: relax daily loss limit for recovery mode.
-        # With $6 equity, a 6% limit = $0.36 — one bad trade freezes the bot.
-        pct = config["daily_loss_limit_pct"]
-        if bankroll < 10:
-            pct = max(pct, 0.50)  # Allow up to 50% daily loss
-        limit = self._day_start_equity * pct
+        limit = self._day_start_equity * config["daily_loss_limit_pct"]
         if daily_pnl < -limit:
             return RiskCheckResult(
                 False, f"Daily loss limit reached: ${daily_pnl:.2f} < -${limit:.2f}"
@@ -221,11 +231,7 @@ class RiskManager:
 
     def _check_drawdown(self, bankroll: float, config: dict) -> RiskCheckResult:
         dd = current_drawdown(bankroll, self._peak_equity)
-        # Micro accounts: peak equity from before losses makes drawdown
-        # permanently high. Reset peak to current equity to unblock.
         limit = config["max_drawdown_pct"]
-        if bankroll < 10:
-            limit = max(limit, 0.80)  # Allow up to 80% drawdown
         if dd > limit:
             return RiskCheckResult(
                 False, f"Max drawdown exceeded: {dd:.1%} > {limit:.1%}"
@@ -371,10 +377,7 @@ class RiskManager:
         # Small accounts: historical VaR from early losses shouldn't
         # permanently freeze trading — other gates (Z-score, VPIN,
         # spread check) protect against bad trades now.
-        # Micro accounts need extra room to recover from early losses.
-        if bankroll < 10:
-            effective_limit = -0.50  # Recovery mode: VaR gate almost disabled
-        elif bankroll < 25:
+        if bankroll < 25:
             effective_limit = -0.35
         elif bankroll < 50:
             effective_limit = -0.20
