@@ -509,3 +509,17 @@ export interface DailyReport {
 
 export const fetchDailyReport = () =>
   api.get<DailyReport>("/api/report/daily").then((r) => r.data);
+
+// Capital Flow types
+export interface CapitalFlow {
+  id: number;
+  timestamp: string;
+  amount: number;
+  flow_type: string;
+  source: string;
+  note: string;
+  is_paper: boolean;
+}
+
+export const fetchCapitalFlows = (limit = 50) =>
+  api.get<CapitalFlow[]>("/api/portfolio/capital-flows", { params: { limit } }).then((r) => r.data);

@@ -161,7 +161,7 @@ export default function Dashboard() {
           }
           icon={<TrendingUp size={16} />}
           testId="todays-pnl"
-          help="Real-time P&L today: current equity minus start-of-day equity. Includes both realized and unrealized gains/losses."
+          help="Trade-based P&L today: realized gains from closed trades plus unrealized gains from open positions. Excludes deposits and withdrawals."
         />
         <StatCard
           title="Win Rate"

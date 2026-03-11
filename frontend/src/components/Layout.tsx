@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  Banknote,
   BarChart3,
   Brain,
   FileText,
@@ -32,6 +33,7 @@ const navItems = [
   { to: "/report", icon: FileText, label: "Report" },
   { to: "/learner", icon: Brain, label: "Learner" },
   { to: "/ai-debates", icon: MessageSquare, label: "AI Debates" },
+  { to: "/capital-flows", icon: Banknote, label: "Capital" },
   { to: "/activity", icon: ScrollText, label: "Activity" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
