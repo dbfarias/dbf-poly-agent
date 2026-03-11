@@ -110,6 +110,12 @@ class ReturnsTracker:
         # Keep only the last N days
         self._returns = updated[-self._window:]
 
+    def reset(self) -> None:
+        """Clear all historical returns and profit/loss accumulators."""
+        self._returns.clear()
+        self._gross_profit = 0.0
+        self._gross_loss = 0.0
+
     @property
     def returns(self) -> tuple[float, ...]:
         """Immutable copy of daily returns."""

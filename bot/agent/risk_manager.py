@@ -66,7 +66,7 @@ class RiskManager:
         self._day_start_equity = equity
         self._peak_equity = equity
         if self._returns_tracker is not None:
-            self._returns_tracker.returns.clear()
+            self._returns_tracker.reset()
         logger.info("risk_manager_state_reset", equity=equity)
 
     def pause(self) -> None:
