@@ -23,7 +23,7 @@ from bot.agent.engine import TradingEngine, _apply_urgency_to_edge_multiplier
 from bot.agent.learner import LearnerAdjustments
 from bot.agent.position_closer import PositionCloser
 from bot.agent.risk_manager import RiskManager
-from bot.config import CapitalTier, TierConfig
+from bot.config import RiskConfig
 from bot.data.models import Position
 from bot.polymarket.types import OrderSide, TradeSignal
 
@@ -149,7 +149,6 @@ def _setup_engine_for_evaluate(
     engine.portfolio.cash = equity
     engine.portfolio.total_equity = equity
     engine.portfolio.positions = positions or []
-    engine.portfolio.tier = CapitalTier.TIER1
     engine.portfolio.open_position_count = len(positions or [])
     engine.portfolio.day_start_equity = equity
     engine.portfolio.realized_pnl_today = 0.0
@@ -225,7 +224,7 @@ class TestDebateFailureFallback:
             engine.research_engine = MagicMock()
             engine.research_engine.correlation_detector.get_group.return_value = None
 
-            _found, _approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            _found, _approved, placed = await engine._evaluate_signals()
 
         # Signal should have passed through (debate returned None = no gate)
         assert placed >= 1
@@ -277,7 +276,7 @@ class TestDebateFailureFallback:
             engine.research_engine = MagicMock()
             engine.research_engine.correlation_detector.get_group.return_value = None
 
-            _found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            _found, approved, placed = await engine._evaluate_signals()
 
         # Risk rejects (edge too low), debate says override, but re-evaluation
         # also fails because edge hasn't changed → signal stays rejected
@@ -342,7 +341,7 @@ class TestRapidSignalSuccession:
             engine.research_engine = MagicMock()
             engine.research_engine.correlation_detector.get_group.return_value = None
 
-            _found, _approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            _found, _approved, placed = await engine._evaluate_signals()
 
         # With $15 equity, can't fill all 5 trades at ~$5 each when positions
         # count toward deployed capital limits. At least one should be rejected.
@@ -403,7 +402,7 @@ class TestRapidSignalSuccession:
             engine.research_engine = MagicMock()
             engine.research_engine.correlation_detector.get_group.return_value = None
 
-            await engine._evaluate_signals(CapitalTier.TIER1)
+            await engine._evaluate_signals()
 
         # Verify bankroll decreases for subsequent signals after fills
         # The first risk eval uses full equity, subsequent ones use reduced
@@ -446,18 +445,17 @@ class TestCategoryExposureCrossStrategy:
         rm = RiskManager()
         rm._peak_equity = 50.0
         rm._day_start_equity = 50.0
-        tier = CapitalTier.TIER1
-        config = TierConfig.get(tier)
+        config = RiskConfig.get()
 
         # Crypto: 2 positions * $10 cost_basis = $20 = 40% of $50
         # max_per_category_pct is typically 0.40 (40%)
         crypto_ok, _, crypto_reason = await rm.evaluate_signal(
             signal=sig_crypto, bankroll=50.0,
-            open_positions=existing, tier=tier,
+            open_positions=existing,
         )
         politics_ok, _, _ = await rm.evaluate_signal(
             signal=sig_politics, bankroll=50.0,
-            open_positions=existing, tier=tier,
+            open_positions=existing,
         )
 
         assert not crypto_ok, f"Crypto signal should be blocked: {crypto_reason}"
@@ -486,7 +484,7 @@ class TestCategoryExposureCrossStrategy:
 
         ok, _, reason = await rm.evaluate_signal(
             signal=sig_arb, bankroll=50.0,
-            open_positions=existing, tier=CapitalTier.TIER1,
+            open_positions=existing,
         )
 
         assert not ok, f"Arb crypto should be blocked by cross-strategy category: {reason}"
@@ -691,7 +689,7 @@ class TestLearnerDebateUrgencyComposition:
     def test_category_min_edge_overrides_base(self):
         """category_min_edge=0.03, base=0.01 → required_mult=3.0, clamped to 2.0."""
         # Simulate the edge_multiplier composition from engine.py lines 916-927
-        base_min = 0.01  # from TierConfig min_edge_pct
+        base_min = 0.01  # from RiskConfig min_edge_pct
         cat_min_edge = 0.03  # from learner category_min_edges
 
         edge_multiplier = 1.0  # initial from learner
@@ -737,7 +735,7 @@ class TestRuleConflictValidators:
             current_price=0.46,  # 8% loss
         )
 
-        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+        exits = await analyzer.check_exits([pos])
 
         assert len(exits) == 1
         market_id, reason = exits[0]
@@ -761,13 +759,13 @@ class TestRuleConflictValidators:
         result = rm._check_total_deployed(
             open_positions=[],
             bankroll=100.0,
-            config=TierConfig.get(CapitalTier.TIER1),
+            config=RiskConfig.get(),
             urgency=10.0,
         )
         assert result.passed
 
         # Verify the formula: min(0.95, base + (urgency-1)*0.05)
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         base_pct = config.get("max_deployed_pct", 0.60)
         computed = min(0.95, base_pct + (10.0 - 1.0) * 0.05)
         assert computed == 0.95  # Should be capped
@@ -833,7 +831,7 @@ class TestRuleConflictValidators:
             engine.research_engine = MagicMock()
             engine.research_engine.correlation_detector.get_group.return_value = None
 
-            await engine._evaluate_signals(CapitalTier.TIER1)
+            await engine._evaluate_signals()
 
         # Market should NOT be in cooldown (no trade was placed)
         assert "no_cooldown_mkt" not in engine._market_cooldown

@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 from .base import BaseStrategy
@@ -53,7 +52,6 @@ class CryptoShortTermStrategy(BaseStrategy):
     """Trade 5-min/15-min crypto prediction markets using spot momentum + orderbook."""
 
     name = "crypto_short_term"
-    min_tier = CapitalTier.TIER1
     MIN_HOLD_SECONDS = 30
 
     MIN_EDGE = 0.02

@@ -3,7 +3,7 @@
 import structlog
 
 from bot.agent.market_analyzer import normalize_category
-from bot.config import CapitalTier, TierConfig, settings, trading_day
+from bot.config import RiskConfig, settings, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import TradeSignal
 from bot.utils.math_utils import (
@@ -148,7 +148,6 @@ class RiskManager:
         signal: TradeSignal,
         bankroll: float,
         open_positions: list[Position],
-        tier: CapitalTier,
         pending_count: int = 0,
         edge_multiplier: float = 1.0,
         urgency: float = 1.0,
@@ -162,7 +161,7 @@ class RiskManager:
         edge_multiplier: from learner — adjusts min_edge threshold.
                          >1.0 = stricter (losing strategy), <1.0 = relaxed (winning).
         """
-        config = TierConfig.get(tier)
+        config = RiskConfig.get()
 
         # Run cascading checks
         checks = [
@@ -204,7 +203,6 @@ class RiskManager:
             strategy=signal.strategy,
             market_id=signal.market_id,
             size=size,
-            tier=tier.value,
         )
         return True, size, "approved"
 
@@ -497,13 +495,11 @@ class RiskManager:
 
     def get_risk_metrics(self, bankroll: float) -> dict:
         """Get current risk metrics for the dashboard."""
-        tier = CapitalTier.from_bankroll(bankroll)
-        config = TierConfig.get(tier)
+        config = RiskConfig.get()
         dd = current_drawdown(bankroll, self._peak_equity)
 
         rt = self._returns_tracker
         return {
-            "tier": tier.value,
             "bankroll": bankroll,
             "peak_equity": self._peak_equity,
             "current_drawdown_pct": dd,

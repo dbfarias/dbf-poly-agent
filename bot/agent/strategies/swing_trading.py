@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 from .base import BaseStrategy
@@ -42,7 +41,6 @@ class SwingTradingStrategy(BaseStrategy):
     """Buy liquid mid-range markets and sell for quick profit."""
 
     name = "swing_trading"
-    min_tier = CapitalTier.TIER1
 
     # Swing trades are short-term momentum plays
     MIN_HOLD_SECONDS = 1800  # 30 min

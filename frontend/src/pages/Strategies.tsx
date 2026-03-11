@@ -14,12 +14,12 @@ export default function Strategies() {
 
   const all = strategies ?? [];
   const defaultStrategies = [
-    { name: "time_decay", label: "Time Decay", tier: "Tier 1+", help: "Buys YES on markets very likely to resolve YES that are close to expiring. Profits from the price converging to $1.00 as resolution approaches." },
-    { name: "arbitrage", label: "Arbitrage", tier: "Tier 1+", help: "Finds price discrepancies where YES + NO prices don't sum to $1.00 and captures the gap as risk-free profit." },
-    { name: "price_divergence", label: "Price Divergence", tier: "Tier 1+", help: "Detects divergences between external data (crypto prices, news sentiment) and contract prices. Targets 0.3-0.8% micro-trades with tight TP/SL." },
-    { name: "swing_trading", label: "Swing Trading", tier: "Tier 2+", help: "Buys liquid mid-range markets with confirmed upward momentum and sells for 1.5% profit within hours." },
-    { name: "value_betting", label: "Value Betting", tier: "Tier 1+", help: "Identifies markets where the bot's estimated probability differs significantly from the market price, betting on the mispricing." },
-    { name: "market_making", label: "Market Making", tier: "Tier 3+", help: "Places both buy and sell orders to earn the bid-ask spread. Requires larger capital for sufficient order sizes." },
+    { name: "time_decay", label: "Time Decay", help: "Buys YES on markets very likely to resolve YES that are close to expiring. Profits from the price converging to $1.00 as resolution approaches." },
+    { name: "arbitrage", label: "Arbitrage", help: "Finds price discrepancies where YES + NO prices don't sum to $1.00 and captures the gap as risk-free profit." },
+    { name: "price_divergence", label: "Price Divergence", help: "Detects divergences between external data (crypto prices, news sentiment) and contract prices. Targets 0.3-0.8% micro-trades with tight TP/SL." },
+    { name: "swing_trading", label: "Swing Trading", help: "Buys liquid mid-range markets with confirmed upward momentum and sells for 1.5% profit within hours." },
+    { name: "value_betting", label: "Value Betting", help: "Identifies markets where the bot's estimated probability differs significantly from the market price, betting on the mispricing." },
+    { name: "market_making", label: "Market Making", help: "Places both buy and sell orders to earn the bid-ask spread. Requires larger capital for sufficient order sizes." },
   ];
 
   return (
@@ -27,7 +27,7 @@ export default function Strategies() {
       <h2 className="text-xl font-bold">Strategy Performance</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {defaultStrategies.map(({ name, label, tier, help }) => {
+        {defaultStrategies.map(({ name, label, help }) => {
           const s = all.find((x) => x.strategy === name);
           return (
             <div key={name} className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5" data-testid={`strategy-card-${name}`}>
@@ -37,7 +37,6 @@ export default function Strategies() {
                     {label}
                     <HelpTooltip text={help} />
                   </h3>
-                  <span className="text-xs text-zinc-500">{tier}</span>
                 </div>
                 <span
                   className={clsx(

@@ -53,14 +53,11 @@ export default function Dashboard() {
               </span>
               <HelpTooltip text="PAPER mode simulates trades without using real money. LIVE mode places real orders on Polymarket with your USDC balance." />
             </span>
-            <span className="flex items-center gap-1">
-              <span
-                className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium"
-                data-testid="tier-badge"
-              >
-                {portfolio.tier.toUpperCase()}
-              </span>
-              <HelpTooltip text="Capital tier determines your risk limits. Tier 1: $5-$25 (1 position, conservative). Tier 2: $25-$100 (3 positions). Tier 3: $100+ (10 positions, full strategy access)." />
+            <span
+              className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium"
+              data-testid="equity-badge"
+            >
+              ${portfolio.total_equity.toFixed(2)}
             </span>
           </div>
         )}

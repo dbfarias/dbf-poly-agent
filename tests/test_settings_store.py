@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from bot.config import CapitalTier, TierConfig, settings
+from bot.config import RiskConfig, settings
 from bot.data.models import Base
 from bot.data.repositories import SettingsRepository
 
@@ -128,7 +128,7 @@ async def test_save_global_settings(settings_session_factory):
         original = store_mod.async_session
         store_mod.async_session = settings_session_factory
         try:
-            count = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+            count = await SettingsStore.save_from_update(update)
         finally:
             store_mod.async_session = original
 
@@ -144,18 +144,18 @@ async def test_save_global_settings(settings_session_factory):
 
 
 @pytest.mark.asyncio
-async def test_save_tier_config(settings_session_factory):
+async def test_save_risk_config(settings_session_factory):
     from api.schemas import BotConfigUpdate
     from bot.data.settings_store import SettingsStore
 
-    update = BotConfigUpdate(tier_config={"max_positions": 8, "kelly_fraction": 0.25})
+    update = BotConfigUpdate(risk_config={"max_positions": 8, "kelly_fraction": 0.25})
 
     import bot.data.settings_store as store_mod
 
     original = store_mod.async_session
     store_mod.async_session = settings_session_factory
     try:
-        count = await SettingsStore.save_from_update(update, CapitalTier.TIER2)
+        count = await SettingsStore.save_from_update(update)
     finally:
         store_mod.async_session = original
 
@@ -165,8 +165,8 @@ async def test_save_tier_config(settings_session_factory):
         repo = SettingsRepository(session)
         all_s = await repo.get_all()
 
-    assert json.loads(all_s["tier.tier2.max_positions"]) == 8
-    assert json.loads(all_s["tier.tier2.kelly_fraction"]) == 0.25
+    assert json.loads(all_s["risk.max_positions"]) == 8
+    assert json.loads(all_s["risk.kelly_fraction"]) == 0.25
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_save_strategy_params(settings_session_factory):
     original = store_mod.async_session
     store_mod.async_session = settings_session_factory
     try:
-        count = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+        count = await SettingsStore.save_from_update(update)
     finally:
         store_mod.async_session = original
 
@@ -208,7 +208,7 @@ async def test_save_quality_params(settings_session_factory):
     original = store_mod.async_session
     store_mod.async_session = settings_session_factory
     try:
-        count = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+        count = await SettingsStore.save_from_update(update)
     finally:
         store_mod.async_session = original
 
@@ -233,7 +233,7 @@ async def test_save_empty_update_returns_zero(settings_session_factory):
     original = store_mod.async_session
     store_mod.async_session = settings_session_factory
     try:
-        count = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+        count = await SettingsStore.save_from_update(update)
     finally:
         store_mod.async_session = original
 
@@ -276,7 +276,7 @@ async def test_load_and_apply_tier(settings_session_factory, fake_engine):
         repo = SettingsRepository(session)
         await repo.set_many({"tier.tier2.max_positions": json.dumps(10)})
 
-    original_val = TierConfig.get(CapitalTier.TIER2)["max_positions"]
+    original_val = RiskConfig.get()["max_positions"]
 
     import bot.data.settings_store as store_mod
 
@@ -284,10 +284,10 @@ async def test_load_and_apply_tier(settings_session_factory, fake_engine):
     store_mod.async_session = settings_session_factory
     try:
         count = await SettingsStore.load_and_apply(fake_engine)
-        assert TierConfig.get(CapitalTier.TIER2)["max_positions"] == 10
+        assert RiskConfig.get()["max_positions"] == 10
     finally:
         store_mod.async_session = original
-        TierConfig.update(CapitalTier.TIER2, {"max_positions": original_val})
+        RiskConfig.update({"max_positions": original_val})
 
     assert count == 1
 
@@ -358,7 +358,7 @@ async def test_invalid_keys_ignored(settings_session_factory, fake_engine):
     async with settings_session_factory() as session:
         repo = SettingsRepository(session)
         await repo.set_many({
-            "tier.bogus_tier.max_positions": json.dumps(5),
+            "tier.bogus_tier.bogus_param": json.dumps(5),
             "strategy.nonexistent.FOO": json.dumps(99),
             "quality.nonexistent_param": json.dumps(1),
             "unknown_prefix.something": json.dumps(1),
@@ -377,18 +377,19 @@ async def test_invalid_keys_ignored(settings_session_factory, fake_engine):
 
 
 @pytest.mark.asyncio
-async def test_multiple_tiers(settings_session_factory, fake_engine):
+async def test_backward_compat_tier_keys(settings_session_factory, fake_engine):
+    """Old tier.tierX.param keys are applied via backward compat path."""
     from bot.data.settings_store import SettingsStore
 
     async with settings_session_factory() as session:
         repo = SettingsRepository(session)
         await repo.set_many({
             "tier.tier1.max_positions": json.dumps(4),
-            "tier.tier2.max_positions": json.dumps(8),
+            "tier.tier2.kelly_fraction": json.dumps(0.50),
         })
 
-    orig_t1 = TierConfig.get(CapitalTier.TIER1)["max_positions"]
-    orig_t2 = TierConfig.get(CapitalTier.TIER2)["max_positions"]
+    orig_pos = RiskConfig.get()["max_positions"]
+    orig_kelly = RiskConfig.get()["kelly_fraction"]
 
     import bot.data.settings_store as store_mod
 
@@ -396,12 +397,12 @@ async def test_multiple_tiers(settings_session_factory, fake_engine):
     store_mod.async_session = settings_session_factory
     try:
         count = await SettingsStore.load_and_apply(fake_engine)
-        assert TierConfig.get(CapitalTier.TIER1)["max_positions"] == 4
-        assert TierConfig.get(CapitalTier.TIER2)["max_positions"] == 8
+        assert RiskConfig.get()["max_positions"] == 4
+        assert RiskConfig.get()["kelly_fraction"] == 0.50
     finally:
         store_mod.async_session = original
-        TierConfig.update(CapitalTier.TIER1, {"max_positions": orig_t1})
-        TierConfig.update(CapitalTier.TIER2, {"max_positions": orig_t2})
+        RiskConfig.update({"max_positions": orig_pos})
+        RiskConfig.update({"kelly_fraction": orig_kelly})
 
     assert count == 2
 
@@ -418,7 +419,7 @@ async def test_save_disabled_strategies(settings_session_factory):
     original = store_mod.async_session
     store_mod.async_session = settings_session_factory
     try:
-        count = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+        count = await SettingsStore.save_from_update(update)
     finally:
         store_mod.async_session = original
 
@@ -468,7 +469,7 @@ async def test_round_trip_save_then_load(settings_session_factory, fake_engine):
         scan_interval_seconds=25,
         strategy_params={"time_decay": {"MAX_HOURS_TO_RESOLUTION": 72}},
         quality_params={"max_spread": 0.02},
-        tier_config={"kelly_fraction": 0.30},
+        risk_config={"kelly_fraction": 0.30},
     )
 
     import bot.data.settings_store as store_mod
@@ -478,7 +479,7 @@ async def test_round_trip_save_then_load(settings_session_factory, fake_engine):
 
     orig_scan = settings.scan_interval_seconds
     try:
-        saved = await SettingsStore.save_from_update(update, CapitalTier.TIER1)
+        saved = await SettingsStore.save_from_update(update)
         assert saved == 4
 
         loaded = await SettingsStore.load_and_apply(fake_engine)

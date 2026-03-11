@@ -13,24 +13,13 @@ class TradingMode(str, Enum):
     LIVE = "live"
 
 
-class CapitalTier(str, Enum):
-    TIER1 = "tier1"  # $5-$25
-    TIER2 = "tier2"  # $25-$100
-    TIER3 = "tier3"  # $100+
-
-    @classmethod
-    def from_bankroll(cls, bankroll: float) -> "CapitalTier":
-        if bankroll >= 100:
-            return cls.TIER3
-        elif bankroll >= 25:
-            return cls.TIER2
-        return cls.TIER1
 
 
-class TierConfig:
-    """Risk parameters per capital tier (mutable at runtime via dashboard)."""
 
-    # Validation rules: type, min, max for each known key
+
+class RiskConfig:
+    """Risk parameters (flat config, no tiers). Mutable at runtime via dashboard."""
+
     _VALIDATION: dict[str, dict] = {
         "max_positions": {"type": int, "min": 1, "max": 50},
         "max_per_position_pct": {"type": float, "min": 0.01, "max": 1.0},
@@ -43,95 +32,53 @@ class TierConfig:
         "min_win_prob": {"type": float, "min": 0.0, "max": 1.0},
     }
 
-    _DEFAULTS = {
-        CapitalTier.TIER1: {
-            "max_positions": 6,             # More slots for diverse short-term trades
-            "max_per_position_pct": 0.40,   # ~$7 max per position on $17 bankroll
-            "max_deployed_pct": 0.60,       # Tighter: 40% cash reserve (was 85%)
-            "daily_loss_limit_pct": 0.06,   # Tighter: 6% daily loss (was 10%)
-            "max_drawdown_pct": 0.12,       # Tighter: 12% drawdown (was 25%)
-            "min_edge_pct": 0.01,
-            "min_win_prob": 0.55,           # Allow more signals (strategies do own filtering)
-            "max_per_category_pct": 0.40,   # Better diversification across categories
-            "kelly_fraction": 0.35,         # More aggressive when signal passes all gates
-        },
-        CapitalTier.TIER2: {
-            "max_positions": 6,             # Enough slots for diversified short-term trades
-            "max_per_position_pct": 0.20,   # ~$6 max per position
-            "max_deployed_pct": 0.50,       # Tighter: 50% cash reserve (was 80%)
-            "daily_loss_limit_pct": 0.06,   # Tighter (was 8%)
-            "max_drawdown_pct": 0.10,       # Tighter: 10% drawdown (was 15%)
-            "min_edge_pct": 0.02,
-            "min_win_prob": 0.70,
-            "max_per_category_pct": 0.30,   # ~$9 max per normalized category
-            "kelly_fraction": 0.25,         # More aggressive (was 0.15)
-        },
-        CapitalTier.TIER3: {
-            "max_positions": 15,
-            "max_per_position_pct": 0.15,
-            "max_deployed_pct": 0.45,       # Tighter: 55% cash reserve (was 85%)
-            "daily_loss_limit_pct": 0.05,   # Tighter (was 6%)
-            "max_drawdown_pct": 0.08,       # Tighter: 8% drawdown (was 12%)
-            "min_edge_pct": 0.02,
-            "min_win_prob": 0.60,
-            "max_per_category_pct": 0.30,
-            "kelly_fraction": 0.20,
-        },
+    _DEFAULTS: dict[str, object] = {
+        "max_positions": 6,
+        "max_per_position_pct": 0.40,
+        "max_deployed_pct": 0.60,
+        "daily_loss_limit_pct": 0.06,
+        "max_drawdown_pct": 0.12,
+        "min_edge_pct": 0.01,
+        "min_win_prob": 0.55,
+        "max_per_category_pct": 0.40,
+        "kelly_fraction": 0.35,
     }
 
-    # Runtime-mutable copies
-    CONFIGS: dict[CapitalTier, dict] = {
-        tier: dict(params) for tier, params in _DEFAULTS.items()
-    }
+    _CONFIG: dict[str, object] = dict(_DEFAULTS)
 
     @classmethod
-    def get(cls, tier: CapitalTier) -> dict:
-        return dict(cls.CONFIGS[tier])
+    def get(cls) -> dict:
+        return dict(cls._CONFIG)
 
     @classmethod
-    def update(cls, tier: CapitalTier, updates: dict) -> None:
-        """Update tier config at runtime. Only known keys are accepted.
-
-        Validates all values before applying (atomic — rollback if any fail).
-        Raises ValueError on invalid values.
-        """
-        valid_keys = set(cls._DEFAULTS[CapitalTier.TIER1].keys())
-
-        # Filter to known keys only (unknown keys silently ignored)
+    def update(cls, updates: dict) -> None:
+        """Update risk config at runtime. Only known keys are accepted."""
+        valid_keys = set(cls._DEFAULTS.keys())
         known_updates = {k: v for k, v in updates.items() if k in valid_keys}
 
-        # Validate ALL values before applying any
         for key, value in known_updates.items():
             rule = cls._VALIDATION.get(key)
             if rule is None:
                 continue
-
             expected_type = rule["type"]
-            # For int fields, reject floats (3.5 is not a valid int)
             if expected_type is int:
                 if not isinstance(value, int) or isinstance(value, bool):
-                    raise ValueError(
-                        f"{key}: expected int, got {type(value).__name__} ({value!r})"
-                    )
+                    raise ValueError(f"{key}: expected int, got {type(value).__name__} ({value!r})")
             elif expected_type is float:
                 if not isinstance(value, (int, float)) or isinstance(value, bool):
                     raise ValueError(
                         f"{key}: expected number, got {type(value).__name__} ({value!r})"
                     )
-
             if value < rule["min"] or value > rule["max"]:
-                raise ValueError(
-                    f"{key}: {value} out of range [{rule['min']}, {rule['max']}]"
-                )
+                raise ValueError(f"{key}: {value} out of range [{rule['min']}, {rule['max']}]")
 
-        # All valid — apply atomically
         for key, value in known_updates.items():
-            cls.CONFIGS[tier][key] = value
+            cls._CONFIG[key] = value
 
     @classmethod
-    def reset(cls, tier: CapitalTier) -> None:
-        """Reset a tier to default values."""
-        cls.CONFIGS[tier] = dict(cls._DEFAULTS[tier])
+    def reset(cls) -> None:
+        """Reset to default values."""
+        cls._CONFIG = dict(cls._DEFAULTS)
 
 
 class Settings(BaseSettings):

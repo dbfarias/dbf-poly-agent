@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from bot.config import CapitalTier
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,7 +53,7 @@ class TestMinBalanceForTrades:
         # Mock scan_markets — should NOT be called
         engine.analyzer.scan_markets = AsyncMock(return_value=[])
 
-        result = await engine._evaluate_signals(CapitalTier.TIER1)
+        result = await engine._evaluate_signals()
 
         assert result == (0, 0, 0)
         engine.analyzer.scan_markets.assert_not_called()
@@ -71,10 +70,10 @@ class TestMinBalanceForTrades:
         # Mock scan_markets — should be called when cash is sufficient
         engine.analyzer.scan_markets = AsyncMock(return_value=[])
 
-        result = await engine._evaluate_signals(CapitalTier.TIER1)
+        result = await engine._evaluate_signals()
 
         assert result == (0, 0, 0)
-        engine.analyzer.scan_markets.assert_called_once_with(CapitalTier.TIER1)
+        engine.analyzer.scan_markets.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_signals_skipped_at_exact_threshold(self):
@@ -86,7 +85,7 @@ class TestMinBalanceForTrades:
 
         engine.analyzer.scan_markets = AsyncMock(return_value=[])
 
-        await engine._evaluate_signals(CapitalTier.TIER1)
+        await engine._evaluate_signals()
 
         # Exactly at threshold should proceed (condition is strictly <)
         engine.analyzer.scan_markets.assert_called_once()
@@ -101,7 +100,7 @@ class TestMinBalanceForTrades:
 
         engine.analyzer.scan_markets = AsyncMock(return_value=[])
 
-        result = await engine._evaluate_signals(CapitalTier.TIER1)
+        result = await engine._evaluate_signals()
 
         assert result == (0, 0, 0)
         engine.analyzer.scan_markets.assert_not_called()
@@ -129,7 +128,7 @@ class TestMinBalanceForTrades:
 
         engine.analyzer.scan_markets = AsyncMock(return_value=[])
 
-        result = await engine._evaluate_signals(CapitalTier.TIER1)
+        result = await engine._evaluate_signals()
 
         assert result == (0, 0, 0)
         engine.analyzer.scan_markets.assert_not_called()

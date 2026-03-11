@@ -76,7 +76,7 @@ export default function Risk() {
             risk ? `${portfolio?.open_positions ?? 0}/${risk.max_positions}` : "—"
           }
           testId="risk-positions"
-          help="Current open positions vs. maximum allowed. Your capital tier determines how many simultaneous bets you can hold."
+          help="Current open positions vs. maximum allowed by risk config."
         />
         <StatCard
           title="Trading Status"
@@ -122,7 +122,7 @@ export default function Risk() {
         {/* Risk Limits Table */}
         <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4" data-testid="risk-limits-section">
           <h3 className="text-sm font-medium text-zinc-400 mb-4" data-testid="risk-limits-title">
-            Risk Limits ({limits?.tier.toUpperCase()})
+            Risk Limits
           </h3>
           {limits && (
             <div className="space-y-3">

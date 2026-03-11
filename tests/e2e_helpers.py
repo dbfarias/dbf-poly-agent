@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from bot.agent.engine import TradingEngine
 from bot.agent.learner import LearnerAdjustments
 from bot.agent.risk_manager import RiskManager
-from bot.config import CapitalTier
 from bot.data.models import Position
 from bot.polymarket.types import OrderSide, TradeSignal
 
@@ -132,7 +131,6 @@ def _setup_engine_for_evaluate(
     engine.portfolio.cash = 200.0
     engine.portfolio.total_equity = 200.0
     engine.portfolio.positions = positions or []
-    engine.portfolio.tier = CapitalTier.TIER1
     engine.portfolio.open_position_count = len(positions or [])
     engine.portfolio.day_start_equity = 200.0
     engine.portfolio.realized_pnl_today = 0.0

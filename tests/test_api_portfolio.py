@@ -30,7 +30,6 @@ class TestGetOverview:
             "open_positions",
             "peak_equity",
             "day_start_equity",
-            "tier",
             "is_paper",
             "daily_target_pct",
             "daily_target_usd",

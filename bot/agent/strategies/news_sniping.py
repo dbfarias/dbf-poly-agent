@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 from bot.research.news_sniper import NewsSniper, SnipeCandidate
 
@@ -30,7 +29,6 @@ class NewsSniperStrategy(BaseStrategy):
     """Trade breaking news: positive sentiment -> BUY Yes, negative -> BUY No."""
 
     name = "news_sniping"
-    min_tier = CapitalTier.TIER1
     MIN_HOLD_SECONDS = 600  # 10 min minimum hold
 
     # Tunable params

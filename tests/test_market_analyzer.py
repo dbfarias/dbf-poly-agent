@@ -393,13 +393,11 @@ class TestScanMarketsShortTermMerge:
 
         mock_strategy = AsyncMock()
         mock_strategy.name = "value_betting"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = []
 
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
 
-        from bot.config import CapitalTier
-        await analyzer.scan_markets(CapitalTier.TIER1)
+        await analyzer.scan_markets()
 
         # Strategy.scan should have been called with merged list (2 unique markets)
         call_args = mock_strategy.scan.call_args
@@ -422,14 +420,12 @@ class TestScanMarketsShortTermMerge:
 
         mock_strategy = AsyncMock()
         mock_strategy.name = "time_decay"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = []
 
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
 
-        from bot.config import CapitalTier
         # Should not raise
-        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        signals = await analyzer.scan_markets()
         assert isinstance(signals, list)
 
 
@@ -458,8 +454,7 @@ class TestCheckExitsQuestionKwarg:
             question="Will Bitcoin hit $100k?",
         )
 
-        from bot.config import CapitalTier
-        await analyzer.check_exits([pos], CapitalTier.TIER1)
+        await analyzer.check_exits([pos])
 
         mock_strategy.should_exit.assert_called_once()
         call_kwargs = mock_strategy.should_exit.call_args
@@ -483,8 +478,7 @@ class TestCheckExitsReturnFormat:
 
         pos = _position(strategy="time_decay", avg_price=0.80, current_price=0.85)
 
-        from bot.config import CapitalTier
-        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+        exits = await analyzer.check_exits([pos])
 
         assert len(exits) == 1
         market_id, reason = exits[0]
@@ -505,8 +499,7 @@ class TestCheckExitsReturnFormat:
 
         pos = _position(strategy="value_betting", avg_price=0.80, current_price=0.85)
 
-        from bot.config import CapitalTier
-        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+        exits = await analyzer.check_exits([pos])
 
         assert len(exits) == 1
         _, reason = exits[0]
@@ -531,8 +524,7 @@ class TestCheckExitsReturnFormat:
             created_at=created,
         )
 
-        from bot.config import CapitalTier
-        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+        exits = await analyzer.check_exits([pos])
 
         assert len(exits) == 1
         _, reason = exits[0]
@@ -556,8 +548,7 @@ class TestCheckExitsReturnFormat:
             created_at=created,
         )
 
-        from bot.config import CapitalTier
-        exits = await analyzer.check_exits([pos], CapitalTier.TIER1)
+        exits = await analyzer.check_exits([pos])
 
         assert exits == []
 
@@ -568,7 +559,6 @@ class TestDisabledStrategies:
         """Disabled strategies should not produce signals."""
         mock_strategy = AsyncMock()
         mock_strategy.name = "time_decay"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = [_signal()]
 
         cache = MarketCache(default_ttl=60)
@@ -578,8 +568,7 @@ class TestDisabledStrategies:
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
         analyzer.disabled_strategies = {"time_decay"}
 
-        from bot.config import CapitalTier
-        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        signals = await analyzer.scan_markets()
 
         # Strategy was disabled → scan should NOT be called
         mock_strategy.scan.assert_not_called()
@@ -590,7 +579,6 @@ class TestDisabledStrategies:
         """Non-disabled strategies should produce signals."""
         mock_strategy = AsyncMock()
         mock_strategy.name = "time_decay"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = [_signal()]
 
         cache = MarketCache(default_ttl=60)
@@ -600,8 +588,7 @@ class TestDisabledStrategies:
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
         analyzer.disabled_strategies = set()  # nothing disabled
 
-        from bot.config import CapitalTier
-        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        signals = await analyzer.scan_markets()
 
         mock_strategy.scan.assert_called_once()
         assert len(signals) == 1
@@ -686,13 +673,11 @@ class TestScanMarketsNewSources:
 
         mock_strategy = AsyncMock()
         mock_strategy.name = "value_betting"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = []
 
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
 
-        from bot.config import CapitalTier
-        await analyzer.scan_markets(CapitalTier.TIER1)
+        await analyzer.scan_markets()
 
         markets_passed = mock_strategy.scan.call_args[0][0]
         ids = [m.id for m in markets_passed]
@@ -713,13 +698,11 @@ class TestScanMarketsNewSources:
 
         mock_strategy = AsyncMock()
         mock_strategy.name = "time_decay"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = []
 
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
 
-        from bot.config import CapitalTier
-        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        signals = await analyzer.scan_markets()
         assert isinstance(signals, list)
 
     @pytest.mark.asyncio
@@ -736,13 +719,11 @@ class TestScanMarketsNewSources:
 
         mock_strategy = AsyncMock()
         mock_strategy.name = "time_decay"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = []
 
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
 
-        from bot.config import CapitalTier
-        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        signals = await analyzer.scan_markets()
         assert isinstance(signals, list)
 
     @pytest.mark.asyncio
@@ -759,13 +740,11 @@ class TestScanMarketsNewSources:
 
         mock_strategy = AsyncMock()
         mock_strategy.name = "time_decay"
-        mock_strategy.is_enabled_for_tier.return_value = True
         mock_strategy.scan.return_value = []
 
         analyzer = MarketAnalyzer(gamma, cache, [mock_strategy])
 
-        from bot.config import CapitalTier
-        signals = await analyzer.scan_markets(CapitalTier.TIER1)
+        signals = await analyzer.scan_markets()
         assert isinstance(signals, list)
 
 

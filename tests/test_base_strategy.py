@@ -1,16 +1,14 @@
-"""Tests for BaseStrategy tier gating, repr, and order book caching."""
+"""Tests for BaseStrategy repr, update_param, and order book caching."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from bot.agent.strategies.base import BaseStrategy
-from bot.config import CapitalTier
 from bot.polymarket.types import OrderBook, OrderBookEntry
 
 
 def _make_concrete_strategy(
-    min_tier: CapitalTier,
     name: str = "test_strat",
     mutable_params: dict | None = None,
 ):
@@ -26,7 +24,6 @@ def _make_concrete_strategy(
             return False
 
     ConcreteStrategy.name = name
-    ConcreteStrategy.min_tier = min_tier
 
     return ConcreteStrategy(
         clob_client=MagicMock(),
@@ -36,32 +33,8 @@ def _make_concrete_strategy(
 
 
 class TestBaseStrategy:
-    def test_tier1_strategy_enabled_for_all_tiers(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER1)
-        assert strat.is_enabled_for_tier(CapitalTier.TIER1) is True
-        assert strat.is_enabled_for_tier(CapitalTier.TIER2) is True
-        assert strat.is_enabled_for_tier(CapitalTier.TIER3) is True
-
-    def test_tier2_strategy_disabled_for_tier1(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER2)
-        assert strat.is_enabled_for_tier(CapitalTier.TIER1) is False
-
-    def test_tier2_strategy_enabled_for_tier2_and_above(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER2)
-        assert strat.is_enabled_for_tier(CapitalTier.TIER2) is True
-        assert strat.is_enabled_for_tier(CapitalTier.TIER3) is True
-
-    def test_tier3_strategy_disabled_for_tier1_and_tier2(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER3)
-        assert strat.is_enabled_for_tier(CapitalTier.TIER1) is False
-        assert strat.is_enabled_for_tier(CapitalTier.TIER2) is False
-
-    def test_tier3_strategy_enabled_for_tier3(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER3)
-        assert strat.is_enabled_for_tier(CapitalTier.TIER3) is True
-
     def test_repr_includes_name(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER1, name="my_strategy")
+        strat = _make_concrete_strategy(name="my_strategy")
         assert "my_strategy" in repr(strat)
 
 
@@ -73,20 +46,20 @@ class TestBaseStrategy:
 class TestUpdateParam:
     def test_accepts_known_param_in_range(self):
         params = {"MIN_EDGE": {"type": float, "min": 0.0, "max": 0.5}}
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat = _make_concrete_strategy(mutable_params=params)
         strat.MIN_EDGE = 0.01
 
         assert strat.update_param("MIN_EDGE", 0.05) is True
         assert strat.MIN_EDGE == 0.05
 
     def test_rejects_unknown_param(self):
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params={})
+        strat = _make_concrete_strategy(mutable_params={})
         assert strat.update_param("HACKED_ATTR", 999) is False
         assert not hasattr(strat, "HACKED_ATTR")
 
     def test_rejects_value_below_min(self):
         params = {"X": {"type": float, "min": 0.0, "max": 1.0}}
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat = _make_concrete_strategy(mutable_params=params)
         strat.X = 0.5
 
         assert strat.update_param("X", -0.1) is False
@@ -94,7 +67,7 @@ class TestUpdateParam:
 
     def test_rejects_value_above_max(self):
         params = {"X": {"type": float, "min": 0.0, "max": 1.0}}
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat = _make_concrete_strategy(mutable_params=params)
         strat.X = 0.5
 
         assert strat.update_param("X", 1.5) is False
@@ -102,7 +75,7 @@ class TestUpdateParam:
 
     def test_rejects_wrong_type(self):
         params = {"COUNT": {"type": int, "min": 1, "max": 100}}
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat = _make_concrete_strategy(mutable_params=params)
         strat.COUNT = 5
 
         assert strat.update_param("COUNT", "not_a_number") is False
@@ -110,7 +83,7 @@ class TestUpdateParam:
 
     def test_coerces_int_from_float(self):
         params = {"COUNT": {"type": int, "min": 1, "max": 100}}
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat = _make_concrete_strategy(mutable_params=params)
         strat.COUNT = 5
 
         assert strat.update_param("COUNT", 10.0) is True
@@ -118,7 +91,7 @@ class TestUpdateParam:
 
     def test_boundary_values_accepted(self):
         params = {"X": {"type": float, "min": 0.0, "max": 1.0}}
-        strat = _make_concrete_strategy(CapitalTier.TIER1, mutable_params=params)
+        strat = _make_concrete_strategy(mutable_params=params)
 
         assert strat.update_param("X", 0.0) is True
         assert strat.X == 0.0
@@ -149,7 +122,7 @@ class TestGetOrderBook:
 
         mock_clob = AsyncMock()
 
-        strat = _make_concrete_strategy(CapitalTier.TIER1)
+        strat = _make_concrete_strategy()
         strat.cache = mock_cache
         strat.clob = mock_clob
 
@@ -170,7 +143,7 @@ class TestGetOrderBook:
         mock_clob = AsyncMock()
         mock_clob.get_order_book = AsyncMock(return_value=fresh_book)
 
-        strat = _make_concrete_strategy(CapitalTier.TIER1)
+        strat = _make_concrete_strategy()
         strat.cache = mock_cache
         strat.clob = mock_clob
 
@@ -199,11 +172,11 @@ class TestGetOrderBook:
         mock_clob = AsyncMock()
         mock_clob.get_order_book = AsyncMock(return_value=book)
 
-        strat1 = _make_concrete_strategy(CapitalTier.TIER1, name="strat1")
+        strat1 = _make_concrete_strategy(name="strat1")
         strat1.cache = mock_cache
         strat1.clob = mock_clob
 
-        strat2 = _make_concrete_strategy(CapitalTier.TIER1, name="strat2")
+        strat2 = _make_concrete_strategy(name="strat2")
         strat2.cache = mock_cache
         strat2.clob = mock_clob
 

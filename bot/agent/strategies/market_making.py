@@ -7,7 +7,6 @@ Caution: competitive market, requires good inventory management.
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 from .base import BaseStrategy
@@ -22,7 +21,6 @@ class MarketMakingStrategy(BaseStrategy):
     """Provide liquidity on both sides of the spread."""
 
     name = "market_making"
-    min_tier = CapitalTier.TIER3
 
     # MM positions are managed actively
     MIN_HOLD_SECONDS = 60  # 1 min

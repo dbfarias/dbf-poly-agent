@@ -17,7 +17,6 @@ from bot.agent.strategies.market_making import (
     MIN_SPREAD,
     MarketMakingStrategy,
 )
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderBook, OrderBookEntry, OrderSide, TradeSignal
 
 
@@ -77,10 +76,6 @@ class TestInit:
         strategy = _make_strategy()
         assert strategy.name == "market_making"
 
-    def test_min_tier_is_tier3(self):
-        strategy = _make_strategy()
-        assert strategy.min_tier == CapitalTier.TIER3
-
     def test_min_spread_initialized(self):
         strategy = _make_strategy()
         assert strategy.MIN_SPREAD == MIN_SPREAD
@@ -97,17 +92,6 @@ class TestInit:
         strategy = _make_strategy()
         assert strategy.MAX_SPREAD == pytest.approx(0.15)
 
-    def test_tier_gating_disabled_for_tier1(self):
-        strategy = _make_strategy()
-        assert strategy.is_enabled_for_tier(CapitalTier.TIER1) is False
-
-    def test_tier_gating_disabled_for_tier2(self):
-        strategy = _make_strategy()
-        assert strategy.is_enabled_for_tier(CapitalTier.TIER2) is False
-
-    def test_tier_gating_enabled_for_tier3(self):
-        strategy = _make_strategy()
-        assert strategy.is_enabled_for_tier(CapitalTier.TIER3) is True
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,6 @@ from bot.agent.strategies.value_betting import (
     ValueBettingStrategy,
 )
 from bot.agent.strategies.time_decay import HOURS_MEDIUM
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderBook, OrderBookEntry, TradeSignal, OrderSide
 
 
@@ -96,10 +95,6 @@ class TestInit:
     def test_strategy_name(self):
         strategy = _make_strategy()
         assert strategy.name == "value_betting"
-
-    def test_min_tier_is_tier1(self):
-        strategy = _make_strategy()
-        assert strategy.min_tier == CapitalTier.TIER1
 
     def test_min_edge_initialized(self):
         strategy = _make_strategy()

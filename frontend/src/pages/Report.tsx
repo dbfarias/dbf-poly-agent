@@ -86,7 +86,7 @@ function PortfolioSummary({ data }: { data: DailyReport["portfolio_summary"] }) 
     {
       label: "Open Positions",
       value: String(data.open_positions),
-      sub: `Tier: ${data.tier}`,
+      sub: `Mode: ${data.trading_mode}`,
       color: "text-white",
     },
     {

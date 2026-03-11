@@ -211,8 +211,7 @@ def test_config_toggle_persistence():
         max_daily_loss_pct=0.1,
         max_drawdown_pct=0.25,
         daily_target_pct=0.01,
-        current_tier="tier1",
-        tier_config={},
+        risk_config={},
         strategy_params={},
         quality_params={},
     )

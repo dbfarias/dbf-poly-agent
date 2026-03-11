@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.agent.engine import TradingEngine
-from bot.config import CapitalTier, trading_day
+from bot.config import trading_day
 from bot.data.models import Position
 from bot.polymarket.types import OrderBook, OrderBookEntry, OrderSide, TradeSignal
 
@@ -136,7 +136,6 @@ class TestEngineInit:
             engine.portfolio = AsyncMock()
             engine.portfolio.sync = AsyncMock()
             engine.portfolio.total_equity = 10.0
-            engine.portfolio.tier = CapitalTier.TIER1
             engine.portfolio.open_position_count = 0
             engine.order_manager = AsyncMock()
 
@@ -181,7 +180,6 @@ class TestEngineInit:
             engine.portfolio = AsyncMock()
             engine.portfolio.sync = AsyncMock()
             engine.portfolio.total_equity = 10.0
-            engine.portfolio.tier = CapitalTier.TIER1
             engine.portfolio.open_position_count = 0
             engine.order_manager = AsyncMock()
 
@@ -220,7 +218,7 @@ class TestGetStatus:
             engine.portfolio.get_overview.return_value = {"equity": 10}
             engine.portfolio.total_equity = 10.0
             engine.risk_manager = MagicMock()
-            engine.risk_manager.get_risk_metrics.return_value = {"tier": "tier1"}
+            engine.risk_manager.get_risk_metrics.return_value = {"bankroll": 10.0}
             engine.order_manager = MagicMock()
             engine.order_manager.pending_count = 0
             mock_cache_cls.return_value.stats = {"hits": 0}
@@ -1442,7 +1440,6 @@ class TestTradingCycleIntegration:
         engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
-        engine.portfolio.tier = CapitalTier.TIER1
         engine.portfolio.open_position_count = 0
 
         engine.analyzer = AsyncMock()
@@ -1481,7 +1478,6 @@ class TestTradingCycleIntegration:
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
             signals_found, approved, placed = await engine._evaluate_signals(
-                CapitalTier.TIER1
             )
 
         assert signals_found == 1
@@ -1503,7 +1499,6 @@ class TestTradingCycleIntegration:
         engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
-        engine.portfolio.tier = CapitalTier.TIER1
 
         engine.analyzer = AsyncMock()
         engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
@@ -1529,7 +1524,6 @@ class TestTradingCycleIntegration:
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
             signals_found, approved, placed = await engine._evaluate_signals(
-                CapitalTier.TIER1
             )
 
         assert signals_found == 1
@@ -1545,7 +1539,6 @@ class TestTradingCycleIntegration:
         engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
-        engine.portfolio.tier = CapitalTier.TIER1
 
         engine.analyzer = AsyncMock()
         engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
@@ -1574,7 +1567,6 @@ class TestTradingCycleIntegration:
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
             signals_found, approved, placed = await engine._evaluate_signals(
-                CapitalTier.TIER1
             )
 
         assert signals_found == 1
@@ -1590,7 +1582,6 @@ class TestTradingCycleIntegration:
         engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
-        engine.portfolio.tier = CapitalTier.TIER1
 
         engine.analyzer = AsyncMock()
         engine.analyzer.NEAR_WORTHLESS_PRICE = 0.10
@@ -1614,7 +1605,6 @@ class TestTradingCycleIntegration:
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
             signals_found, approved, placed = await engine._evaluate_signals(
-                CapitalTier.TIER1
             )
 
         assert signals_found == 1
@@ -1630,7 +1620,6 @@ class TestTradingCycleIntegration:
         engine.portfolio.cash = 50.0
         engine.portfolio.total_equity = 50.0
         engine.portfolio.positions = []
-        engine.portfolio.tier = CapitalTier.TIER1
 
         signal1 = make_signal(market_id="mkt_a", strategy="time_decay")
         signal2 = make_signal(market_id="mkt_b", strategy="arbitrage")
@@ -1642,7 +1631,7 @@ class TestTradingCycleIntegration:
         bankroll_calls: list[float] = []
 
         async def capture_evaluate(
-            signal, bankroll, open_positions, tier, pending_count, edge_multiplier,
+            signal, bankroll, open_positions, pending_count, edge_multiplier,
             urgency=1.0, calibration=None,
         ):
             bankroll_calls.append(bankroll)
@@ -1677,7 +1666,6 @@ class TestTradingCycleIntegration:
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
             signals_found, approved, placed = await engine._evaluate_signals(
-                CapitalTier.TIER1
             )
 
         assert signals_found == 2
@@ -1708,10 +1696,10 @@ class TestTradingCycleIntegration:
         engine.closer = AsyncMock()
         engine.closer.close_position = AsyncMock()
 
-        await engine._process_exits(CapitalTier.TIER1)
+        await engine._process_exits()
 
         engine.analyzer.check_exits.assert_called_once_with(
-            [pos], CapitalTier.TIER1
+            [pos]
         )
         engine.closer.close_position.assert_called_once_with(
             pos, exit_reason="stop_loss (15% loss)"
@@ -1725,7 +1713,6 @@ class TestTradingCycleIntegration:
         engine.portfolio.cash = 20.0
         engine.portfolio.total_equity = 20.0
         engine.portfolio.positions = []
-        engine.portfolio.tier = CapitalTier.TIER1
 
         signal1 = make_signal(market_id="mkt_r1", strategy="time_decay")
         signal2 = make_signal(market_id="mkt_r2", strategy="arbitrage")
@@ -1771,7 +1758,7 @@ class TestTradingCycleIntegration:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            result = await engine._evaluate_signals(CapitalTier.TIER1)
+            result = await engine._evaluate_signals()
 
         assert isinstance(result, tuple)
         assert len(result) == 3

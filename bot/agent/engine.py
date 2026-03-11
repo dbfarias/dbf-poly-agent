@@ -12,7 +12,7 @@ from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.position_closer import PositionCloser
 from bot.agent.risk_manager import RiskManager
-from bot.config import TierConfig, settings, trading_day
+from bot.config import RiskConfig, settings, trading_day
 from bot.data.activity import (
     log_cycle_summary,
     log_daily_target_reached,
@@ -307,7 +307,6 @@ class TradingEngine:
         logger.info(
             "engine_initialized",
             equity=self.portfolio.total_equity,
-            tier=self.portfolio.tier.value,
             positions=self.portfolio.open_position_count,
         )
 
@@ -463,11 +462,6 @@ class TradingEngine:
                     await asyncio.sleep(10)
                     continue
 
-                tier = self.portfolio.tier
-                if not crypto_strategy.is_enabled_for_tier(tier):
-                    await asyncio.sleep(10)
-                    continue
-
                 # Fetch fresh 5-min markets periodically
                 now = datetime.now(timezone.utc)
                 if now - last_fetch >= fetch_interval:
@@ -508,14 +502,14 @@ class TradingEngine:
                 )
 
                 # Execute signals through streamlined pipeline
-                await self._execute_crypto_signals(signals, tier)
+                await self._execute_crypto_signals(signals)
 
             except Exception as e:
                 logger.error("crypto_fast_loop_error", error=str(e))
 
             await asyncio.sleep(10)
 
-    async def _execute_crypto_signals(self, signals, tier) -> None:
+    async def _execute_crypto_signals(self, signals) -> None:
         """Execute crypto short-term signals with risk checks.
 
         Streamlined pipeline: skip LLM debate, skip exit liquidity
@@ -580,7 +574,6 @@ class TradingEngine:
                 signal=signal,
                 bankroll=self.portfolio.total_equity,
                 open_positions=self.portfolio.positions,
-                tier=tier,
                 pending_count=pending_count,
                 edge_multiplier=edge_multiplier,
                 urgency=1.0,
@@ -716,13 +709,10 @@ class TradingEngine:
         """Single trading cycle: scan → evaluate → execute → monitor."""
         self._cycle_count += 1
         self._rebalanced_this_cycle = False
-        tier = self.portfolio.tier
-
         logger.info(
             "cycle_start",
             cycle=self._cycle_count,
             equity=self.portfolio.total_equity,
-            tier=tier.value,
             positions=self.portfolio.open_position_count,
         )
 
@@ -740,11 +730,11 @@ class TradingEngine:
         await self._update_learner()
 
         # 3. Check for exits on open positions
-        await self._process_exits(tier)
+        await self._process_exits()
 
         # 4-6. Scan, evaluate, and execute signals
         signals_found, signals_approved, orders_placed = (
-            await self._evaluate_signals(tier)
+            await self._evaluate_signals()
         )
 
         # 7. Monitor pending orders
@@ -871,9 +861,9 @@ class TradingEngine:
         except Exception as e:
             logger.error("learner_compute_failed", error=str(e))
 
-    async def _process_exits(self, tier) -> None:
+    async def _process_exits(self) -> None:
         """Check and close positions that meet exit criteria."""
-        exits = await self.analyzer.check_exits(self.portfolio.positions, tier)
+        exits = await self.analyzer.check_exits(self.portfolio.positions)
         exited_ids = set()
         for market_id, exit_reason in exits:
             pos = next(
@@ -994,7 +984,7 @@ class TradingEngine:
                         reasoning=result.reasoning[:80],
                     )
 
-    async def _evaluate_signals(self, tier) -> tuple[int, int, int]:
+    async def _evaluate_signals(self) -> tuple[int, int, int]:
         """Scan markets, evaluate signals, and execute approved trades.
 
         Returns (signals_found, signals_approved, orders_placed).
@@ -1009,7 +999,7 @@ class TradingEngine:
             )
             return (0, 0, 0)
 
-        signals = await self.analyzer.scan_markets(tier)
+        signals = await self.analyzer.scan_markets()
 
         cycle_committed = 0.0
         pending_count = self.order_manager.pending_count
@@ -1354,7 +1344,7 @@ class TradingEngine:
                 if cat_min_edge is not None:
                     # Scale edge_multiplier so that base_min_edge * multiplier
                     # is at least category_min_edge
-                    base_min = TierConfig.get(tier).get("min_edge_pct", 0.01)
+                    base_min = RiskConfig.get().get("min_edge_pct", 0.01)
                     if base_min > 0:
                         required_mult = cat_min_edge / base_min
                         if required_mult > edge_multiplier:
@@ -1439,7 +1429,6 @@ class TradingEngine:
                 signal=signal,
                 bankroll=effective_bankroll,
                 open_positions=self.portfolio.positions,
-                tier=tier,
                 pending_count=pending_count,
                 edge_multiplier=edge_multiplier,
                 urgency=_urgency,
@@ -1504,7 +1493,6 @@ class TradingEngine:
                         signal=signal,
                         bankroll=self.portfolio.total_equity - cycle_committed,
                         open_positions=self.portfolio.positions,
-                        tier=tier,
                         pending_count=pending_count,
                         edge_multiplier=edge_multiplier,
                         urgency=_urgency,
@@ -1576,7 +1564,6 @@ class TradingEngine:
                                         bankroll=self.portfolio.total_equity
                                         - cycle_committed,
                                         open_positions=self.portfolio.positions,
-                                        tier=tier,
                                         pending_count=pending_count,
                                         edge_multiplier=edge_multiplier,
                                         urgency=_urgency,

@@ -60,7 +60,7 @@ async def get_daily_report(_: str = Depends(verify_api_key)):
         "daily_pnl": round(daily_pnl, 2),
         "daily_return_pct": round(daily_return * 100, 2),
         "open_positions": len(portfolio.positions),
-        "tier": overview.get("tier", "unknown"),
+        "trading_mode": overview.get("is_paper", True) and "paper" or "live",
         "daily_target_pct": overview.get("daily_target_pct", 1.0),
         "daily_progress_pct": round(overview.get("daily_progress_pct", 0.0), 1),
     }

@@ -348,9 +348,9 @@ class TestCalibrationKelly:
     def test_overconfident_reduces_kelly(self):
         """Calibration ratio > 1.1 should multiply kelly_frac by 0.8."""
         rm = RiskManager()
-        from bot.config import TierConfig, CapitalTier
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = TradeSignal(
             strategy="time_decay",
             market_id="mkt1",
@@ -376,9 +376,9 @@ class TestCalibrationKelly:
     def test_underconfident_increases_kelly(self):
         """Calibration ratio < 0.9 should multiply kelly_frac by 1.1."""
         rm = RiskManager()
-        from bot.config import TierConfig, CapitalTier
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = TradeSignal(
             strategy="time_decay",
             market_id="mkt1",
@@ -404,9 +404,9 @@ class TestCalibrationKelly:
     def test_neutral_calibration_no_change(self):
         """Calibration ratio between 0.9 and 1.1 should not change kelly."""
         rm = RiskManager()
-        from bot.config import TierConfig, CapitalTier
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = TradeSignal(
             strategy="time_decay",
             market_id="mkt1",
@@ -432,9 +432,9 @@ class TestCalibrationKelly:
     def test_no_calibration_no_change(self):
         """No calibration dict should not change sizing."""
         rm = RiskManager()
-        from bot.config import TierConfig, CapitalTier
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = TradeSignal(
             strategy="time_decay",
             market_id="mkt1",
@@ -456,9 +456,9 @@ class TestCalibrationKelly:
     def test_kelly_frac_clamped_min(self):
         """Kelly fraction should not go below 0.05 after calibration."""
         rm = RiskManager()
-        from bot.config import TierConfig, CapitalTier
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Very low estimated_prob to produce tiny kelly, then overconfident cal
         signal = TradeSignal(
             strategy="time_decay",

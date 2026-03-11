@@ -78,13 +78,12 @@ async def get_strategy_status(
     _: str = Depends(verify_api_key),
     db: AsyncSession = Depends(get_db),
 ):
-    """Live runtime status for each strategy (tier, disabled, paused, perf)."""
+    """Live runtime status for each strategy (disabled, paused, perf)."""
     try:
         engine = get_engine()
     except RuntimeError:
         return []
 
-    tier = engine.portfolio.tier
     disabled = engine.disabled_strategies
     learner = engine.learner
     now = datetime.now(timezone.utc)
@@ -97,8 +96,7 @@ async def get_strategy_status(
     result = []
     for strategy in engine.analyzer.strategies:
         name = strategy.name
-        tier_ok = strategy.is_enabled_for_tier(tier)
-        admin_disabled = name in disabled
+        is_disabled = name in disabled
 
         # Learner pause check
         paused = False
@@ -114,12 +112,10 @@ async def get_strategy_status(
         result.append(StrategyStatus(
             name=name,
             label=_LABELS.get(name, name.replace("_", " ").title()),
-            min_tier=strategy.min_tier.value,
-            is_tier_available=tier_ok,
-            is_admin_disabled=admin_disabled,
+            is_admin_disabled=is_disabled,
             is_learner_paused=paused,
             pause_remaining_hours=round(remaining, 1),
-            is_active=tier_ok and not admin_disabled and not paused,
+            is_active=not is_disabled and not paused,
             total_trades=ts["total_trades"] if ts else 0,
             win_rate=ts["win_rate"] if ts else 0.0,
             total_pnl=round(ts["total_pnl"], 4) if ts else 0.0,

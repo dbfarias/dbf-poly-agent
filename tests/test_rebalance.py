@@ -506,7 +506,6 @@ class TestTryRebalance:
                 signal=signal,
                 bankroll=30.0,
                 open_positions=[],
-                tier=MagicMock(),
                 pending_count=0,
                 edge_multiplier=1.0,
             )

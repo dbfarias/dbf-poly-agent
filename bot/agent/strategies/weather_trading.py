@@ -18,7 +18,6 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 from .base import BaseStrategy
@@ -112,7 +111,6 @@ class WeatherTradingStrategy(BaseStrategy):
     """Trade weather markets using NOAA forecast data + slug-based lookup."""
 
     name = "weather_trading"
-    min_tier = CapitalTier.TIER1
     MIN_HOLD_SECONDS = 1800  # 30 min
 
     # Entry thresholds — buy YES tokens priced below this

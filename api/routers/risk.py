@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
 from api.schemas import RiskLimits, RiskMetrics
-from bot.config import TierConfig
+from bot.config import RiskConfig
 
 router = APIRouter(prefix="/api/risk", tags=["risk"])
 
@@ -19,7 +19,5 @@ async def get_risk_metrics(_: str = Depends(verify_api_key)):
 
 @router.get("/limits", response_model=RiskLimits)
 async def get_risk_limits(_: str = Depends(verify_api_key)):
-    engine = get_engine()
-    tier = engine.portfolio.tier
-    config = TierConfig.get(tier)
-    return RiskLimits(tier=tier.value, **config)
+    config = RiskConfig.get()
+    return RiskLimits(**config)

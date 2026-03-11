@@ -17,7 +17,6 @@ class PortfolioOverview(BaseModel):
     open_positions: int
     peak_equity: float
     day_start_equity: float = 0.0
-    tier: str
     is_paper: bool
     daily_target_pct: float = 0.01
     daily_target_usd: float = 0.0
@@ -106,16 +105,14 @@ class StrategyPerformance(BaseModel):
 
 
 class StrategyStatus(BaseModel):
-    """Live runtime status for a strategy, combining admin/tier/learner state."""
+    """Live runtime status for a strategy, combining admin/learner state."""
 
     name: str
     label: str
-    min_tier: str
-    is_tier_available: bool
     is_admin_disabled: bool
     is_learner_paused: bool
     pause_remaining_hours: float = 0.0
-    is_active: bool  # tier available AND not disabled AND not paused
+    is_active: bool  # not disabled AND not paused
     total_trades: int = 0
     win_rate: float = 0.0
     total_pnl: float = 0.0
@@ -139,7 +136,6 @@ class MarketOpportunity(BaseModel):
 
 # Risk
 class RiskMetrics(BaseModel):
-    tier: str
     bankroll: float
     peak_equity: float
     current_drawdown_pct: float
@@ -154,7 +150,6 @@ class RiskMetrics(BaseModel):
 
 
 class RiskLimits(BaseModel):
-    tier: str
     max_positions: int
     max_per_position_pct: float
     daily_loss_limit_pct: float
@@ -182,9 +177,8 @@ class BotConfig(BaseModel):
     use_auto_claim: bool = False
     llm_daily_budget: float = 3.0
     llm_today_cost: float = 0.0
-    # Current tier parameters
-    current_tier: str
-    tier_config: dict
+    # Risk parameters
+    risk_config: dict
     # Strategy parameters
     strategy_params: dict
     # Quality filter parameters
@@ -208,8 +202,8 @@ class BotConfigUpdate(BaseModel):
     use_llm_post_mortem: bool | None = None
     use_auto_claim: bool | None = None
     llm_daily_budget: float | None = Field(default=None, gt=0.0, le=20.0)
-    # Tier config overrides
-    tier_config: dict | None = None
+    # Risk config overrides
+    risk_config: dict | None = None
     # Strategy parameter overrides
     strategy_params: dict | None = None
     # Quality filter overrides

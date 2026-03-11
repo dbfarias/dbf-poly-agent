@@ -136,27 +136,23 @@ class TestZscoreCheck:
         assert not result.passed
 
 
-class TestTighterTierDefaults:
-    def test_tier1_tighter(self):
-        from bot.config import CapitalTier, TierConfig
+class TestRiskConfigDefaults:
+    def test_flat_defaults(self):
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         assert config["max_drawdown_pct"] == 0.12
         assert config["daily_loss_limit_pct"] == 0.06
         assert config["max_deployed_pct"] == 0.60
         assert config["kelly_fraction"] == 0.35
 
-    def test_tier2_tighter(self):
-        from bot.config import CapitalTier, TierConfig
+    def test_all_keys_present(self):
+        from bot.config import RiskConfig
 
-        config = TierConfig.get(CapitalTier.TIER2)
-        assert config["max_drawdown_pct"] == 0.10
-        assert config["max_deployed_pct"] == 0.50
-        assert config["kelly_fraction"] == 0.25
-
-    def test_tier3_tighter(self):
-        from bot.config import CapitalTier, TierConfig
-
-        config = TierConfig.get(CapitalTier.TIER3)
-        assert config["max_drawdown_pct"] == 0.08
-        assert config["max_deployed_pct"] == 0.45
+        config = RiskConfig.get()
+        expected_keys = {
+            "max_positions", "max_per_position_pct", "max_deployed_pct",
+            "daily_loss_limit_pct", "max_drawdown_pct", "min_edge_pct",
+            "min_win_prob", "max_per_category_pct", "kelly_fraction",
+        }
+        assert set(config.keys()) == expected_keys

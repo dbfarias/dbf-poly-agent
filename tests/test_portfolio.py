@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from bot.agent.portfolio import Portfolio
-from bot.config import CapitalTier, settings, trading_day
+from bot.config import settings, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import PositionInfo
 
@@ -97,9 +97,6 @@ class TestProperties:
 
     def test_unrealized_pnl_empty(self, portfolio):
         assert portfolio.unrealized_pnl == 0.0
-
-    def test_tier_from_equity(self, portfolio):
-        assert portfolio.tier == CapitalTier.TIER1  # $10 = Tier1
 
     def test_positions_filters_open(self, portfolio):
         """Only open positions should be returned."""
@@ -429,7 +426,6 @@ class TestGetOverview:
             "open_positions",
             "peak_equity",
             "day_start_equity",
-            "tier",
             "is_paper",
             "wallet_address",
             "daily_target_pct",

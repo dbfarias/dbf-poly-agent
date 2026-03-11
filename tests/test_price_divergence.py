@@ -16,7 +16,6 @@ from bot.agent.strategies.price_divergence import (
     PriceDivergenceStrategy,
     _extract_price_threshold,
 )
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket
 from bot.research.cache import ResearchCache
 from bot.research.types import ResearchResult
@@ -79,11 +78,6 @@ class TestInit:
     def test_name(self):
         strategy = _make_strategy()
         assert strategy.name == "price_divergence"
-
-    def test_min_tier(self):
-        strategy = _make_strategy()
-        assert strategy.min_tier == CapitalTier.TIER1
-
 
 class TestPriceHistory:
     def test_adds_entries(self):

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
 from api.schemas import BotConfig, BotConfigUpdate
-from bot.config import CapitalTier, TierConfig, settings
+from bot.config import RiskConfig, settings
 from bot.data.settings_store import SettingsStore
 from bot.research.llm_debate import cost_tracker as llm_cost_tracker
 
@@ -80,11 +80,9 @@ async def get_config(_: str = Depends(verify_api_key)):
     engine = None
     try:
         engine = get_engine()
-        tier = engine.portfolio.tier
         strategy_params = _get_strategy_params(engine)
         quality_params = _get_quality_params(engine)
     except RuntimeError:
-        tier = CapitalTier.TIER1
         strategy_params = {}
         quality_params = {}
 
@@ -113,8 +111,7 @@ async def get_config(_: str = Depends(verify_api_key)):
         use_auto_claim=settings.use_auto_claim,
         llm_daily_budget=settings.llm_daily_budget,
         llm_today_cost=round(llm_cost_tracker.today_cost, 4),
-        current_tier=tier.value,
-        tier_config=TierConfig.get(tier),
+        risk_config=RiskConfig.get(),
         strategy_params=strategy_params,
         quality_params=quality_params,
         disabled_strategies=disabled,
@@ -165,14 +162,12 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
         llm_cost_tracker.daily_budget = update.llm_daily_budget
         changes.append(f"llm_daily_budget=${update.llm_daily_budget:.2f}")
 
-    # Tier config updates
-    if update.tier_config:
+    # Risk config updates
+    if update.risk_config:
         try:
-            engine = get_engine()
-            tier = engine.portfolio.tier
-            TierConfig.update(tier, update.tier_config)
-            changes.append(f"tier_config({tier.value})")
-        except RuntimeError:
+            RiskConfig.update(update.risk_config)
+            changes.append("risk_config")
+        except (RuntimeError, ValueError):
             pass
 
     # Strategy parameter updates (whitelist-validated)
@@ -279,14 +274,8 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
             pass
 
     # Persist to DB so settings survive restarts
-    tier = CapitalTier.TIER1
     try:
-        engine = get_engine()
-        tier = engine.portfolio.tier
-    except RuntimeError:
-        pass
-    try:
-        await SettingsStore.save_from_update(update, tier)
+        await SettingsStore.save_from_update(update)
     except Exception as e:
         logger.error("settings_persist_failed", error=str(e))
 
@@ -332,7 +321,6 @@ async def reset_risk_state(_: str = Depends(verify_api_key)):
     logger.info(
         "risk_state_reset",
         equity=equity,
-        tier=engine.portfolio.tier.value,
     )
     return {
         "status": "reset",

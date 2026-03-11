@@ -82,7 +82,6 @@ class TestRiskMetrics:
         assert resp.status_code == 200
         data = resp.json()
         expected_keys = {
-            "tier",
             "bankroll",
             "peak_equity",
             "current_drawdown_pct",
@@ -99,11 +98,10 @@ class TestRiskMetrics:
 
 
 class TestRiskLimits:
-    async def test_returns_tier_config(self, client):
+    async def test_returns_risk_config(self, client):
         resp = await client.get("/api/risk/limits")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["tier"] == "tier1"
         assert "max_positions" in data
         assert "kelly_fraction" in data
 

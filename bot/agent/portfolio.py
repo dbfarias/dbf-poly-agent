@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from bot.config import CapitalTier, settings, trading_day
+from bot.config import settings, trading_day
 from bot.data.database import async_session
 from bot.data.models import PortfolioSnapshot, Position
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
@@ -66,10 +66,6 @@ class Portfolio:
     @property
     def unrealized_pnl(self) -> float:
         return sum(p.unrealized_pnl for p in self.positions)
-
-    @property
-    def tier(self) -> CapitalTier:
-        return CapitalTier.from_bankroll(self.total_equity)
 
     @property
     def open_position_count(self) -> int:
@@ -197,7 +193,6 @@ class Portfolio:
             polymarket_balance=self._polymarket_balance,
             positions=self.open_position_count,
             equity=equity,
-            tier=self.tier.value,
         )
 
     async def _sync_from_polymarket(self) -> None:
@@ -628,7 +623,6 @@ class Portfolio:
             "open_positions": self.open_position_count,
             "peak_equity": self._peak_equity,
             "day_start_equity": round(self._day_start_equity, 4),
-            "tier": self.tier.value,
             "is_paper": settings.is_paper,
             "wallet_address": self.clob.get_address(),
             "daily_target_pct": target_pct,

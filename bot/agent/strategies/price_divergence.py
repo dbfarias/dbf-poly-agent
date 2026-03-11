@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 from bot.research.cache import ResearchCache
 
@@ -67,7 +66,6 @@ class PriceDivergenceStrategy(BaseStrategy):
     """Micro-trades via crypto price and sentiment divergence."""
 
     name = "price_divergence"
-    min_tier = CapitalTier.TIER1
 
     # Short hold for fast-resolving crypto/sentiment markets
     MIN_HOLD_SECONDS = 300  # 5 min (crypto markets resolve fast)

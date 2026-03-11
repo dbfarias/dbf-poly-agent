@@ -60,12 +60,6 @@ def mock_engine():
         "wallet_address": None,
     }
     engine.portfolio.total_equity = 10.0
-    engine.portfolio.tier = MagicMock()
-    engine.portfolio.tier.value = "tier1"
-    # Make tier work with TierConfig.get() — use the actual CapitalTier
-    from bot.config import CapitalTier
-
-    engine.portfolio.tier = CapitalTier.TIER1
 
     # Risk manager
     engine.risk_manager = MagicMock()

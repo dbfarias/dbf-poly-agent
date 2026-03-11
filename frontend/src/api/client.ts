@@ -43,7 +43,6 @@ export interface PortfolioOverview {
   open_positions: number;
   peak_equity: number;
   day_start_equity: number;
-  tier: string;
   is_paper: boolean;
   daily_target_pct: number;
   daily_target_usd: number;
@@ -120,8 +119,6 @@ export interface StrategyPerformance {
 export interface StrategyStatus {
   name: string;
   label: string;
-  min_tier: string;
-  is_tier_available: boolean;
   is_admin_disabled: boolean;
   is_learner_paused: boolean;
   pause_remaining_hours: number;
@@ -147,7 +144,6 @@ export interface MarketOpportunity {
 }
 
 export interface RiskMetrics {
-  tier: string;
   bankroll: number;
   peak_equity: number;
   current_drawdown_pct: number;
@@ -159,7 +155,6 @@ export interface RiskMetrics {
 }
 
 export interface RiskLimits {
-  tier: string;
   max_positions: number;
   max_per_position_pct: number;
   daily_loss_limit_pct: number;
@@ -186,8 +181,7 @@ export interface BotConfig {
   use_auto_claim: boolean;
   llm_daily_budget: number;
   llm_today_cost: number;
-  current_tier: string;
-  tier_config: Record<string, number>;
+  risk_config: Record<string, number>;
   strategy_params: Record<string, Record<string, number>>;
   quality_params: Record<string, number>;
   disabled_strategies: string[];
@@ -499,7 +493,7 @@ export interface ReportPortfolioSummary {
   daily_pnl: number;
   daily_return_pct: number;
   open_positions: number;
-  tier: string;
+  trading_mode: string;
   daily_target_pct: number;
   daily_progress_pct: number;
 }

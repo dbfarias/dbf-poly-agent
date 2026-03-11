@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.data.market_cache import MarketCache
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.gamma import GammaClient
@@ -17,7 +16,6 @@ class BaseStrategy(ABC):
     """Base class for all trading strategies."""
 
     name: str = "base"
-    min_tier: CapitalTier = CapitalTier.TIER1
 
     # Subclasses define mutable params with type + range constraints.
     # Format: {"PARAM_NAME": {"type": float, "min": 0.0, "max": 1.0}}
@@ -80,10 +78,6 @@ class BaseStrategy(ABC):
         self.cache.set_order_book(token_id, book, ttl=10)
         return book
 
-    def is_enabled_for_tier(self, tier: CapitalTier) -> bool:
-        """Check if this strategy is enabled for the given capital tier."""
-        tier_order = {CapitalTier.TIER1: 1, CapitalTier.TIER2: 2, CapitalTier.TIER3: 3}
-        return tier_order.get(tier, 0) >= tier_order.get(self.min_tier, 0)
 
     def adjust_params(self, adjustments: dict) -> None:
         """Apply learner adjustments to strategy parameters.

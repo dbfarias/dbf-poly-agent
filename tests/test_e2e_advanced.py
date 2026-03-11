@@ -16,7 +16,6 @@ import pytest
 
 from bot.agent.learner import PerformanceLearner
 from bot.agent.position_closer import PositionCloser
-from bot.config import CapitalTier
 from bot.research.llm_debate import DebateResult
 from tests.e2e_helpers import (
     _make_engine,
@@ -80,7 +79,7 @@ class TestDebatePipeline:
             mock_settings.use_llm_reviewer = False
             mock_settings.is_paper = True
 
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 1
         assert placed == 1
@@ -123,7 +122,7 @@ class TestDebatePipeline:
             mock_settings.use_llm_reviewer = False
             mock_settings.is_paper = True
 
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 1
         assert placed == 0
@@ -168,7 +167,7 @@ class TestDebatePipeline:
             mock_settings.use_llm_reviewer = False
             mock_settings.is_paper = True
 
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         # Signal should proceed through risk check and get placed
         assert found == 1
@@ -245,7 +244,7 @@ class TestDebateRebalance:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_ctx)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 1
         assert placed == 1
@@ -299,7 +298,7 @@ class TestDebateRebalance:
             mock_settings.use_llm_reviewer = False
             mock_settings.is_paper = True
 
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 1
         assert placed == 0
@@ -503,7 +502,7 @@ class TestCascadingStopLosses:
 
         with patch("bot.agent.engine.settings") as mock_settings:
             mock_settings.use_llm_reviewer = False
-            await engine._process_exits(CapitalTier.TIER1)
+            await engine._process_exits()
 
         assert engine.closer.close_position.call_count == 4
 
@@ -547,9 +546,7 @@ class TestCascadingStopLosses:
             mock_settings.use_llm_reviewer = False
             mock_settings.is_paper = True
 
-            found, approved, placed = await engine._evaluate_signals(
-                CapitalTier.TIER1,
-            )
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 1
         assert placed == 0

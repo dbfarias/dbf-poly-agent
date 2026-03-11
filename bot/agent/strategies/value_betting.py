@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 import structlog
 
 from bot.agent.market_analyzer import classify_market_type
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 from bot.utils.risk_metrics import compute_vpin
 
@@ -45,7 +44,6 @@ class ValueBettingStrategy(BaseStrategy):
     """Detect mispriced markets via order book and volume analysis."""
 
     name = "value_betting"
-    min_tier = CapitalTier.TIER1
 
     EXIT_TAKE_PROFIT_PCT = 0.015  # 1.5% take-profit threshold (was 3%)
     EXIT_MIN_HOLD_HOURS = 2.0  # Min hold before take-profit triggers (was 6h)

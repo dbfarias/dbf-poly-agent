@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.data.database import async_session
 from bot.data.market_cache import MarketCache
 from bot.data.models import MarketScan
@@ -230,7 +229,7 @@ class MarketAnalyzer:
         # Types: "sports", "crypto", "other" (from classify_market_type)
         self.blocked_market_types: set[str] = {"meme"}
 
-    async def scan_markets(self, tier: CapitalTier) -> list[TradeSignal]:
+    async def scan_markets(self) -> list[TradeSignal]:
         """Scan all markets and return ranked signals from all enabled strategies."""
         # Fetch active markets + short-term markets, merge and deduplicate
         try:
@@ -310,8 +309,6 @@ class MarketAnalyzer:
         for strategy in self.strategies:
             if strategy.name in self.disabled_strategies:
                 continue
-            if not strategy.is_enabled_for_tier(tier):
-                continue
 
             try:
                 signals = await strategy.scan(markets)
@@ -347,7 +344,7 @@ class MarketAnalyzer:
     TAKE_PROFIT_MIN_HOLD_HOURS = 6.0  # Faster TP lock-in (was 12h)
 
     async def check_exits(
-        self, positions: list, tier: CapitalTier
+        self, positions: list,
     ) -> list[tuple[str, str]]:
         """Check if any open positions should be exited.
 

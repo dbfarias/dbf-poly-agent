@@ -4,7 +4,7 @@ import json
 
 import structlog
 
-from bot.config import CapitalTier, TierConfig, settings
+from bot.config import RiskConfig, settings
 from bot.data.database import async_session
 from bot.data.repositories import SettingsRepository
 
@@ -81,7 +81,7 @@ class SettingsStore:
     """Save dashboard settings to DB and restore them on startup."""
 
     @staticmethod
-    async def save_from_update(update, tier: CapitalTier) -> int:
+    async def save_from_update(update) -> int:
         """Persist non-None fields from a BotConfigUpdate to the DB.
 
         Returns the number of settings saved.
@@ -94,10 +94,10 @@ class SettingsStore:
             if value is not None:
                 items[f"global.{attr}"] = json.dumps(value)
 
-        # Tier config
-        if update.tier_config:
-            for param, value in update.tier_config.items():
-                items[f"tier.{tier.value}.{param}"] = json.dumps(value)
+        # Risk config
+        if update.risk_config:
+            for param, value in update.risk_config.items():
+                items[f"risk.{param}"] = json.dumps(value)
 
         # Strategy params
         if update.strategy_params:
@@ -215,7 +215,11 @@ class SettingsStore:
                     applied += _apply_global(parts[1], value)
 
             elif prefix == "tier" and len(parts) == 3:
-                applied += _apply_tier(parts[1], parts[2], value)
+                # Backward compat: old "tier.tier1.param" keys
+                applied += _apply_risk(parts[2], value)
+
+            elif prefix == "risk" and len(parts) == 2:
+                applied += _apply_risk(parts[1], value)
 
             elif prefix == "strategy" and len(parts) == 3:
                 applied += _apply_strategy(engine, parts[1], parts[2], value)
@@ -265,18 +269,11 @@ def _apply_global(attr: str, value) -> int:
     return 1
 
 
-def _apply_tier(tier_str: str, param: str, value) -> int:
-    try:
-        tier = CapitalTier(tier_str)
-    except ValueError:
-        logger.warning("settings_unknown_tier", tier=tier_str)
-        return 0
-
-    valid_keys = set(TierConfig._DEFAULTS[CapitalTier.TIER1].keys())
+def _apply_risk(param: str, value) -> int:
+    valid_keys = set(RiskConfig._DEFAULTS.keys())
     if param not in valid_keys:
         return 0
-
-    TierConfig.update(tier, {param: value})
+    RiskConfig.update({param: value})
     return 1
 
 

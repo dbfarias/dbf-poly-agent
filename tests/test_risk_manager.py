@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pytest
 
 from bot.agent.risk_manager import RiskCheckResult, RiskManager
-from bot.config import CapitalTier, TierConfig, settings, trading_day
+from bot.config import RiskConfig, settings, trading_day
 from bot.data.models import Position
 from bot.polymarket.types import OrderSide, TradeSignal
 
@@ -237,20 +237,20 @@ class TestCheckDuplicatePosition:
 
 class TestCheckDailyLoss:
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Equity-based: bankroll=19, day_start=20.0 → PnL=-1.0, limit=-1.2
         rm._day_start_equity = 20.0
         assert rm._check_daily_loss(19.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Equity-based: bankroll=16, day_start=20.0 → PnL=-4.0, limit=-1.2
         rm._day_start_equity = 20.0
         result = rm._check_daily_loss(16.0, config)
         assert result.passed is False
 
     def test_exact_boundary_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Equity-based: bankroll=18.8, day_start=20.0 → PnL=-1.2, limit=-1.2
         # -1.2 < -1.2 is False → passes
         rm._day_start_equity = 20.0
@@ -258,7 +258,7 @@ class TestCheckDailyLoss:
 
     def test_equity_based_not_accumulated(self, rm):
         """Daily loss check uses equity delta, not accumulated _daily_pnl."""
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Inflated _daily_pnl says +$5, but equity says -$3.0
         rm._daily_pnl = 5.0  # Inflated (should be ignored)
         rm._day_start_equity = 20.0
@@ -268,7 +268,7 @@ class TestCheckDailyLoss:
 
     def test_micro_account_same_limit(self, rm):
         """Micro accounts use same daily loss limit as normal (no relaxation)."""
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         rm._day_start_equity = 10.0
         # bankroll=8 → PnL=-2.0, limit=0.6 (6% of 10) → FAIL
         assert rm._check_daily_loss(8.0, config).passed is False
@@ -293,27 +293,27 @@ class TestSetDayStartEquity:
 
 class TestCheckDrawdown:
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         rm._peak_equity = 20.0
         # bankroll 19.0 → dd = 5%. Within 12%.
         assert rm._check_drawdown(19.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         rm._peak_equity = 20.0
         # bankroll 14.0 → dd = 30%. Exceeds 12%.
         result = rm._check_drawdown(14.0, config)
         assert result.passed is False
 
     def test_zero_peak_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         rm._peak_equity = 0.0
         # current_drawdown returns 0.0 when peak is 0
         assert rm._check_drawdown(15.0, config).passed is True
 
     def test_micro_account_same_limit(self, rm):
         """Micro accounts use same drawdown limit as normal (no relaxation)."""
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         rm._peak_equity = 20.0
         # bankroll 14 → dd = 30%. Exceeds 12% → FAIL
         assert rm._check_drawdown(14.0, config).passed is False
@@ -326,27 +326,22 @@ class TestCheckDrawdown:
 
 class TestCheckMaxPositions:
     def test_under_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        config = RiskConfig.get()  # max_positions=6
         assert rm._check_max_positions([], config).passed is True
 
     def test_at_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        config = RiskConfig.get()  # max_positions=6
         positions = [make_position(market_id=f"mkt{i}") for i in range(6)]
         result = rm._check_max_positions(positions, config)
         assert result.passed is False
 
     def test_under_tier1_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        config = RiskConfig.get()  # max_positions=6
         positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
         assert rm._check_max_positions(positions, config).passed is True
 
-    def test_tier3_higher_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER3)  # max_positions=15
-        positions = [make_position(market_id=f"mkt{i}") for i in range(10)]
-        assert rm._check_max_positions(positions, config).passed is True
-
     def test_pending_count_added_to_total(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        config = RiskConfig.get()  # max_positions=6
         positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
         # 5 open + 1 pending = 6 → at limit → fails
         result = rm._check_max_positions(positions, config, pending_count=1)
@@ -354,7 +349,7 @@ class TestCheckMaxPositions:
         assert "pending" in result.reason.lower()
 
     def test_pending_count_under_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        config = RiskConfig.get()  # max_positions=6
         positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
         # 4 open + 1 pending = 5 → under 6 → passes
         result = rm._check_max_positions(positions, config, pending_count=1)
@@ -365,7 +360,7 @@ class TestCheckMaxPositions:
         from bot.config import settings as _settings
 
         monkeypatch.setattr(_settings, "trading_mode", "live")
-        config = TierConfig.get(CapitalTier.TIER1)  # max_positions=6
+        config = RiskConfig.get()  # max_positions=6
         # 5 sellable + 3 stuck (size=2.0 < MIN_SELLABLE=5.0) = 8 total but only 5 count
         sellable = [make_position(market_id=f"sell{i}") for i in range(5)]
         stuck = []
@@ -384,14 +379,14 @@ class TestCheckMaxPositions:
 
 class TestCheckTotalDeployed:
     def test_with_available_capital_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 5.0 deployed out of 10.0 = $5.0 available → passes
         positions = [make_position(cost_basis=5.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
     def test_within_deployed_limit_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 5.0 deployed out of 10.0 → 50% < 60% max_deployed_pct → passes
         positions = [
             make_position(market_id="mkt1", cost_basis=2.5),
@@ -401,7 +396,7 @@ class TestCheckTotalDeployed:
         assert result.passed is True
 
     def test_over_deployed_limit_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 9.0 deployed out of 10.0 → 90% > 85% max_deployed_pct → fails
         positions = [make_position(cost_basis=9.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
@@ -409,26 +404,26 @@ class TestCheckTotalDeployed:
         assert "max deployed" in result.reason.lower()
 
     def test_fully_deployed_fails(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 10.0 deployed out of 10.0 = $0 available → fails
         positions = [make_position(cost_basis=10.0)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is False
 
     def test_no_positions_passes(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         result = rm._check_total_deployed([], 10.0, config)
         assert result.passed is True
 
     def test_closed_positions_excluded(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Closed position should not count toward deployed total
         positions = [make_position(cost_basis=8.0, is_open=False)]
         result = rm._check_total_deployed(positions, 10.0, config)
         assert result.passed is True
 
     def test_urgency_scales_max_deployed(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 6.3 deployed out of 10.0 = 63%. At urgency=1.0, 60% limit → FAIL
         positions = [make_position(cost_basis=6.3)]
         result = rm._check_total_deployed(positions, 10.0, config, urgency=1.0)
@@ -438,14 +433,14 @@ class TestCheckTotalDeployed:
         assert result.passed is True
 
     def test_urgency_capped_at_95pct(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 9.6 deployed out of 10.0 = 96%. Even urgency=5.0, cap is 95% → FAIL
         positions = [make_position(cost_basis=9.6)]
         result = rm._check_total_deployed(positions, 10.0, config, urgency=5.0)
         assert result.passed is False
 
     def test_urgency_below_one_keeps_base(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Ahead of target (urgency < 1.0) → keeps base 85%
         positions = [make_position(cost_basis=9.0)]
         result = rm._check_total_deployed(positions, 10.0, config, urgency=0.5)
@@ -460,13 +455,13 @@ class TestCheckTotalDeployed:
 class TestCheckCategoryExposure:
     def test_no_category_maps_to_other(self, rm):
         """Empty category should map to 'other' and still run exposure check."""
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = make_signal(metadata={})
         result = rm._check_category_exposure(signal, [], 10.0, config)
         assert result.passed is True
 
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER2)  # max_per_category_pct=0.35
+        config = RiskConfig.get()
         signal = make_signal(metadata={"category": "crypto"})
         positions = [make_position(category="crypto", cost_basis=3.0)]
         # 3.0 < 100.0 * 0.35 = 35.0
@@ -474,7 +469,7 @@ class TestCheckCategoryExposure:
         assert result.passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER2)  # max_per_category_pct=0.35
+        config = RiskConfig.get()
         signal = make_signal(metadata={"category": "crypto"})
         positions = [make_position(category="crypto", cost_basis=4.0)]
         # 4.0 >= 10.0 * 0.35 = 3.5
@@ -489,18 +484,18 @@ class TestCheckCategoryExposure:
 
 class TestCheckMinEdge:
     def test_above_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.01
         signal = make_signal(edge=0.06)
         assert rm._check_min_edge(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.01
         signal = make_signal(edge=0.005)
         result = rm._check_min_edge(signal, config)
         assert result.passed is False
 
     def test_edge_multiplier_tightens_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.01
         # Edge of 0.014 normally passes (> 0.01), but with 1.5x multiplier
         # required edge = 0.015, so 0.014 should fail
         signal = make_signal(edge=0.014)
@@ -508,21 +503,21 @@ class TestCheckMinEdge:
         assert result.passed is False
 
     def test_edge_multiplier_relaxes_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.01
         # With 0.8x multiplier, required edge = 0.008
         signal = make_signal(edge=0.009)
         result = rm._check_min_edge(signal, config, edge_multiplier=0.8)
         assert result.passed is True
 
     def test_edge_multiplier_default_is_one(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.01
         signal = make_signal(edge=0.011)
         # Without multiplier (default 1.0), should pass
         result = rm._check_min_edge(signal, config)
         assert result.passed is True
 
     def test_edge_multiplier_in_reason_message(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.01
         signal = make_signal(edge=0.005)
         result = rm._check_min_edge(signal, config, edge_multiplier=1.5)
         assert result.passed is False
@@ -536,12 +531,12 @@ class TestCheckMinEdge:
 
 class TestCheckMinWinProb:
     def test_above_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.65
+        config = RiskConfig.get()  # min_win_prob=0.65
         signal = make_signal(estimated_prob=0.92)
         assert rm._check_min_win_prob(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # min_win_prob=0.55
+        config = RiskConfig.get()  # min_win_prob=0.55
         signal = make_signal(estimated_prob=0.50)
         result = rm._check_min_win_prob(signal, config)
         assert result.passed is False
@@ -554,13 +549,13 @@ class TestCheckMinWinProb:
 
 class TestCalculateSize:
     def test_valid_signal_positive_size(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = make_signal(estimated_prob=0.92, market_price=0.87)
         size = rm._calculate_size(signal, 100.0, config)
         assert size > 0
 
     def test_tiny_bankroll_returns_zero(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         signal = make_signal(estimated_prob=0.92, market_price=0.87)
         size = rm._calculate_size(signal, 1.0, config)
         # bankroll=1.0, 5-share min=$4.35 exceeds
@@ -569,7 +564,7 @@ class TestCalculateSize:
 
     def test_kelly_produces_varied_sizes(self, rm):
         """Kelly naturally produces varied sizes with 5-share minimum floor."""
-        config = TierConfig.get(CapitalTier.TIER2)
+        config = RiskConfig.get()
         # Strong signal: higher Kelly → bigger trade
         strong = make_signal(estimated_prob=0.95, market_price=0.86)
         big_size = rm._calculate_size(strong, 30.0, config)
@@ -591,7 +586,7 @@ class TestEvaluateSignal:
     async def test_all_checks_pass(self, rm):
         signal = make_signal(edge=0.06, estimated_prob=0.92, market_price=0.86)
         approved, size, reason = await rm.evaluate_signal(
-            signal, bankroll=100.0, open_positions=[], tier=CapitalTier.TIER1
+            signal, bankroll=100.0, open_positions=[]
         )
         assert approved is True
         assert size > 0
@@ -601,7 +596,7 @@ class TestEvaluateSignal:
         rm.pause()
         signal = make_signal()
         approved, size, reason = await rm.evaluate_signal(
-            signal, bankroll=100.0, open_positions=[], tier=CapitalTier.TIER1
+            signal, bankroll=100.0, open_positions=[]
         )
         assert approved is False
         assert size == 0.0
@@ -610,7 +605,7 @@ class TestEvaluateSignal:
     async def test_low_edge_blocks(self, rm):
         signal = make_signal(edge=0.005, estimated_prob=0.88, market_price=0.875)
         approved, size, reason = await rm.evaluate_signal(
-            signal, bankroll=100.0, open_positions=[], tier=CapitalTier.TIER1
+            signal, bankroll=100.0, open_positions=[]
         )
         assert approved is False
         assert "edge" in reason.lower()
@@ -620,7 +615,7 @@ class TestEvaluateSignal:
         # mkt1 in positions matches signal → duplicate check fires
         positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(3)]
         approved, size, reason = await rm.evaluate_signal(
-            signal, bankroll=100.0, open_positions=positions, tier=CapitalTier.TIER1
+            signal, bankroll=100.0, open_positions=positions
         )
         assert approved is False
         assert "position" in reason.lower()
@@ -641,8 +636,7 @@ class TestEvaluateSignal:
         # Tier 1 max_positions=6: 5 open + 1 pending = 6 → rejected
         positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(5)]
         approved, size, reason = await rm.evaluate_signal(
-            signal, bankroll=100.0, open_positions=positions,
-            tier=CapitalTier.TIER1, pending_count=1,
+            signal, bankroll=100.0, open_positions=positions, pending_count=1,
         )
         assert approved is False
         assert "position" in reason.lower()
@@ -653,7 +647,7 @@ class TestEvaluateSignal:
         # With edge_multiplier=1.5, required edge = 0.01*1.5 = 0.015
         # edge of 0.015 == adjusted threshold → should just pass (not strictly <)
         approved, size, reason = await rm.evaluate_signal(
-            signal, bankroll=100.0, open_positions=[], tier=CapitalTier.TIER1,
+            signal, bankroll=100.0, open_positions=[],
             edge_multiplier=1.5,
         )
         assert approved is True
@@ -668,7 +662,6 @@ class TestGetRiskMetrics:
     def test_correct_keys(self, rm):
         metrics = rm.get_risk_metrics(10.0)
         expected_keys = {
-            "tier",
             "bankroll",
             "peak_equity",
             "current_drawdown_pct",
@@ -686,4 +679,3 @@ class TestGetRiskMetrics:
     def test_bankroll_reflected(self, rm):
         metrics = rm.get_risk_metrics(50.0)
         assert metrics["bankroll"] == 50.0
-        assert metrics["tier"] == "tier2"  # 50 → TIER2

@@ -4,122 +4,92 @@ from pathlib import Path
 
 import pytest
 
-from bot.config import CapitalTier, TierConfig
+from bot.config import RiskConfig
 
 
-def test_capital_tier_from_bankroll():
-    assert CapitalTier.from_bankroll(5) == CapitalTier.TIER1
-    assert CapitalTier.from_bankroll(24.99) == CapitalTier.TIER1
-    assert CapitalTier.from_bankroll(25) == CapitalTier.TIER2
-    assert CapitalTier.from_bankroll(99.99) == CapitalTier.TIER2
-    assert CapitalTier.from_bankroll(100) == CapitalTier.TIER3
-    assert CapitalTier.from_bankroll(1000) == CapitalTier.TIER3
-
-
-def test_tier_config_values():
-    # Reset all tiers to defaults in case earlier tests mutated them
-    for tier in CapitalTier:
-        TierConfig.reset(tier)
-    t1 = TierConfig.get(CapitalTier.TIER1)
-    assert t1["max_positions"] == 6
-    assert t1["max_per_position_pct"] == 0.40
-    assert t1["max_deployed_pct"] == 0.60
-    assert t1["max_per_category_pct"] == 0.40
-    assert t1["min_win_prob"] == 0.55
-    assert t1["kelly_fraction"] == 0.35
-
-    t2 = TierConfig.get(CapitalTier.TIER2)
-    assert t2["max_positions"] == 6
-    assert t2["max_deployed_pct"] == 0.50
-
-    t3 = TierConfig.get(CapitalTier.TIER3)
-    assert t3["max_positions"] == 15
-    assert t3["max_deployed_pct"] == 0.45
-
-
-def test_tier_risk_increases():
-    """Higher tiers allow more positions for diversification."""
-    t1 = TierConfig.get(CapitalTier.TIER1)
-    t2 = TierConfig.get(CapitalTier.TIER2)
-    t3 = TierConfig.get(CapitalTier.TIER3)
-    # More positions in higher tiers
-    assert t3["max_positions"] >= t2["max_positions"] >= t1["max_positions"]
-    # Smaller per-position allocation in higher tiers (more diversified)
-    assert t1["max_per_position_pct"] >= t2["max_per_position_pct"]
+def test_risk_config_values():
+    RiskConfig.reset()
+    config = RiskConfig.get()
+    assert config["max_positions"] == 6
+    assert config["max_per_position_pct"] == 0.40
+    assert config["max_deployed_pct"] == 0.60
+    assert config["max_per_category_pct"] == 0.40
+    assert config["min_win_prob"] == 0.55
+    assert config["kelly_fraction"] == 0.35
 
 
 # ---------------------------------------------------------------------------
-# C5 — TierConfig.update() Validation
+# C5 — RiskConfig.update() Validation
 # ---------------------------------------------------------------------------
 
 
-class TestTierConfigValidation:
-    """TierConfig.update() must reject invalid values atomically."""
+class TestRiskConfigValidation:
+    """RiskConfig.update() must reject invalid values atomically."""
 
     def setup_method(self):
-        TierConfig.reset(CapitalTier.TIER1)
+        RiskConfig.reset()
 
     def teardown_method(self):
-        TierConfig.reset(CapitalTier.TIER1)
+        RiskConfig.reset()
 
     def test_reject_negative_max_positions(self):
         with pytest.raises(ValueError, match="max_positions"):
-            TierConfig.update(CapitalTier.TIER1, {"max_positions": -1})
+            RiskConfig.update({"max_positions": -1})
 
     def test_reject_zero_max_positions(self):
         with pytest.raises(ValueError, match="max_positions"):
-            TierConfig.update(CapitalTier.TIER1, {"max_positions": 0})
+            RiskConfig.update({"max_positions": 0})
 
     def test_reject_max_positions_above_max(self):
         with pytest.raises(ValueError, match="max_positions"):
-            TierConfig.update(CapitalTier.TIER1, {"max_positions": 51})
+            RiskConfig.update({"max_positions": 51})
 
     def test_reject_negative_pct(self):
         with pytest.raises(ValueError, match="max_per_position_pct"):
-            TierConfig.update(CapitalTier.TIER1, {"max_per_position_pct": -0.1})
+            RiskConfig.update({"max_per_position_pct": -0.1})
 
     def test_reject_pct_above_max(self):
         with pytest.raises(ValueError, match="max_per_position_pct"):
-            TierConfig.update(CapitalTier.TIER1, {"max_per_position_pct": 1.5})
+            RiskConfig.update({"max_per_position_pct": 1.5})
 
     def test_reject_wrong_type_float_for_int(self):
         with pytest.raises(ValueError, match="max_positions"):
-            TierConfig.update(CapitalTier.TIER1, {"max_positions": 3.5})
+            RiskConfig.update({"max_positions": 3.5})
 
     def test_reject_wrong_type_str(self):
         with pytest.raises(ValueError, match="max_positions"):
-            TierConfig.update(CapitalTier.TIER1, {"max_positions": "three"})
+            RiskConfig.update({"max_positions": "three"})
 
     def test_accept_valid_update(self):
-        TierConfig.update(CapitalTier.TIER1, {"max_positions": 5})
-        assert TierConfig.get(CapitalTier.TIER1)["max_positions"] == 5
+        RiskConfig.update({"max_positions": 5})
+        assert RiskConfig.get()["max_positions"] == 5
 
     def test_accept_boundary_values(self):
-        TierConfig.update(CapitalTier.TIER1, {"max_positions": 1})
-        assert TierConfig.get(CapitalTier.TIER1)["max_positions"] == 1
-        TierConfig.update(CapitalTier.TIER1, {"max_positions": 50})
-        assert TierConfig.get(CapitalTier.TIER1)["max_positions"] == 50
+        RiskConfig.update({"max_positions": 1})
+        assert RiskConfig.get()["max_positions"] == 1
+        RiskConfig.update({"max_positions": 50})
+        assert RiskConfig.get()["max_positions"] == 50
 
     def test_partial_failure_rolls_back(self):
         """If one value in a batch is invalid, none should be applied."""
-        original = TierConfig.get(CapitalTier.TIER1)["max_positions"]
+        original = RiskConfig.get()["max_positions"]
         with pytest.raises(ValueError):
-            TierConfig.update(CapitalTier.TIER1, {
+            RiskConfig.update({
                 "max_positions": 10,           # valid
                 "kelly_fraction": -0.5,        # invalid
             })
         # max_positions must NOT have changed
-        assert TierConfig.get(CapitalTier.TIER1)["max_positions"] == original
+        assert RiskConfig.get()["max_positions"] == original
 
     def test_unknown_keys_ignored(self):
         """Unknown keys should not cause errors or be stored."""
-        TierConfig.update(CapitalTier.TIER1, {"unknown_key": 42})
-        assert "unknown_key" not in TierConfig.get(CapitalTier.TIER1)
+        RiskConfig.update({"unknown_key": 42})
+        assert "unknown_key" not in RiskConfig.get()
 
     def test_accept_int_for_float_field(self):
         """Integer values should be accepted for float fields."""
-        TierConfig.update(CapitalTier.TIER1, {"kelly_fraction": 1})
-        assert TierConfig.get(CapitalTier.TIER1)["kelly_fraction"] == 1.0
+        RiskConfig.update({"kelly_fraction": 1})
+        assert RiskConfig.get()["kelly_fraction"] == 1.0
 
 
 # ---------------------------------------------------------------------------

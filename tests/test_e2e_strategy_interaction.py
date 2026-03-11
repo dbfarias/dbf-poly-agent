@@ -24,7 +24,7 @@ import pytest
 from bot.agent.engine import _apply_urgency_to_edge_multiplier
 from bot.agent.position_closer import PositionCloser
 from bot.agent.risk_manager import RiskManager
-from bot.config import CapitalTier, TierConfig
+from bot.config import RiskConfig
 from tests.e2e_helpers import (
     _make_engine,
     _make_filled_trade,
@@ -60,7 +60,7 @@ class TestMultiStrategyScan:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         # First signal fills, second is rejected as duplicate
         assert found == 2
@@ -83,7 +83,7 @@ class TestMultiStrategyScan:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 2
         assert placed == 2
@@ -108,7 +108,7 @@ class TestMultiStrategyScan:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 2
         assert approved == 1  # Only the non-paused strategy
@@ -141,7 +141,7 @@ class TestFullTradingCycle:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            _, _, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            _, _, placed = await engine._evaluate_signals()
 
         assert placed == 1
 
@@ -158,7 +158,7 @@ class TestFullTradingCycle:
 
         with patch("bot.agent.engine.settings") as mock_settings:
             mock_settings.use_llm_reviewer = False
-            await engine._process_exits(CapitalTier.TIER1)
+            await engine._process_exits()
 
         engine.closer.close_position.assert_called_once()
         call_kwargs = engine.closer.close_position.call_args
@@ -181,7 +181,7 @@ class TestFullTradingCycle:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            _, _, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            _, _, placed = await engine._evaluate_signals()
 
         assert placed == 1
 
@@ -197,7 +197,7 @@ class TestFullTradingCycle:
 
         with patch("bot.agent.engine.settings") as mock_settings:
             mock_settings.use_llm_reviewer = False
-            await engine._process_exits(CapitalTier.TIER1)
+            await engine._process_exits()
 
         engine.closer.close_position.assert_called_once()
         assert engine.closer.close_position.call_args.kwargs["exit_reason"] == "stop_loss"
@@ -224,7 +224,7 @@ class TestFullTradingCycle:
 
         with patch("bot.agent.engine.settings") as mock_settings:
             mock_settings.use_llm_reviewer = False
-            await engine._process_exits(CapitalTier.TIER1)
+            await engine._process_exits()
 
         assert engine.closer.close_position.call_count == 2
         exit_reasons = [
@@ -259,7 +259,7 @@ class TestLearnerAutoPause:
 
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 3
         assert approved == 0
@@ -275,7 +275,7 @@ class TestLearnerAutoPause:
         _setup_engine_for_evaluate(engine, [sig], paused={"value_betting"})
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
-            _, approved1, _ = await engine._evaluate_signals(CapitalTier.TIER1)
+            _, approved1, _ = await engine._evaluate_signals()
         assert approved1 == 0
 
         # Second: unpaused
@@ -289,7 +289,7 @@ class TestLearnerAutoPause:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            _, approved2, placed2 = await engine._evaluate_signals(CapitalTier.TIER1)
+            _, approved2, placed2 = await engine._evaluate_signals()
 
         assert approved2 == 1
         assert placed2 == 1
@@ -353,7 +353,7 @@ class TestRebalanceCascading:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_ctx)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 1
         assert placed == 1
@@ -381,7 +381,7 @@ class TestRebalanceCascading:
 
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 2
         assert placed == 0
@@ -415,7 +415,7 @@ class TestRiskCheckCascading:
     def test_daily_loss_limit(self):
         rm = RiskManager()
         rm._day_start_equity = 50.0
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Bankroll dropped 15% below start
         result = rm._check_daily_loss(42.0, config)
         assert not result.passed
@@ -424,7 +424,7 @@ class TestRiskCheckCascading:
     def test_max_drawdown(self):
         rm = RiskManager()
         rm._peak_equity = 50.0
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 30% drawdown
         result = rm._check_drawdown(35.0, config)
         assert not result.passed
@@ -432,7 +432,7 @@ class TestRiskCheckCascading:
 
     def test_max_positions(self):
         rm = RiskManager()
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # Tier 1 max = 6
         positions = [_make_position(f"mkt_{i}", size=6) for i in range(6)]
         result = rm._check_max_positions(positions, config)
@@ -441,7 +441,7 @@ class TestRiskCheckCascading:
 
     def test_max_deployed_capital(self):
         rm = RiskManager()
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         # 95%+ deployed
         positions = [_make_position("mkt1", size=100, avg_price=0.48, current_price=0.50)]
         result = rm._check_total_deployed(positions, 50.0, config)
@@ -450,7 +450,7 @@ class TestRiskCheckCascading:
 
     def test_category_exposure(self):
         rm = RiskManager()
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         sig = _make_signal(metadata={"category": "crypto", "price_std": 0.02})
         # Category exposure is %-of-bankroll based; fill up the limit
         max_pct = config["max_per_category_pct"]
@@ -465,7 +465,7 @@ class TestRiskCheckCascading:
 
     def test_min_edge(self):
         rm = RiskManager()
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         sig = _make_signal(edge=0.001)  # Way below min edge
         result = rm._check_min_edge(sig, config, edge_multiplier=1.0)
         assert not result.passed
@@ -473,7 +473,7 @@ class TestRiskCheckCascading:
 
     def test_min_win_prob(self):
         rm = RiskManager()
-        config = TierConfig.get(CapitalTier.TIER1)
+        config = RiskConfig.get()
         sig = _make_signal(estimated_prob=0.30)  # Low probability
         result = rm._check_min_win_prob(sig, config)
         assert not result.passed
@@ -490,7 +490,6 @@ class TestRiskCheckCascading:
             signal=sig,
             bankroll=50.0,
             open_positions=[],
-            tier=CapitalTier.TIER1,
         )
         assert approved is True
         assert size > 0
@@ -508,7 +507,6 @@ class TestRiskCheckCascading:
             signal=sig,
             bankroll=50.0,
             open_positions=[],
-            tier=CapitalTier.TIER1,
         )
         assert approved is False
         assert "paused" in reason.lower()
@@ -537,7 +535,7 @@ class TestCooldownEnforcement:
 
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock):
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert found == 2
         assert approved == 0
@@ -564,7 +562,7 @@ class TestCooldownEnforcement:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            found, approved, placed = await engine._evaluate_signals(CapitalTier.TIER1)
+            found, approved, placed = await engine._evaluate_signals()
 
         assert placed == 1
 
@@ -586,7 +584,7 @@ class TestCooldownEnforcement:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            await engine._evaluate_signals(CapitalTier.TIER1)
+            await engine._evaluate_signals()
 
         assert "mkt_cd" in engine._market_cooldown
         assert engine._market_cooldown["mkt_cd"] > datetime.now(timezone.utc)
@@ -620,7 +618,7 @@ class TestStrategyExitIndependence:
 
         with patch("bot.agent.engine.settings") as mock_settings:
             mock_settings.use_llm_reviewer = False
-            await engine._process_exits(CapitalTier.TIER1)
+            await engine._process_exits()
 
         # Only 1 close call — for the TD position
         engine.closer.close_position.assert_called_once()
@@ -649,12 +647,12 @@ class TestCalibrationUrgencyComposition:
         # No calibration
         ok1, size1, _ = await rm.evaluate_signal(
             signal=sig, bankroll=100.0,
-            open_positions=[], tier=CapitalTier.TIER1,
+            open_positions=[],
         )
         # Overconfident calibration (bucket 90-95 has ratio > 1.1)
         ok2, size2, _ = await rm.evaluate_signal(
             signal=sig, bankroll=100.0,
-            open_positions=[], tier=CapitalTier.TIER1,
+            open_positions=[],
             calibration={"90-95": 1.3},
         )
 
@@ -672,11 +670,11 @@ class TestCalibrationUrgencyComposition:
 
         ok1, size1, _ = await rm.evaluate_signal(
             signal=sig, bankroll=100.0,
-            open_positions=[], tier=CapitalTier.TIER1,
+            open_positions=[],
         )
         ok2, size2, _ = await rm.evaluate_signal(
             signal=sig, bankroll=100.0,
-            open_positions=[], tier=CapitalTier.TIER1,
+            open_positions=[],
             calibration={"90-95": 0.7},
         )
 
@@ -737,7 +735,7 @@ class TestCycleCommittedTracking:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            await engine._evaluate_signals(CapitalTier.TIER1)
+            await engine._evaluate_signals()
 
         assert len(bankroll_calls) == 2
         assert bankroll_calls[0] == 200.0  # Full bankroll
@@ -790,7 +788,7 @@ class TestEdgeMultiplierComposition:
              patch.object(engine, "_check_liquidity", new_callable=AsyncMock, return_value=True), \
              patch.object(engine, "_mark_scan_traded", new_callable=AsyncMock):
             mock_bus.emit = AsyncMock()
-            await engine._evaluate_signals(CapitalTier.TIER1)
+            await engine._evaluate_signals()
 
         assert len(eval_calls) == 1
         # Edge multiplier should be learner * research = 1.5 * 0.8 = 1.2
@@ -814,7 +812,6 @@ class TestCycleFlagReset:
         engine.portfolio = AsyncMock()
         engine.portfolio.cash = 50.0
         engine.portfolio.total_equity = 50.0
-        engine.portfolio.tier = CapitalTier.TIER1
         engine.portfolio.open_position_count = 0
         engine.portfolio.positions = []
         engine.portfolio.day_start_equity = 50.0
@@ -944,7 +941,6 @@ class TestMultiStrategyPositionMix:
             signal=sig,
             bankroll=50.0,
             open_positions=positions,
-            tier=CapitalTier.TIER1,
         )
         assert approved is False
         assert "Max positions" in reason
@@ -977,7 +973,6 @@ class TestMultiStrategyPositionMix:
             signal=sig,
             bankroll=100.0,
             open_positions=positions,
-            tier=CapitalTier.TIER1,
         )
         assert approved is True
         assert size > 0
@@ -1008,7 +1003,6 @@ class TestPendingOrderCounting:
             signal=sig,
             bankroll=50.0,
             open_positions=positions,
-            tier=CapitalTier.TIER1,
             pending_count=2,
         )
         assert approved is False
@@ -1044,7 +1038,6 @@ class TestStuckPositions:
                 signal=sig,
                 bankroll=100.0,
                 open_positions=stuck,
-                tier=CapitalTier.TIER1,
             )
 
         assert approved is True

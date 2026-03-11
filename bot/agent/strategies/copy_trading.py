@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 from bot.research.whale_tracker import WhaleTracker, WhaleTrade
 
@@ -34,7 +33,6 @@ class CopyTradingStrategy(BaseStrategy):
     """Copy top trader positions: proportional sizing, filtered by quality."""
 
     name = "copy_trading"
-    min_tier = CapitalTier.TIER1
     MIN_HOLD_SECONDS = 1800  # 30 min minimum hold
 
     # Tunable params

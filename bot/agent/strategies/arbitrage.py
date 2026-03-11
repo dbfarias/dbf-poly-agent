@@ -8,7 +8,6 @@ Types of arbitrage:
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 from .base import BaseStrategy
@@ -22,7 +21,6 @@ class ArbitrageStrategy(BaseStrategy):
     """Detect and exploit pricing arbitrage opportunities."""
 
     name = "arbitrage"
-    min_tier = CapitalTier.TIER1
 
     # Fast arb: positions should close quickly
     MIN_HOLD_SECONDS = 60  # 1 min

@@ -2,7 +2,7 @@
 
 import pytest
 
-from bot.config import CapitalTier, settings
+from bot.config import settings
 
 
 class TestGetConfig:
@@ -24,8 +24,7 @@ class TestGetConfig:
             "max_daily_loss_pct",
             "max_drawdown_pct",
             "daily_target_pct",
-            "current_tier",
-            "tier_config",
+            "risk_config",
             "strategy_params",
             "quality_params",
             "disabled_strategies",
@@ -88,7 +87,6 @@ class TestGetConfig:
                 resp = await ac.get("/api/config/")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["current_tier"] == CapitalTier.TIER1.value
         assert data["strategy_params"] == {}
         assert data["quality_params"] == {}
 
@@ -148,20 +146,19 @@ class TestUpdateConfig:
         after = await client.get("/api/config/")
         assert before.json() == after.json()
 
-    async def test_update_tier_config_with_engine(self, client, mock_engine):
-        """PUT /config/ with tier_config applies update to live engine tier."""
+    async def test_update_risk_config_with_engine(self, client, mock_engine):
+        """PUT /config/ with tier_config applies risk config update."""
         resp = await client.put(
             "/api/config/",
-            json={"tier_config": {"max_positions": 5}},
+            json={"risk_config": {"max_positions": 5}},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "updated"
-        # The change should be listed
-        assert any("tier_config" in c for c in data["changes"])
+        assert any("risk_config" in c for c in data["changes"])
 
-    async def test_update_tier_config_engine_not_available(self, client, monkeypatch):
-        """PUT /config/ tier_config survives when engine raises RuntimeError."""
+    async def test_update_risk_config_engine_not_available(self, client, monkeypatch):
+        """PUT /config/ risk_config survives when engine raises RuntimeError."""
         from unittest.mock import patch
         from fastapi import FastAPI
         from httpx import ASGITransport, AsyncClient
@@ -201,7 +198,7 @@ class TestUpdateConfig:
             ) as ac:
                 resp = await ac.put(
                     "/api/config/",
-                    json={"tier_config": {"max_positions": 4}},
+                    json={"risk_config": {"max_positions": 4}},
                 )
         assert resp.status_code == 200
         assert resp.json()["status"] == "updated"
@@ -483,11 +480,9 @@ class TestResetRiskState:
 
         from api.dependencies import get_db, get_engine
         from api.routers import config as config_router
-        from bot.config import CapitalTier
 
         engine = MagicMock()
         engine.portfolio.total_equity = 10.0
-        engine.portfolio.tier = CapitalTier.TIER1
 
         test_app = FastAPI()
         test_app.include_router(config_router.router)

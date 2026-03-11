@@ -14,7 +14,6 @@ from bot.agent.strategies.swing_trading import (
     PRICE_HISTORY_MAXLEN,
     SwingTradingStrategy,
 )
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket
 
 # ---------------------------------------------------------------------------
@@ -87,22 +86,6 @@ class TestSwingTradingMeta:
     def test_name(self):
         s = _make_strategy()
         assert s.name == "swing_trading"
-
-    def test_min_tier(self):
-        s = _make_strategy()
-        assert s.min_tier == CapitalTier.TIER1
-
-    def test_tier1_enabled(self):
-        s = _make_strategy()
-        assert s.is_enabled_for_tier(CapitalTier.TIER1)
-
-    def test_tier2_enabled(self):
-        s = _make_strategy()
-        assert s.is_enabled_for_tier(CapitalTier.TIER2)
-
-    def test_tier3_enabled(self):
-        s = _make_strategy()
-        assert s.is_enabled_for_tier(CapitalTier.TIER3)
 
     def test_asymmetric_take_profit(self):
         s = _make_strategy()

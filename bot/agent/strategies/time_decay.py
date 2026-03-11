@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 
 import structlog
 
-from bot.config import CapitalTier
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
 
 from .base import BaseStrategy
@@ -65,7 +64,6 @@ class TimeDecayStrategy(BaseStrategy):
     """Buy high-probability outcomes, prefer markets near resolution."""
 
     name = "time_decay"
-    min_tier = CapitalTier.TIER1
 
     EXIT_TP_EARLY_PCT = 0.03     # 3% TP for first 6h (need higher profit to justify)
     EXIT_TP_MID_PCT = 0.015      # 1.5% TP for 6-24h

@@ -118,7 +118,7 @@ export default function Settings() {
     max_drawdown_pct: 0,
     daily_target_pct: 0,
   });
-  const [tier, setTier] = useState<Record<string, number>>({});
+  const [riskParams, setRiskParams] = useState<Record<string, number>>({});
   const [quality, setQuality] = useState<Record<string, number>>({});
   const [strategyParams, setStrategyParams] = useState<
     Record<string, Record<string, number>>
@@ -146,7 +146,7 @@ export default function Settings() {
       max_drawdown_pct: config.max_drawdown_pct * 100,
       daily_target_pct: config.daily_target_pct * 100,
     });
-    setTier(config.tier_config);
+    setRiskParams(config.risk_config);
     setQuality(config.quality_params);
     setStrategyParams(config.strategy_params);
     setDisabledStrategies(new Set(config.disabled_strategies ?? []));
@@ -212,8 +212,8 @@ export default function Settings() {
     });
   };
 
-  const saveTierConfig = () => {
-    configMut.mutate({ tier_config: tier });
+  const saveRiskConfig = () => {
+    configMut.mutate({ risk_config: riskParams });
   };
 
   const saveQuality = () => {
@@ -224,8 +224,8 @@ export default function Settings() {
     configMut.mutate({ strategy_params: { [name]: strategyParams[name] } });
   };
 
-  const updateTierField = (key: string, value: number) => {
-    setTier((prev) => ({ ...prev, [key]: value }));
+  const updateRiskField = (key: string, value: number) => {
+    setRiskParams((prev) => ({ ...prev, [key]: value }));
   };
 
   const updateQualityField = (key: string, value: number) => {
@@ -286,7 +286,7 @@ export default function Settings() {
     MIN_HOURS_LEFT: ["Min Hours Left", "Minimum hours to market resolution for entry."],
   };
 
-  const isTierPct = (key: string) =>
+  const isRiskPct = (key: string) =>
     key.endsWith("_pct") || key === "kelly_fraction" || key === "min_win_prob";
 
   return (
@@ -343,11 +343,10 @@ export default function Settings() {
             </div>
             <div className="flex-1">
               <div className="text-sm text-zinc-400 flex items-center">
-                Tier
-                <HelpTooltip text="Capital tier determines risk parameters. Tier 1: $5-$25, Tier 2: $25-$100, Tier 3: $100+." />
+                Mode
               </div>
               <div className="text-lg font-bold text-indigo-400 mt-1">
-                {config?.current_tier?.toUpperCase()}
+                {config?.trading_mode?.toUpperCase()}
               </div>
             </div>
           </div>
@@ -464,11 +463,6 @@ export default function Settings() {
                     {s.label}
                   </span>
                   {/* Status badges */}
-                  {!s.is_tier_available && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400 whitespace-nowrap">
-                      {s.min_tier.replace("tier", "Tier ")}+
-                    </span>
-                  )}
                   {s.is_learner_paused && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400 whitespace-nowrap"
@@ -504,19 +498,16 @@ export default function Settings() {
                         disabled_strategies: Array.from(next),
                       });
                     }}
-                    disabled={!s.is_tier_available}
                     className={`relative w-11 h-6 rounded-full transition-colors ${
-                      !s.is_tier_available
-                        ? "bg-zinc-800 cursor-not-allowed opacity-50"
-                        : isEnabled
-                          ? "bg-green-600"
-                          : "bg-zinc-700"
+                      isEnabled
+                        ? "bg-green-600"
+                        : "bg-zinc-700"
                     }`}
                     data-testid={`toggle-${s.name}`}
                   >
                     <span
                       className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                        isEnabled && s.is_tier_available
+                        isEnabled
                           ? "translate-x-5"
                           : "translate-x-0"
                       }`}
@@ -850,42 +841,36 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Tier Config */}
-      {Object.keys(tier).length > 0 && (
+      {/* Risk Config */}
+      {Object.keys(riskParams).length > 0 && (
         <div className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-5">
-          <h3 className="font-medium text-white mb-1">
-            Risk Parameters{" "}
-            <span className="text-indigo-400">
-              ({config?.current_tier?.toUpperCase()})
-            </span>
-          </h3>
+          <h3 className="font-medium text-white mb-1">Risk Parameters</h3>
           <p className="text-xs text-zinc-500 mb-4">
-            These apply to the current capital tier. Changes take effect
-            immediately.
+            Changes take effect immediately.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {Object.entries(tier).map(([key, value]) => {
+            {Object.entries(riskParams).map(([key, value]) => {
               const [label, tooltip] = TIER_LABELS[key] ?? [key, ""];
               return (
                 <NumberField
                   key={key}
                   label={label}
                   tooltip={tooltip}
-                  value={isTierPct(key) ? value * 100 : value}
+                  value={isRiskPct(key) ? value * 100 : value}
                   onChange={(v) =>
-                    updateTierField(key, isTierPct(key) ? v / 100 : v)
+                    updateRiskField(key, isRiskPct(key) ? v / 100 : v)
                   }
-                  step={isTierPct(key) ? 1 : 1}
-                  testId={`tier-${key}`}
+                  step={isRiskPct(key) ? 1 : 1}
+                  testId={`risk-${key}`}
                 />
               );
             })}
           </div>
           <button
-            onClick={saveTierConfig}
+            onClick={saveRiskConfig}
             disabled={configMut.isPending}
             className="mt-4 px-4 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-            data-testid="save-tier-btn"
+            data-testid="save-risk-btn"
           >
             {configMut.isPending ? "Saving..." : "Save Risk Params"}
           </button>
