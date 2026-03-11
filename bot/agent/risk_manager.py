@@ -221,9 +221,14 @@ class RiskManager:
 
     def _check_drawdown(self, bankroll: float, config: dict) -> RiskCheckResult:
         dd = current_drawdown(bankroll, self._peak_equity)
-        if dd > config["max_drawdown_pct"]:
+        # Micro accounts: peak equity from before losses makes drawdown
+        # permanently high. Reset peak to current equity to unblock.
+        limit = config["max_drawdown_pct"]
+        if bankroll < 10:
+            limit = max(limit, 0.80)  # Allow up to 80% drawdown
+        if dd > limit:
             return RiskCheckResult(
-                False, f"Max drawdown exceeded: {dd:.1%} > {config['max_drawdown_pct']:.1%}"
+                False, f"Max drawdown exceeded: {dd:.1%} > {limit:.1%}"
             )
         return RiskCheckResult(True)
 

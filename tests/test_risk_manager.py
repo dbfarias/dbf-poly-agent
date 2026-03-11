@@ -295,23 +295,32 @@ class TestSetDayStartEquity:
 
 class TestCheckDrawdown:
     def test_within_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_drawdown_pct=0.25
-        rm._peak_equity = 10.0
-        # bankroll 9.0 → dd = 10%. Within 25%.
-        assert rm._check_drawdown(9.0, config).passed is True
+        config = TierConfig.get(CapitalTier.TIER1)
+        rm._peak_equity = 20.0
+        # bankroll 19.0 → dd = 5%. Within 12%.
+        assert rm._check_drawdown(19.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
-        config = TierConfig.get(CapitalTier.TIER1)  # max_drawdown_pct=0.25
-        rm._peak_equity = 10.0
-        # bankroll 7.0 → dd = 30%. Exceeds 25%.
-        result = rm._check_drawdown(7.0, config)
+        config = TierConfig.get(CapitalTier.TIER1)
+        rm._peak_equity = 20.0
+        # bankroll 14.0 → dd = 30%. Exceeds 12%.
+        result = rm._check_drawdown(14.0, config)
         assert result.passed is False
 
     def test_zero_peak_passes(self, rm):
         config = TierConfig.get(CapitalTier.TIER1)
         rm._peak_equity = 0.0
         # current_drawdown returns 0.0 when peak is 0
-        assert rm._check_drawdown(5.0, config).passed is True
+        assert rm._check_drawdown(15.0, config).passed is True
+
+    def test_micro_account_relaxed(self, rm):
+        """Micro accounts (< $10) get relaxed drawdown limit (80%)."""
+        config = TierConfig.get(CapitalTier.TIER1)
+        rm._peak_equity = 25.0
+        # bankroll 8.0 → dd = 68%. Under 80% micro limit → PASS
+        assert rm._check_drawdown(8.0, config).passed is True
+        # bankroll 4.0 → dd = 84%. Over 80% micro limit → FAIL
+        assert rm._check_drawdown(4.0, config).passed is False
 
 
 # ---------------------------------------------------------------------------
