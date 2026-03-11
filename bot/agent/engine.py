@@ -230,11 +230,54 @@ class TradingEngine:
         self._last_report_date: str = ""
         self._target_notified_day: str = ""
         self._risk_limit_notified: dict[str, str] = {}  # {limit_type: day_key}
-        self._market_cooldown: dict[str, datetime] = {}  # {market_id: tradeable_after}
+        # Cooldown keyed by (market_id, strategy) — different strategies can
+        # revisit the same market independently.  Only applied after an actual
+        # trade is placed (scanning without trading does NOT set a cooldown).
+        self._market_cooldown: dict[str, datetime] = {}  # {"market_id|strategy": tradeable_after}
         self._debate_cooldown: dict[str, datetime] = {}  # {market_id: debate_again_after}
-        self.market_cooldown_hours: float = 1.0  # configurable via admin API
+        self.market_cooldown_hours: float = 1.0  # default for most strategies
+
+        # Per-strategy cooldown overrides (short-lived markets need shorter cooldowns)
+        self._strategy_cooldown_hours: dict[str, float] = {
+            "crypto_short_term": 0.083,  # 5 min
+            "news_sniping": 0.25,        # 15 min
+            "weather_trading": 0.5,      # 30 min
+            "arbitrage": 0.25,           # 15 min
+            "copy_trading": 0.5,         # 30 min
+            "time_decay": 1.0,
+            "value_betting": 1.0,
+            "price_divergence": 2.0,
+            "swing_trading": 3.0,
+            "market_making": 1.0,
+        }
         self.debate_cooldown_hours: float = 6.0  # skip re-debating rejected markets
         self.min_balance_for_trades: float = settings.min_balance_for_trades
+
+    def _cooldown_key(self, market_id: str, strategy: str) -> str:
+        """Cooldown key scoped by market + strategy."""
+        return f"{market_id}|{strategy}"
+
+    def _cooldown_hours_for(self, strategy: str) -> float:
+        """Get cooldown hours for a strategy (per-strategy or default)."""
+        return self._strategy_cooldown_hours.get(
+            strategy, self.market_cooldown_hours,
+        )
+
+    def _set_cooldown(self, market_id: str, strategy: str) -> None:
+        """Set cooldown for a (market, strategy) pair after a trade."""
+        hours = self._cooldown_hours_for(strategy)
+        key = self._cooldown_key(market_id, strategy)
+        self._market_cooldown[key] = (
+            datetime.now(timezone.utc) + timedelta(hours=hours)
+        )
+
+    def _is_in_cooldown(self, market_id: str, strategy: str) -> bool:
+        """Check if a (market, strategy) pair is in cooldown."""
+        key = self._cooldown_key(market_id, strategy)
+        cooldown_until = self._market_cooldown.get(key)
+        if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
+            return True
+        return False
 
     @property
     def is_running(self) -> bool:
@@ -543,9 +586,8 @@ class TradingEngine:
                 logger.debug("crypto_fast_skip_worthless", market_id=signal.market_id[:20])
                 continue
 
-            # Skip cooldown
-            cooldown_until = self._market_cooldown.get(signal.market_id)
-            if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
+            # Skip cooldown (per-strategy)
+            if self._is_in_cooldown(signal.market_id, signal.strategy):
                 logger.debug("crypto_fast_skip_cooldown", market_id=signal.market_id[:20])
                 continue
 
@@ -624,10 +666,7 @@ class TradingEngine:
                     size=trade.size,
                     price=trade.price,
                 )
-                # Short cooldown for 5-min markets (5 min, not 3h)
-                self._market_cooldown[signal.market_id] = (
-                    datetime.now(timezone.utc) + timedelta(minutes=5)
-                )
+                self._set_cooldown(signal.market_id, signal.strategy)
                 logger.info(
                     "crypto_fast_trade_executed",
                     market_id=signal.market_id[:20],
@@ -649,9 +688,7 @@ class TradingEngine:
             elif trade:
                 pending_count += 1
                 pending_markets.add(signal.market_id)
-                self._market_cooldown[signal.market_id] = (
-                    datetime.now(timezone.utc) + timedelta(minutes=5)
-                )
+                self._set_cooldown(signal.market_id, signal.strategy)
 
     async def _news_snipe_fast_loop(self) -> None:
         """Fast 60s loop for news sniping strategy.
@@ -1071,9 +1108,9 @@ class TradingEngine:
                 )
                 continue
 
-            # Skip markets in cooldown (prevents rapid same-market churning)
-            cooldown_until = self._market_cooldown.get(signal.market_id)
-            if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
+            # Skip markets in cooldown (per-strategy: each strategy has its own timer)
+            if self._is_in_cooldown(signal.market_id, signal.strategy):
+                hours = self._cooldown_hours_for(signal.strategy)
                 logger.info(
                     "signal_skipped_market_cooldown",
                     market_id=signal.market_id[:20],
@@ -1083,7 +1120,7 @@ class TradingEngine:
                     strategy=signal.strategy,
                     market_id=signal.market_id,
                     question=signal.question,
-                    reason="Market in cooldown (1h after last trade)",
+                    reason=f"Market in cooldown ({hours}h after last trade)",
                     edge=signal.edge,
                     price=signal.market_price,
                 )
@@ -1639,20 +1676,14 @@ class TradingEngine:
                     price=trade.price,
                     size=trade.size,
                 )
-                cooldown_hours = self.market_cooldown_hours
-                self._market_cooldown[signal.market_id] = (
-                    datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)
-                )
+                self._set_cooldown(signal.market_id, signal.strategy)
             elif trade:
                 orders_placed += 1
                 await self._mark_scan_traded(signal)
                 cycle_committed += trade.cost_usd
                 pending_count += 1
                 pending_markets.add(signal.market_id)
-                cooldown_hours = self.market_cooldown_hours
-                self._market_cooldown[signal.market_id] = (
-                    datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)
-                )
+                self._set_cooldown(signal.market_id, signal.strategy)
                 logger.info(
                     "order_pending",
                     trade_id=trade.id,

@@ -1558,8 +1558,8 @@ class TestTradingCycleIntegration:
         engine.research_cache = MagicMock()
         engine.research_cache.get = MagicMock(return_value=None)
 
-        # Set cooldown for this market far in the future
-        engine._market_cooldown["mkt_cool"] = datetime(
+        # Set cooldown for this market+strategy far in the future
+        engine._market_cooldown["mkt_cool|time_decay"] = datetime(
             2099, 1, 1, tzinfo=timezone.utc
         )
 

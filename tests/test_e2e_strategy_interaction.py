@@ -43,13 +43,18 @@ class TestMultiStrategyScan:
     """Verify multiple strategies can scan the same markets without conflict."""
 
     @pytest.mark.asyncio
-    async def test_different_strategies_same_market_dedup(self):
-        """When two strategies emit signals for the same market, only the first
-        should be approved (duplicate position check blocks the second)."""
+    async def test_different_strategies_same_market_per_strategy_cooldown(self):
+        """Per-strategy cooldowns: cooldown on time_decay doesn't block value_betting
+        on the same market."""
         engine = _make_engine()
         sig_td = _make_signal(market_id="shared_mkt", strategy="time_decay", edge=0.06)
         sig_vb = _make_signal(market_id="shared_mkt", strategy="value_betting", edge=0.05)
-        _setup_engine_for_evaluate(engine, [sig_td, sig_vb])
+
+        cooldown_until = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        _setup_engine_for_evaluate(
+            engine, [sig_td, sig_vb],
+            cooldowns={"shared_mkt|time_decay": cooldown_until},
+        )
 
         trade = _make_filled_trade()
         engine.order_manager.execute_signal = AsyncMock(return_value=trade)
@@ -62,9 +67,9 @@ class TestMultiStrategyScan:
             mock_bus.emit = AsyncMock()
             found, approved, placed = await engine._evaluate_signals()
 
-        # First signal fills, second is rejected as duplicate
+        # time_decay blocked by cooldown, value_betting passes
         assert found == 2
-        assert placed == 1  # Only one trade placed
+        assert placed == 1
 
     @pytest.mark.asyncio
     async def test_different_strategies_different_markets(self):
@@ -521,16 +526,17 @@ class TestCooldownEnforcement:
     """Cooldown prevents rapid re-trading on the same market."""
 
     @pytest.mark.asyncio
-    async def test_cooldown_blocks_all_strategies(self):
-        """A cooldown on a market blocks signals from ANY strategy."""
+    async def test_cooldown_blocks_per_strategy(self):
+        """Cooldowns are per (market, strategy) — each strategy has its own timer."""
         engine = _make_engine()
         sig_td = _make_signal(market_id="cool_mkt", strategy="time_decay")
         sig_vb = _make_signal(market_id="cool_mkt", strategy="value_betting")
 
         cooldown_until = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        # Only time_decay is in cooldown, value_betting is free
         _setup_engine_for_evaluate(
             engine, [sig_td, sig_vb],
-            cooldowns={"cool_mkt": cooldown_until},
+            cooldowns={"cool_mkt|time_decay": cooldown_until},
         )
 
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
@@ -538,8 +544,7 @@ class TestCooldownEnforcement:
             found, approved, placed = await engine._evaluate_signals()
 
         assert found == 2
-        assert approved == 0
-        assert placed == 0
+        assert approved == 1  # only value_betting passes
 
     @pytest.mark.asyncio
     async def test_expired_cooldown_allows_trade(self):
@@ -550,7 +555,7 @@ class TestCooldownEnforcement:
         past = datetime.now(timezone.utc) - timedelta(hours=1)
         _setup_engine_for_evaluate(
             engine, [sig],
-            cooldowns={"mkt_exp": past},
+            cooldowns={"mkt_exp|time_decay": past},
         )
 
         trade = _make_filled_trade()
@@ -568,7 +573,7 @@ class TestCooldownEnforcement:
 
     @pytest.mark.asyncio
     async def test_trade_sets_cooldown(self):
-        """After a trade fills, the market should get a cooldown."""
+        """After a trade fills, the (market, strategy) pair gets a cooldown."""
         engine = _make_engine()
         sig = _make_signal(market_id="mkt_cd", strategy="time_decay", edge=0.06)
         _setup_engine_for_evaluate(engine, [sig])
@@ -576,7 +581,8 @@ class TestCooldownEnforcement:
         trade = _make_filled_trade()
         engine.order_manager.execute_signal = AsyncMock(return_value=trade)
 
-        assert "mkt_cd" not in engine._market_cooldown
+        cooldown_key = "mkt_cd|time_decay"
+        assert cooldown_key not in engine._market_cooldown
 
         with patch("bot.agent.engine.log_signal_found", new_callable=AsyncMock), \
              patch("bot.agent.engine.log_signal_rejected", new_callable=AsyncMock), \
@@ -586,8 +592,8 @@ class TestCooldownEnforcement:
             mock_bus.emit = AsyncMock()
             await engine._evaluate_signals()
 
-        assert "mkt_cd" in engine._market_cooldown
-        assert engine._market_cooldown["mkt_cd"] > datetime.now(timezone.utc)
+        assert cooldown_key in engine._market_cooldown
+        assert engine._market_cooldown[cooldown_key] > datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
