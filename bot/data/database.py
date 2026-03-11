@@ -16,7 +16,7 @@ logger = structlog.get_logger()
 # are ever generated dynamically.
 ALLOWED_TABLES = frozenset({
     "trades", "positions", "portfolio_snapshots", "bot_activity",
-    "tracked_wallets", "strategy_metrics",
+    "tracked_wallets", "strategy_metrics", "capital_flows",
 })
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
@@ -68,6 +68,7 @@ async def _migrate(eng) -> None:
         ("trades", "fee_amount_usd", "REAL NOT NULL DEFAULT 0.0"),
         ("trades", "source_wallet", "TEXT NOT NULL DEFAULT ''"),
         ("strategy_metrics", "profit_factor", "REAL NOT NULL DEFAULT 0.0"),
+        ("portfolio_snapshots", "trading_pnl", "REAL NOT NULL DEFAULT 0.0"),
     ]
 
     async with eng.begin() as conn:

@@ -102,6 +102,7 @@ class PortfolioSnapshot(Base):
     realized_pnl_today: Mapped[float] = mapped_column(Float, default=0.0)
     open_positions: Mapped[int] = mapped_column(Integer, default=0)
     daily_return_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    trading_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     max_drawdown_pct: Mapped[float] = mapped_column(Float, default=0.0)
 
 
@@ -172,6 +173,20 @@ class TrackedWallet(Base):
     last_trade_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     notes: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+
+class CapitalFlow(Base):
+    """Records deposits and withdrawals to separate from trading PnL."""
+
+    __tablename__ = "capital_flows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
+    amount: Mapped[float] = mapped_column(Float)  # +deposit / -withdrawal
+    flow_type: Mapped[str] = mapped_column(String(32))  # deposit / withdrawal
+    source: Mapped[str] = mapped_column(String(32), default="polymarket")  # polymarket / config
+    note: Mapped[str] = mapped_column(Text, default="")
+    is_paper: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class StrategyMetric(Base):

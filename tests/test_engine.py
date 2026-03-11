@@ -962,6 +962,7 @@ class TestMaybeDailySummary:
         engine.portfolio.get_overview.return_value = {
             "total_equity": 11.8,
             "realized_pnl_today": 0.3,
+            "polymarket_pnl_today": 0.3,
             "day_start_equity": 11.5,
         }
         engine._last_daily_summary = "1999-01-01"  # Force "not sent today" state

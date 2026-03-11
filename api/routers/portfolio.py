@@ -258,6 +258,41 @@ async def force_close_position(
     )
 
 
+class CapitalFlowResponse(BaseModel):
+    id: int
+    timestamp: str
+    amount: float
+    flow_type: str
+    source: str
+    note: str
+    is_paper: bool
+
+
+@router.get("/capital-flows", response_model=list[CapitalFlowResponse])
+async def get_capital_flows(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get recent capital flow history (deposits/withdrawals)."""
+    from bot.data.repositories import CapitalFlowRepository
+
+    repo = CapitalFlowRepository(db)
+    flows = await repo.get_recent(limit=limit)
+    return [
+        CapitalFlowResponse(
+            id=f.id,
+            timestamp=f.timestamp.isoformat() if f.timestamp else "",
+            amount=f.amount,
+            flow_type=f.flow_type,
+            source=f.source,
+            note=f.note,
+            is_paper=f.is_paper,
+        )
+        for f in flows
+    ]
+
+
 class ForceRemoveRequest(BaseModel):
     """Remove a ghost position from DB without selling on CLOB."""
     position_id: int

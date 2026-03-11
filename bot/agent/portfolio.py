@@ -9,8 +9,12 @@ import structlog
 
 from bot.config import settings, trading_day
 from bot.data.database import async_session
-from bot.data.models import PortfolioSnapshot, Position
-from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
+from bot.data.models import CapitalFlow, PortfolioSnapshot, Position
+from bot.data.repositories import (
+    CapitalFlowRepository,
+    PortfolioSnapshotRepository,
+    PositionRepository,
+)
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.gamma import GammaClient
@@ -146,8 +150,9 @@ class Portfolio:
                 real_balance = await self.clob.get_balance()
                 if real_balance is not None:
                     self._polymarket_balance = real_balance
-                    # In live mode, use real balance as cash
+                    # In live mode, detect deposit/withdrawal before overwriting cash
                     if not settings.is_paper:
+                        await self._detect_capital_flow(real_balance)
                         self._cash = real_balance
             except Exception as e:
                 logger.error("balance_sync_failed", error=str(e))
@@ -182,10 +187,12 @@ class Portfolio:
                 self._day_start_equity = self.total_equity
                 logger.error("day_start_equity_persist_failed", error=str(e))
 
-        # Update peak equity
+        # Update peak equity (adjusted for flows so deposits don't inflate peak)
         equity = self.total_equity
-        if equity > self._peak_equity:
-            self._peak_equity = equity
+        trading_pnl = self._realized_pnl_today + self.unrealized_pnl
+        adjusted_peak = self._day_start_equity + trading_pnl
+        if adjusted_peak > self._peak_equity:
+            self._peak_equity = adjusted_peak
 
         logger.debug(
             "portfolio_synced",
@@ -321,6 +328,54 @@ class Portfolio:
 
         if prices:
             await self.update_position_prices(prices)
+
+    async def _detect_capital_flow(self, new_balance: float) -> None:
+        """Detect deposit/withdrawal by comparing new balance to expected cash.
+
+        If the difference is significant (>$0.50), record a CapitalFlow and
+        adjust day_start_equity so PnL calculations remain deposit-immune.
+        """
+        flow = new_balance - self._cash
+        if abs(flow) < 0.50:
+            return
+
+        flow_type = "deposit" if flow > 0 else "withdrawal"
+        logger.info(
+            "capital_flow_detected",
+            flow_type=flow_type,
+            amount=round(flow, 4),
+            old_cash=round(self._cash, 4),
+            new_balance=round(new_balance, 4),
+        )
+
+        # Record to DB
+        try:
+            async with async_session() as session:
+                repo = CapitalFlowRepository(session)
+                await repo.create(CapitalFlow(
+                    amount=flow,
+                    flow_type=flow_type,
+                    source="polymarket",
+                    note=f"Auto-detected: ${flow:+.2f}",
+                    is_paper=False,
+                ))
+        except Exception as e:
+            logger.error("capital_flow_record_failed", error=str(e))
+
+        # Adjust day_start_equity so PnL stays immune
+        self._day_start_equity += flow
+        try:
+            from bot.data.settings_store import StateStore
+
+            await StateStore.save_day_start_equity(
+                self._day_start_equity, trading_day(),
+            )
+        except Exception as e:
+            logger.error("day_start_equity_adjust_failed", error=str(e))
+
+        # Propagate to risk manager
+        if self._risk_manager:
+            self._risk_manager.set_day_start_equity(self._day_start_equity)
 
     async def _close_if_resolved(
         self, position: Position, pos_repo: "PositionRepository",
@@ -562,7 +617,16 @@ class Portfolio:
                     await repo.upsert(p)
 
     async def take_snapshot(self) -> PortfolioSnapshot:
-        """Take and persist a portfolio snapshot."""
+        """Take and persist a portfolio snapshot.
+
+        trading_pnl is deposit-immune (realized + unrealized from trades only).
+        daily_return_pct is computed from trading_pnl / day_start_equity.
+        """
+        trading_pnl = self._realized_pnl_today + self.unrealized_pnl
+        daily_return_pct = (
+            trading_pnl / self._day_start_equity
+            if self._day_start_equity > 0 else 0.0
+        )
         snapshot = PortfolioSnapshot(
             timestamp=datetime.now(timezone.utc),
             total_equity=self.total_equity,
@@ -571,7 +635,8 @@ class Portfolio:
             unrealized_pnl=self.unrealized_pnl,
             realized_pnl_today=self._realized_pnl_today,
             open_positions=self.open_position_count,
-            daily_return_pct=0.0,
+            daily_return_pct=daily_return_pct,
+            trading_pnl=trading_pnl,
             max_drawdown_pct=(
                 (self._peak_equity - self.total_equity) / self._peak_equity
                 if self._peak_equity > 0 else 0.0
@@ -580,12 +645,6 @@ class Portfolio:
 
         async with async_session() as session:
             repo = PortfolioSnapshotRepository(session)
-            latest = await repo.get_latest()
-            if latest:
-                snapshot.daily_return_pct = (
-                    (self.total_equity - latest.total_equity) / latest.total_equity
-                    if latest.total_equity > 0 else 0.0
-                )
             await repo.create(snapshot)
 
         self._last_snapshot = snapshot.timestamp
@@ -597,20 +656,19 @@ class Portfolio:
         Daily target is based on start-of-day equity (fixed at midnight UTC),
         not current equity, so the goalpost doesn't move during the day.
 
-        polymarket_pnl_today = real-time P&L from Polymarket account change:
-        (current balance + positions) - start-of-day equity.
-        This should match the Polymarket dashboard's P&L display.
+        polymarket_pnl_today = trade-based PnL (realized + unrealized),
+        inherently immune to deposits/withdrawals.
         """
         equity = self.total_equity
         target_pct = settings.daily_target_pct
         target_usd = self._day_start_equity * target_pct
 
-        # Real-time P&L: how much the account changed since midnight
-        polymarket_pnl = equity - self._day_start_equity
+        # Trade-based PnL: immune to deposits/withdrawals
+        trading_pnl = self._realized_pnl_today + self.unrealized_pnl
 
-        # Use polymarket_pnl for progress (includes both realized + unrealized)
+        # Use trading_pnl for progress (includes both realized + unrealized)
         progress = (
-            polymarket_pnl / target_usd if target_usd > 0 else 0.0
+            trading_pnl / target_usd if target_usd > 0 else 0.0
         )
         return {
             "total_equity": equity,
@@ -619,7 +677,7 @@ class Portfolio:
             "positions_value": self.positions_value,
             "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl_today": self._realized_pnl_today,
-            "polymarket_pnl_today": round(polymarket_pnl, 4),
+            "polymarket_pnl_today": round(trading_pnl, 4),
             "open_positions": self.open_position_count,
             "peak_equity": self._peak_equity,
             "day_start_equity": round(self._day_start_equity, 4),

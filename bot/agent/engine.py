@@ -802,12 +802,12 @@ class TradingEngine:
 
     async def _update_learner(self) -> None:
         """Update learner stats and apply adjustments to strategies."""
-        # Use equity-based PnL (not inflated accumulated realized_pnl_today)
-        equity_pnl = (
-            self.portfolio.total_equity - self.portfolio.day_start_equity
+        # Trade-based PnL: immune to deposits/withdrawals
+        trading_pnl = (
+            self.portfolio.realized_pnl_today + self.portfolio.unrealized_pnl
         )
         self.learner.set_daily_context(
-            realized_pnl=equity_pnl,
+            realized_pnl=trading_pnl,
             equity=self.portfolio.day_start_equity,
             target_pct=settings.daily_target_pct,
         )
@@ -1884,9 +1884,10 @@ class TradingEngine:
             except Exception:
                 today_stats = {"trades_today": 0, "win_rate_today": 0.0}
 
+            # Trade-based PnL: immune to deposits/withdrawals
             equity = overview["total_equity"]
+            daily_pnl = overview.get("polymarket_pnl_today", 0.0)
             day_start = overview.get("day_start_equity", equity)
-            daily_pnl = equity - day_start  # Equity-based (not inflated)
             daily_return = daily_pnl / day_start if day_start > 0 else 0.0
 
             await notify_daily_summary(

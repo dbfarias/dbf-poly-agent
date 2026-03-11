@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.data.models import (
     BotSetting,
+    CapitalFlow,
     MarketScan,
     PortfolioSnapshot,
     Position,
@@ -517,6 +518,42 @@ class StrategyMetricRepository:
                 (StrategyMetric.strategy == subq.c.strategy)
                 & (StrategyMetric.recorded_at == subq.c.max_date),
             )
+        )
+        return list(result.scalars().all())
+
+
+class CapitalFlowRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, flow: CapitalFlow) -> CapitalFlow:
+        self.session.add(flow)
+        await self.session.commit()
+        await self.session.refresh(flow)
+        return flow
+
+    async def get_cumulative_today(self) -> float:
+        """Sum of all capital flows for the current trading day."""
+        from bot.config import settings as cfg
+
+        utc_now = datetime.now(timezone.utc)
+        offset = timedelta(hours=cfg.timezone_offset_hours)
+        local_now = utc_now + offset
+        local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = local_midnight - offset
+
+        result = await self.session.scalar(
+            select(func.sum(CapitalFlow.amount)).where(
+                CapitalFlow.timestamp >= today_start,
+            )
+        )
+        return float(result or 0.0)
+
+    async def get_recent(self, limit: int = 50) -> list[CapitalFlow]:
+        result = await self.session.execute(
+            select(CapitalFlow)
+            .order_by(CapitalFlow.timestamp.desc())
+            .limit(limit)
         )
         return list(result.scalars().all())
 

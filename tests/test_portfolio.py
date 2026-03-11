@@ -444,19 +444,21 @@ class TestGetOverview:
         assert overview["total_equity"] == pytest.approx(13.0)
 
     def test_overview_daily_progress(self, portfolio):
-        """Progress should be based on polymarket PnL vs target."""
+        """Progress should be based on trade-based PnL vs target."""
         portfolio._day_start_equity = 10.0
-        portfolio._cash = 10.2  # equity went up by 0.2
+        portfolio._cash = 10.2
+        portfolio._realized_pnl_today = 0.2  # trading profit
 
         overview = portfolio.get_overview()
         # target = 10 * 0.01 = 0.1 (1% daily)
-        # progress = 0.2 / 0.1 = 2.0 (200% of target)
+        # trading_pnl = 0.2, progress = 0.2 / 0.1 = 2.0 (200% of target)
         assert overview["daily_progress_pct"] == pytest.approx(2.0)
 
     def test_overview_polymarket_pnl(self, portfolio):
-        """polymarket_pnl_today = current equity - day start equity."""
+        """polymarket_pnl_today = realized + unrealized (trade-based, deposit-immune)."""
         portfolio._day_start_equity = 10.0
         portfolio._cash = 10.5
+        portfolio._realized_pnl_today = 0.5  # trading profit
 
         overview = portfolio.get_overview()
         assert overview["polymarket_pnl_today"] == pytest.approx(0.5)
@@ -649,15 +651,13 @@ class TestSnapshot:
         mock_snap_repo.create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_take_snapshot_computes_daily_return_from_latest(self, portfolio):
-        """daily_return_pct should be computed relative to the latest snapshot."""
+    async def test_take_snapshot_computes_daily_return_from_trading_pnl(self, portfolio):
+        """daily_return_pct should use trading_pnl / day_start_equity."""
         portfolio._cash = 11.0  # equity = 11
-
-        latest_snap = MagicMock()
-        latest_snap.total_equity = 10.0  # previous equity
+        portfolio._day_start_equity = 10.0
+        portfolio._realized_pnl_today = 1.0  # trading PnL
 
         mock_snap_repo = AsyncMock()
-        mock_snap_repo.get_latest = AsyncMock(return_value=latest_snap)
         mock_snap_repo.create = AsyncMock()
 
         with (
@@ -672,8 +672,9 @@ class TestSnapshot:
 
             snapshot = await portfolio.take_snapshot()
 
-        # (11 - 10) / 10 = 0.1
+        # trading_pnl = 1.0, day_start = 10.0 → 0.1
         assert snapshot.daily_return_pct == pytest.approx(0.1)
+        assert snapshot.trading_pnl == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

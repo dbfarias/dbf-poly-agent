@@ -50,21 +50,32 @@ class ReturnsTracker:
                 return
 
             # Group by date, take last snapshot of each day
-            daily: dict[str, float] = {}
+            # Use trading_pnl (deposit-immune) and day_start_equity when available
+            daily: dict[str, dict] = {}
             for snap in snapshots:
                 date_key = snap.timestamp.strftime("%Y-%m-%d")
                 if date_key not in daily:
-                    daily[date_key] = snap.total_equity
+                    trading_pnl = getattr(snap, "trading_pnl", 0.0) or 0.0
+                    daily[date_key] = {
+                        "equity": snap.total_equity,
+                        "trading_pnl": trading_pnl,
+                    }
 
             # Sort by date and compute returns
             sorted_dates = sorted(daily.keys())
             returns = []
             for i in range(1, len(sorted_dates)):
-                prev_eq = daily[sorted_dates[i - 1]]
-                curr_eq = daily[sorted_dates[i]]
-                if prev_eq > 0:
-                    ret = (curr_eq - prev_eq) / prev_eq
-                    returns.append(ret)
+                day_data = daily[sorted_dates[i]]
+                prev_eq = daily[sorted_dates[i - 1]]["equity"]
+                # Prefer trading_pnl-based return (deposit-immune)
+                if day_data["trading_pnl"] != 0.0 and prev_eq > 0:
+                    ret = day_data["trading_pnl"] / prev_eq
+                elif prev_eq > 0:
+                    # Fallback for old snapshots without trading_pnl
+                    ret = (day_data["equity"] - prev_eq) / prev_eq
+                else:
+                    continue
+                returns.append(ret)
 
             self._returns = returns[-self._window:]
 
