@@ -57,10 +57,16 @@ class RiskManager:
         self._day_start_equity = equity
 
     def reset_daily_state(self, equity: float) -> None:
-        """Reset daily PnL counters and peak equity to current equity."""
+        """Reset daily PnL counters, peak equity, and VaR history to current equity.
+
+        Also clears the returns tracker so stale historical VaR from buggy
+        trades doesn't permanently block new trading.
+        """
         self._daily_pnl = 0.0
         self._day_start_equity = equity
         self._peak_equity = equity
+        if self._returns_tracker is not None:
+            self._returns_tracker.returns.clear()
         logger.info("risk_manager_state_reset", equity=equity)
 
     def pause(self) -> None:
