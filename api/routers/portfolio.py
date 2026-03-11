@@ -103,7 +103,7 @@ async def get_daily_pnl(
 
     offset = timedelta(hours=bot_settings.timezone_offset_hours)
 
-    # Group by local trading day
+    # Group by local trading day — accumulate trading_pnl (deposit-immune)
     by_day: dict[str, dict] = defaultdict(
         lambda: {"first": None, "last": None},
     )
@@ -119,9 +119,16 @@ async def get_daily_pnl(
     result = []
     for day in sorted(by_day):
         data = by_day[day]
-        start_eq = data["first"].total_equity
-        end_eq = data["last"].total_equity
-        pnl = end_eq - start_eq
+        first_snap = data["first"]
+        last_snap = data["last"]
+        start_eq = first_snap.total_equity
+        end_eq = last_snap.total_equity
+
+        # Use trading_pnl from the last snapshot of the day (deposit-immune).
+        # Falls back to equity delta for old snapshots without trading_pnl.
+        last_tpnl = getattr(last_snap, "trading_pnl", None) or 0.0
+        pnl = last_tpnl if last_tpnl != 0.0 else (end_eq - start_eq)
+
         target = start_eq * target_pct
         pnl_pct = (
             (pnl / start_eq * 100) if start_eq > 0 else 0.0
