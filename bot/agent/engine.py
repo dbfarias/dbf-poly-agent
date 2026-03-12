@@ -246,7 +246,7 @@ class TradingEngine:
             "copy_trading": 0.5,         # 30 min
             "time_decay": 1.0,
             "value_betting": 1.0,
-            "price_divergence": 2.0,
+            "price_divergence": 1.0,
             "swing_trading": 3.0,
             "market_making": 1.0,
         }
