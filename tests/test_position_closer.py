@@ -900,3 +900,25 @@ async def test_stuck_position_auto_removed_after_3_failures():
         assert "auto_remove_mkt" not in closer._sell_fail_count
     finally:
         _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_stuck_position_not_auto_removed_in_live_mode():
+    """In live mode, stuck positions stay in DB (tokens exist on-chain)."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = False
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position(market_id="live_stuck_mkt")
+        om.close_position = AsyncMock(return_value=None)
+
+        for _ in range(3):
+            await closer.close_position(pos)
+
+        # Position should still be in stuck list, NOT auto-removed
+        assert "live_stuck_mkt" in closer.stuck_positions
+        assert closer._sell_fail_count["live_stuck_mkt"] == 3
+        pf.record_trade_close.assert_not_called()
+    finally:
+        _stop_patches(patches)

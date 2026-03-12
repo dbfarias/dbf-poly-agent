@@ -146,7 +146,10 @@ class PositionCloser:
                     strategy=pos.strategy,
                     fail_count=count,
                 )
-                await self._auto_remove_stuck(pos)
+                # Paper mode: safe to auto-remove (no on-chain tokens)
+                # Live mode: keep in DB — tokens exist on-chain, need manual resolution
+                if settings.is_paper:
+                    await self._auto_remove_stuck(pos)
             return
 
         # Reset fail count on successful sell
