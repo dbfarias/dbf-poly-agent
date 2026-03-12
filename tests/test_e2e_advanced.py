@@ -521,11 +521,12 @@ class TestCascadingStopLosses:
         )
         _setup_engine_for_evaluate(engine, [signal])
 
-        # Simulate losses: day_start was 50, bankroll dropped to 44 (lost $6 = 12%)
-        # daily_loss_limit_pct in TIER1 config is 10%, so -$5 would trigger
+        # Simulate losses: day_start was 50, lost $6 in trades today (12%)
+        # daily_loss_limit_pct is 6%, so -$6 exceeds -$3 limit
         engine.portfolio.total_equity = 44.0
         engine.risk_manager._day_start_equity = 50.0
         engine.risk_manager._peak_equity = 50.0
+        engine.risk_manager._daily_pnl = -6.0
 
         trade = _make_filled_trade()
         engine.order_manager.execute_signal = AsyncMock(return_value=trade)

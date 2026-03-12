@@ -420,8 +420,9 @@ class TestRiskCheckCascading:
     def test_daily_loss_limit(self):
         rm = RiskManager()
         rm._day_start_equity = 50.0
+        rm._daily_pnl = -8.0  # Lost $8 today (16% of $50)
         config = RiskConfig.get()
-        # Bankroll dropped 15% below start
+        # daily_loss_limit_pct=0.06, limit=$3.00 → -$8 < -$3 → blocked
         result = rm._check_daily_loss(42.0, config)
         assert not result.passed
         assert "Daily loss" in result.reason

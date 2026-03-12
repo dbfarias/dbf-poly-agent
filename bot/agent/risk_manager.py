@@ -224,8 +224,8 @@ class RiskManager:
         return RiskCheckResult(True)
 
     def _check_daily_loss(self, bankroll: float, config: dict) -> RiskCheckResult:
-        # Use equity-based PnL (not accumulated trade PnL which can be inflated)
-        daily_pnl = bankroll - self._day_start_equity
+        # Use trade-based daily PnL (immune to deposits/prior-day unrealized losses)
+        daily_pnl = self._daily_pnl
         limit = self._day_start_equity * config["daily_loss_limit_pct"]
         if daily_pnl < -limit:
             return RiskCheckResult(

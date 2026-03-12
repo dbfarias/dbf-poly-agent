@@ -238,39 +238,40 @@ class TestCheckDuplicatePosition:
 class TestCheckDailyLoss:
     def test_within_limit(self, rm):
         config = RiskConfig.get()
-        # Equity-based: bankroll=19, day_start=20.0 → PnL=-1.0, limit=-1.2
+        # Trade-based: _daily_pnl=-1.0, limit=1.2 (6% of 20) → -1.0 > -1.2 → PASS
         rm._day_start_equity = 20.0
+        rm._daily_pnl = -1.0
         assert rm._check_daily_loss(19.0, config).passed is True
 
     def test_exceeds_limit(self, rm):
         config = RiskConfig.get()
-        # Equity-based: bankroll=16, day_start=20.0 → PnL=-4.0, limit=-1.2
+        # Trade-based: _daily_pnl=-4.0, limit=1.2 (6% of 20) → -4.0 < -1.2 → FAIL
         rm._day_start_equity = 20.0
+        rm._daily_pnl = -4.0
         result = rm._check_daily_loss(16.0, config)
         assert result.passed is False
 
     def test_exact_boundary_passes(self, rm):
         config = RiskConfig.get()
-        # Equity-based: bankroll=18.8, day_start=20.0 → PnL=-1.2, limit=-1.2
-        # -1.2 < -1.2 is False → passes
+        # Trade-based: _daily_pnl=-1.2, limit=1.2 → -1.2 < -1.2 is False → passes
         rm._day_start_equity = 20.0
+        rm._daily_pnl = -1.2
         assert rm._check_daily_loss(18.8, config).passed is True
 
-    def test_equity_based_not_accumulated(self, rm):
-        """Daily loss check uses equity delta, not accumulated _daily_pnl."""
+    def test_trade_based_not_equity_delta(self, rm):
+        """Daily loss uses trade-based _daily_pnl, not equity delta."""
         config = RiskConfig.get()
-        # Inflated _daily_pnl says +$5, but equity says -$3.0
-        rm._daily_pnl = 5.0  # Inflated (should be ignored)
+        # Equity delta says -$3 (17-20), but _daily_pnl says +$5 → PASS
+        rm._daily_pnl = 5.0
         rm._day_start_equity = 20.0
-        # bankroll=17 → equity-based PnL = -3.0 > -1.2 limit → FAIL
         result = rm._check_daily_loss(17.0, config)
-        assert result.passed is False
+        assert result.passed is True  # trade-based PnL is positive
 
     def test_micro_account_same_limit(self, rm):
         """Micro accounts use same daily loss limit as normal (no relaxation)."""
         config = RiskConfig.get()
         rm._day_start_equity = 10.0
-        # bankroll=8 → PnL=-2.0, limit=0.6 (6% of 10) → FAIL
+        rm._daily_pnl = -2.0  # Lost $2 today, limit=0.6 (6% of 10) → FAIL
         assert rm._check_daily_loss(8.0, config).passed is False
 
 
