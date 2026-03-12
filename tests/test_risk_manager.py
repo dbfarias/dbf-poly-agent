@@ -326,32 +326,32 @@ class TestCheckDrawdown:
 
 class TestCheckMaxPositions:
     def test_under_limit(self, rm):
-        config = RiskConfig.get()  # max_positions=6
+        config = RiskConfig.get()  # max_positions=8
         assert rm._check_max_positions([], config).passed is True
 
     def test_at_limit_fails(self, rm):
-        config = RiskConfig.get()  # max_positions=6
-        positions = [make_position(market_id=f"mkt{i}") for i in range(6)]
+        config = RiskConfig.get()  # max_positions=8
+        positions = [make_position(market_id=f"mkt{i}") for i in range(8)]
         result = rm._check_max_positions(positions, config)
         assert result.passed is False
 
-    def test_under_tier1_limit_passes(self, rm):
-        config = RiskConfig.get()  # max_positions=6
-        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
+    def test_under_limit_passes(self, rm):
+        config = RiskConfig.get()  # max_positions=8
+        positions = [make_position(market_id=f"mkt{i}") for i in range(7)]
         assert rm._check_max_positions(positions, config).passed is True
 
     def test_pending_count_added_to_total(self, rm):
-        config = RiskConfig.get()  # max_positions=6
-        positions = [make_position(market_id=f"mkt{i}") for i in range(5)]
-        # 5 open + 1 pending = 6 → at limit → fails
+        config = RiskConfig.get()  # max_positions=8
+        positions = [make_position(market_id=f"mkt{i}") for i in range(7)]
+        # 7 open + 1 pending = 8 → at limit → fails
         result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is False
         assert "pending" in result.reason.lower()
 
     def test_pending_count_under_limit_passes(self, rm):
-        config = RiskConfig.get()  # max_positions=6
-        positions = [make_position(market_id=f"mkt{i}") for i in range(4)]
-        # 4 open + 1 pending = 5 → under 6 → passes
+        config = RiskConfig.get()  # max_positions=8
+        positions = [make_position(market_id=f"mkt{i}") for i in range(6)]
+        # 6 open + 1 pending = 7 → under 8 → passes
         result = rm._check_max_positions(positions, config, pending_count=1)
         assert result.passed is True
 
@@ -360,16 +360,16 @@ class TestCheckMaxPositions:
         from bot.config import settings as _settings
 
         monkeypatch.setattr(_settings, "trading_mode", "live")
-        config = RiskConfig.get()  # max_positions=6
-        # 5 sellable + 3 stuck (size=2.0 < MIN_SELLABLE=5.0) = 8 total but only 5 count
-        sellable = [make_position(market_id=f"sell{i}") for i in range(5)]
+        config = RiskConfig.get()  # max_positions=8
+        # 7 sellable + 3 stuck (size=2.0 < MIN_SELLABLE=5.0) = 10 total but only 7 count
+        sellable = [make_position(market_id=f"sell{i}") for i in range(7)]
         stuck = []
         for i in range(3):
             p = make_position(market_id=f"stuck{i}")
             p.size = 2.0
             stuck.append(p)
         result = rm._check_max_positions(sellable + stuck, config)
-        assert result.passed is True  # 5 < 6
+        assert result.passed is True  # 7 < 8
 
 
 # ---------------------------------------------------------------------------
@@ -424,11 +424,11 @@ class TestCheckTotalDeployed:
 
     def test_urgency_scales_max_deployed(self, rm):
         config = RiskConfig.get()
-        # 6.3 deployed out of 10.0 = 63%. At urgency=1.0, 60% limit → FAIL
-        positions = [make_position(cost_basis=6.3)]
+        # 6.8 deployed out of 10.0 = 68%. At urgency=1.0, 65% limit → FAIL
+        positions = [make_position(cost_basis=6.8)]
         result = rm._check_total_deployed(positions, 10.0, config, urgency=1.0)
         assert result.passed is False
-        # At urgency=2.0, limit becomes min(0.95, 0.60 + 0.05) = 65% → PASS
+        # At urgency=2.0, limit becomes min(0.95, 0.65 + 0.05) = 70% → PASS
         result = rm._check_total_deployed(positions, 10.0, config, urgency=2.0)
         assert result.passed is True
 
@@ -441,7 +441,7 @@ class TestCheckTotalDeployed:
 
     def test_urgency_below_one_keeps_base(self, rm):
         config = RiskConfig.get()
-        # Ahead of target (urgency < 1.0) → keeps base 85%
+        # Ahead of target (urgency < 1.0) → keeps base 65%
         positions = [make_position(cost_basis=9.0)]
         result = rm._check_total_deployed(positions, 10.0, config, urgency=0.5)
         assert result.passed is False  # 90% > 85%
@@ -484,34 +484,34 @@ class TestCheckCategoryExposure:
 
 class TestCheckMinEdge:
     def test_above_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.02
         signal = make_signal(edge=0.06)
         assert rm._check_min_edge(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.01
+        config = RiskConfig.get()  # min_edge_pct=0.02
         signal = make_signal(edge=0.005)
         result = rm._check_min_edge(signal, config)
         assert result.passed is False
 
     def test_edge_multiplier_tightens_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.01
-        # Edge of 0.014 normally passes (> 0.01), but with 1.5x multiplier
-        # required edge = 0.015, so 0.014 should fail
-        signal = make_signal(edge=0.014)
+        config = RiskConfig.get()  # min_edge_pct=0.02
+        # Edge of 0.028 normally passes (> 0.02), but with 1.5x multiplier
+        # required edge = 0.03, so 0.028 should fail
+        signal = make_signal(edge=0.028)
         result = rm._check_min_edge(signal, config, edge_multiplier=1.5)
         assert result.passed is False
 
     def test_edge_multiplier_relaxes_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.01
-        # With 0.8x multiplier, required edge = 0.008
-        signal = make_signal(edge=0.009)
+        config = RiskConfig.get()  # min_edge_pct=0.02
+        # With 0.8x multiplier, required edge = 0.016
+        signal = make_signal(edge=0.018)
         result = rm._check_min_edge(signal, config, edge_multiplier=0.8)
         assert result.passed is True
 
     def test_edge_multiplier_default_is_one(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.01
-        signal = make_signal(edge=0.011)
+        config = RiskConfig.get()  # min_edge_pct=0.02
+        signal = make_signal(edge=0.025)
         # Without multiplier (default 1.0), should pass
         result = rm._check_min_edge(signal, config)
         assert result.passed is True
@@ -559,7 +559,7 @@ class TestCalculateSize:
         signal = make_signal(estimated_prob=0.92, market_price=0.87)
         size = rm._calculate_size(signal, 1.0, config)
         # bankroll=1.0, 5-share min=$4.35 exceeds
-        # max_per_position (40% of $1 = $0.40) → returns 0
+        # max_per_position (30% of $1 = $0.30) → returns 0
         assert size == 0.0
 
     def test_kelly_produces_varied_sizes(self, rm):
@@ -633,8 +633,8 @@ class TestEvaluateSignal:
             confidence=0.85,
             metadata={},
         )
-        # Tier 1 max_positions=6: 5 open + 1 pending = 6 → rejected
-        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(5)]
+        # max_positions=8: 7 open + 1 pending = 8 → rejected
+        positions = [make_position(market_id=f"mkt{i}", cost_basis=1.0) for i in range(7)]
         approved, size, reason = await rm.evaluate_signal(
             signal, bankroll=100.0, open_positions=positions, pending_count=1,
         )
@@ -643,9 +643,9 @@ class TestEvaluateSignal:
 
     async def test_edge_multiplier_applied(self, rm):
         """Edge multiplier from learner should tighten/relax edge threshold."""
-        signal = make_signal(edge=0.015, estimated_prob=0.92, market_price=0.86)
-        # With edge_multiplier=1.5, required edge = 0.01*1.5 = 0.015
-        # edge of 0.015 == adjusted threshold → should just pass (not strictly <)
+        signal = make_signal(edge=0.030, estimated_prob=0.92, market_price=0.86)
+        # With edge_multiplier=1.5, required edge = 0.02*1.5 = 0.03
+        # edge of 0.030 == adjusted threshold → should just pass (not strictly <)
         approved, size, reason = await rm.evaluate_signal(
             signal, bankroll=100.0, open_positions=[],
             edge_multiplier=1.5,

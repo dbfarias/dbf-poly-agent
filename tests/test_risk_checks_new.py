@@ -143,8 +143,8 @@ class TestRiskConfigDefaults:
         config = RiskConfig.get()
         assert config["max_drawdown_pct"] == 0.12
         assert config["daily_loss_limit_pct"] == 0.06
-        assert config["max_deployed_pct"] == 0.60
-        assert config["kelly_fraction"] == 0.35
+        assert config["max_deployed_pct"] == 0.65
+        assert config["kelly_fraction"] == 0.25
 
     def test_all_keys_present(self):
         from bot.config import RiskConfig

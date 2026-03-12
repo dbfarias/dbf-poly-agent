@@ -448,7 +448,7 @@ class TestCategoryExposureCrossStrategy:
         config = RiskConfig.get()
 
         # Crypto: 2 positions * $10 cost_basis = $20 = 40% of $50
-        # max_per_category_pct is typically 0.40 (40%)
+        # max_per_category_pct is 0.35 (35%)
         crypto_ok, _, crypto_reason = await rm.evaluate_signal(
             signal=sig_crypto, bankroll=50.0,
             open_positions=existing,

@@ -438,8 +438,8 @@ class TestRiskCheckCascading:
     def test_max_positions(self):
         rm = RiskManager()
         config = RiskConfig.get()
-        # Tier 1 max = 6
-        positions = [_make_position(f"mkt_{i}", size=6) for i in range(6)]
+        # max_positions = 8
+        positions = [_make_position(f"mkt_{i}", size=6) for i in range(8)]
         result = rm._check_max_positions(positions, config)
         assert not result.passed
         assert "Max positions" in result.reason
@@ -940,9 +940,11 @@ class TestMultiStrategyPositionMix:
             _make_position("m4", strategy="swing_trading", size=6, avg_price=0.50),
             _make_position("m5", strategy="price_divergence", size=6, avg_price=0.50),
             _make_position("m6", strategy="time_decay", size=6, avg_price=0.50),
+            _make_position("m7b", strategy="weather_trading", size=6, avg_price=0.50),
+            _make_position("m8", strategy="copy_trading", size=6, avg_price=0.50),
         ]
 
-        sig = _make_signal(market_id="m7", strategy="value_betting", edge=0.06)
+        sig = _make_signal(market_id="m9", strategy="value_betting", edge=0.06)
         approved, _, reason = await rm.evaluate_signal(
             signal=sig,
             bankroll=50.0,
@@ -999,9 +1001,9 @@ class TestPendingOrderCounting:
         rm._peak_equity = 50.0
         rm._day_start_equity = 50.0
 
-        # 4 open positions + 2 pending = 6 (max for Tier 1)
+        # 6 open positions + 2 pending = 8 (max_positions default)
         positions = [
-            _make_position(f"m{i}", size=6, avg_price=0.50) for i in range(4)
+            _make_position(f"m{i}", size=6, avg_price=0.50) for i in range(6)
         ]
         sig = _make_signal(market_id="m_new", edge=0.06)
 

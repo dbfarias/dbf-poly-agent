@@ -31,11 +31,14 @@ URGENCY_CAP_SHORT = 72.0    # Urgency 1.0 → up to 3 days
 URGENCY_CAP_MAX = 168.0     # Urgency 1.3+ → up to 7 days
 
 # Strategy parameters
-MIN_IMPLIED_PROB = 0.85
+MIN_IMPLIED_PROB = 0.90   # Raised: 85% was too loose, 22% WR on non-Bitcoin
 MAX_PRICE = 0.97
-MIN_PRICE = 0.80
-MIN_EDGE = 0.015  # 1.5% minimum edge (real edge, no phantom bonus)
+MIN_PRICE = 0.85          # Raised: 0.75-0.89 had 20% WR, 0.90+ had 57% WR
+MIN_EDGE = 0.015          # 1.5% min edge (max possible ~2% from time factor)
 CONFIDENCE_BASE = 0.75
+
+# Reject coin-flip markets (e.g. "Bitcoin Up or Down 7:05-7:10AM")
+COINFLIP_KEYWORDS = ["up or down", "opens up or down"]
 
 
 def _max_hours_for_urgency(urgency: float) -> float:
@@ -191,6 +194,11 @@ class TimeDecayStrategy(BaseStrategy):
             return None
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
+
+        # Reject coin-flip markets ("Up or Down" with short intervals)
+        question_lower = (market.question or "").lower()
+        if any(kw in question_lower for kw in COINFLIP_KEYWORDS):
+            return None
 
         # Check hours to resolution (dynamic based on urgency)
         hours_left = (end - now).total_seconds() / 3600

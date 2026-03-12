@@ -193,13 +193,13 @@ class TestSentimentDivergence:
     def test_divergence_detected(self):
         """Positive sentiment + falling price → BUY YES."""
         rc = ResearchCache()
-        research = _make_research(sentiment=0.95, confidence=0.90)
+        research = _make_research(sentiment=0.95, confidence=0.95)
         rc.set("m1", research)
 
         strategy = _make_strategy(research_cache=rc)
         # Seed sharply falling price history → strong negative trend
         strategy._price_history["m1"] = deque(
-            [0.70, 0.62, 0.55, 0.48, 0.40], maxlen=PRICE_HISTORY_MAXLEN
+            [0.80, 0.68, 0.55, 0.42, 0.30], maxlen=PRICE_HISTORY_MAXLEN
         )
 
         market = _make_market(
@@ -390,8 +390,8 @@ class TestShouldExit:
     @pytest.mark.asyncio
     async def test_take_profit_triggers(self):
         strategy = _make_strategy()
-        # 1.5%+ above avg → take profit
-        result = await strategy.should_exit("m1", current_price=0.61, avg_price=0.60)
+        # 2%+ above avg → take profit
+        result = await strategy.should_exit("m1", current_price=0.613, avg_price=0.60)
         assert result is True
 
     @pytest.mark.asyncio
