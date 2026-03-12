@@ -423,6 +423,84 @@ class TestPaperModeBankrollChange:
         overview = portfolio.get_overview()
         assert overview["polymarket_pnl_today"] == 0.0
 
+    @pytest.mark.asyncio
+    async def test_paper_cash_restored_on_restart(self, portfolio):
+        """Paper cash should be restored from state, not reset to initial_bankroll."""
+        portfolio._cash = 10.0  # initial_bankroll
+        portfolio._positions = []
+
+        with patch("bot.agent.portfolio.settings") as mock_settings:
+            mock_settings.is_paper = True
+            mock_settings.initial_bankroll = 10.0
+            with patch("bot.agent.portfolio.async_session"):
+                with patch("bot.data.settings_store.async_session"):
+                    from bot.data.settings_store import StateStore
+
+                    with patch.object(
+                        StateStore, "load_paper_cash",
+                        return_value=(7.50, 10.0),  # (cash, bankroll)
+                    ):
+                        with patch.object(StateStore, "save_paper_cash"):
+                            await portfolio._restore_paper_cash()
+
+        # Should restore to 7.50, not stay at 10.0
+        assert portfolio._cash == 7.50
+
+    @pytest.mark.asyncio
+    async def test_paper_bankroll_increase_records_deposit(self, portfolio):
+        """Increasing initial_bankroll should record a capital flow deposit."""
+        portfolio._cash = 50.0  # new initial_bankroll
+        portfolio._positions = [make_position(size=10, avg_price=0.5)]
+        portfolio._day_start_equity = 35.0
+
+        with patch("bot.agent.portfolio.settings") as mock_settings:
+            mock_settings.is_paper = True
+            mock_settings.initial_bankroll = 50.0
+            with patch("bot.agent.portfolio.async_session") as mock_db:
+                mock_ctx = AsyncMock()
+                mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_ctx)
+                mock_db.return_value.__aexit__ = AsyncMock(return_value=False)
+                with patch("bot.data.settings_store.async_session"):
+                    from bot.data.settings_store import StateStore
+
+                    with patch.object(
+                        StateStore, "load_paper_cash",
+                        return_value=(30.0, 30.0),  # old cash, old bankroll
+                    ):
+                        with patch.object(StateStore, "save_paper_cash"):
+                            await portfolio._restore_paper_cash()
+
+        # Cash = saved_cash + flow = 30 + (50-30) = 50
+        assert portfolio._cash == 50.0
+        # day_start should have been adjusted by +20 (50-30)
+        assert portfolio._day_start_equity == 55.0  # 35 + 20
+
+    @pytest.mark.asyncio
+    async def test_paper_first_run_persists_initial(self, portfolio):
+        """First run should persist initial_bankroll without detecting a flow."""
+        portfolio._cash = 10.0
+        portfolio._positions = []
+
+        with patch("bot.agent.portfolio.settings") as mock_settings:
+            mock_settings.is_paper = True
+            mock_settings.initial_bankroll = 10.0
+            with patch("bot.data.settings_store.async_session"):
+                from bot.data.settings_store import StateStore
+
+                with patch.object(
+                    StateStore, "load_paper_cash",
+                    return_value=(None, None),
+                ):
+                    save_mock = AsyncMock()
+                    with patch.object(
+                        StateStore, "save_paper_cash", save_mock
+                    ):
+                        await portfolio._restore_paper_cash()
+
+        # Should persist initial value, not change cash
+        assert portfolio._cash == 10.0
+        save_mock.assert_awaited_once_with(10.0, 10.0)
+
 
 # ---------------------------------------------------------------------------
 # Capital flow API endpoint

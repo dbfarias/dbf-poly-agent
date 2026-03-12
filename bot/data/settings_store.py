@@ -424,6 +424,40 @@ class StateStore:
             return 0.0, ""
 
     @staticmethod
+    async def save_paper_cash(cash: float, bankroll: float) -> None:
+        """Persist paper mode cash and bankroll config so they survive restarts."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many({
+                "state.paper_cash": json.dumps(cash),
+                "state.paper_bankroll": json.dumps(bankroll),
+            })
+
+    @staticmethod
+    async def load_paper_cash() -> tuple[float | None, float | None]:
+        """Load persisted paper cash and bankroll. Returns (cash, bankroll)."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            cash_raw = await repo.get("state.paper_cash")
+            bankroll_raw = await repo.get("state.paper_bankroll")
+
+        cash = None
+        if cash_raw is not None:
+            try:
+                cash = float(json.loads(cash_raw))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        bankroll = None
+        if bankroll_raw is not None:
+            try:
+                bankroll = float(json.loads(bankroll_raw))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        return cash, bankroll
+
+    @staticmethod
     async def save_market_cooldowns(cooldowns: dict[str, str]) -> None:
         """Persist market cooldowns as JSON (market_id → ISO datetime)."""
         async with async_session() as session:

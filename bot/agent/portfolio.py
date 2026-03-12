@@ -144,6 +144,10 @@ class Portfolio:
             pos_repo = PositionRepository(session)
             self._positions = await pos_repo.get_open()
 
+        # Paper mode: restore cash from persisted state to survive restarts
+        if settings.is_paper:
+            await self._restore_paper_cash()
+
         # Fetch real balance from Polymarket (works in both modes)
         if self.clob.is_connected:
             try:
@@ -193,6 +197,17 @@ class Portfolio:
         adjusted_peak = self._day_start_equity + trading_pnl
         if adjusted_peak > self._peak_equity:
             self._peak_equity = adjusted_peak
+
+        # Persist paper cash so it survives restarts
+        if settings.is_paper:
+            try:
+                from bot.data.settings_store import StateStore
+
+                await StateStore.save_paper_cash(
+                    self._cash, settings.initial_bankroll,
+                )
+            except Exception:
+                pass  # Non-critical, will retry next cycle
 
         logger.debug(
             "portfolio_synced",
@@ -376,6 +391,70 @@ class Portfolio:
         # Propagate to risk manager
         if self._risk_manager:
             self._risk_manager.set_day_start_equity(self._day_start_equity)
+
+    async def _restore_paper_cash(self) -> None:
+        """Restore paper cash from persisted state.
+
+        On first run, persists initial_bankroll. On subsequent restarts,
+        restores persisted cash instead of resetting to initial_bankroll.
+        Detects initial_bankroll config changes and records as capital flow.
+        """
+        try:
+            from bot.data.settings_store import StateStore
+
+            saved_cash, saved_bankroll = await StateStore.load_paper_cash()
+            if saved_cash is None:
+                # First run ever — persist current state
+                await StateStore.save_paper_cash(
+                    self._cash, settings.initial_bankroll,
+                )
+                return
+
+            # Check if initial_bankroll config changed since last run
+            bankroll_changed = (
+                saved_bankroll is not None
+                and abs(settings.initial_bankroll - saved_bankroll) > 0.01
+            )
+
+            if bankroll_changed:
+                # Config changed — compute the flow and record it
+                flow = settings.initial_bankroll - saved_bankroll
+                flow_type = "deposit" if flow > 0 else "withdrawal"
+                logger.info(
+                    "paper_bankroll_change_detected",
+                    flow_type=flow_type,
+                    amount=round(flow, 4),
+                    old_bankroll=round(saved_bankroll, 4),
+                    new_bankroll=round(settings.initial_bankroll, 4),
+                )
+                try:
+                    async with async_session() as session:
+                        repo = CapitalFlowRepository(session)
+                        await repo.create(CapitalFlow(
+                            amount=flow,
+                            flow_type=flow_type,
+                            source="config",
+                            note=(
+                                f"INITIAL_BANKROLL changed: "
+                                f"${saved_bankroll:.2f} -> "
+                                f"${settings.initial_bankroll:.2f}"
+                            ),
+                            is_paper=True,
+                        ))
+                except Exception as e:
+                    logger.error("paper_capital_flow_failed", error=str(e))
+
+                # Adjust cash by the bankroll delta (not reset to bankroll)
+                self._cash = saved_cash + flow
+                self._day_start_equity += flow
+                await StateStore.save_paper_cash(
+                    self._cash, settings.initial_bankroll,
+                )
+            else:
+                # Normal restart — restore persisted cash
+                self._cash = saved_cash
+        except Exception as e:
+            logger.error("restore_paper_cash_failed", error=str(e))
 
     async def _close_if_resolved(
         self, position: Position, pos_repo: "PositionRepository",
