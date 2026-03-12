@@ -572,13 +572,12 @@ class TestGhostPositionRecovery:
     """Verify sell failure tracking and stuck position behavior."""
 
     @pytest.mark.asyncio
-    async def test_ghost_position_sell_fail_count_escalation(self):
-        """3 close_position calls returning None -> position marked stuck."""
+    async def test_ghost_position_auto_removed_after_3_failures(self):
+        """3 close_position calls returning None -> position auto-removed."""
         portfolio = AsyncMock()
-        portfolio.record_trade_close = AsyncMock()
+        portfolio.record_trade_close = AsyncMock(return_value=-0.25)
         risk_manager = MagicMock()
         order_manager = AsyncMock()
-        # close_position returns None (sell fails)
         order_manager.close_position = AsyncMock(return_value=None)
 
         closer = PositionCloser(order_manager, portfolio, risk_manager)
@@ -591,15 +590,22 @@ class TestGhostPositionRecovery:
             created_at=datetime.now(timezone.utc) - timedelta(hours=2),
         )
 
-        with patch("bot.agent.position_closer.log_exit_triggered", new_callable=AsyncMock):
+        mock_repo = MagicMock()
+        mock_repo.close_trade_for_position = AsyncMock()
+
+        with patch("bot.agent.position_closer.log_exit_triggered", new_callable=AsyncMock), \
+             patch("bot.agent.position_closer.async_session") as mock_session, \
+             patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
             for _ in range(3):
                 await closer.close_position(pos, exit_reason="stop_loss")
 
-        # After 3 failures, position should be in stuck list
-        assert "ghost_mkt" in closer.stuck_positions
-        assert closer._sell_fail_count["ghost_mkt"] == 3
-        # Portfolio close should NOT have been called (sells failed)
-        portfolio.record_trade_close.assert_not_called()
+        # After 3 failures, position should have been auto-removed
+        portfolio.record_trade_close.assert_called_once_with("ghost_mkt", 0.45)
+        risk_manager.update_daily_pnl.assert_called_once_with(-0.25)
+        # Fail count cleared after auto-removal
+        assert "ghost_mkt" not in closer._sell_fail_count
 
     @pytest.mark.asyncio
     async def test_stuck_position_skipped_in_rebalance(self):

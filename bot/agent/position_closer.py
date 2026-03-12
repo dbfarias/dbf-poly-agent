@@ -146,6 +146,7 @@ class PositionCloser:
                     strategy=pos.strategy,
                     fail_count=count,
                 )
+                await self._auto_remove_stuck(pos)
             return
 
         # Reset fail count on successful sell
@@ -456,6 +457,45 @@ class PositionCloser:
 
         logger.warning("rebalance_all_candidates_failed", candidates=len(candidates))
         return None
+
+    async def _auto_remove_stuck(self, pos) -> None:
+        """Auto-remove a stuck position after 3 sell failures.
+
+        Closes the position in the portfolio and DB so it no longer
+        occupies a slot or distorts PnL calculations.
+        """
+        try:
+            pnl = await self.portfolio.record_trade_close(
+                pos.market_id, pos.current_price,
+            )
+            self.risk_manager.update_daily_pnl(pnl)
+
+            from bot.data.repositories import TradeRepository
+
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.close_trade_for_position(
+                    pos.market_id,
+                    close_price=pos.current_price,
+                    pnl=pnl,
+                    exit_reason="stuck_auto_removed",
+                )
+
+            self._sell_fail_count.pop(pos.market_id, None)
+
+            logger.warning(
+                "stuck_position_auto_removed",
+                market_id=pos.market_id,
+                strategy=pos.strategy,
+                size=pos.size,
+                pnl=round(pnl, 4),
+            )
+        except Exception as e:
+            logger.error(
+                "stuck_position_auto_remove_failed",
+                market_id=pos.market_id,
+                error=str(e),
+            )
 
     @property
     def stuck_positions(self) -> list[str]:

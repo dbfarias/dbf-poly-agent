@@ -866,3 +866,37 @@ def test_stuck_positions_property():
     assert "mkt_c" in stuck
     assert "mkt_b" not in stuck
     assert len(stuck) == 2
+
+
+@pytest.mark.asyncio
+async def test_stuck_position_auto_removed_after_3_failures():
+    """Position is auto-removed from portfolio after 3 consecutive sell failures."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = True
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position(market_id="auto_remove_mkt")
+        om.close_position = AsyncMock(return_value=None)
+        pf.record_trade_close = AsyncMock(return_value=-0.50)
+
+        mock_session = AsyncMock()
+        mock_repo = MagicMock()
+        mock_repo.close_trade_for_position = AsyncMock()
+        mocks["async_session"].return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mocks["async_session"].return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+            # Fail 3 times
+            await closer.close_position(pos)
+            await closer.close_position(pos)
+            await closer.close_position(pos)
+
+        # Position should have been auto-removed
+        pf.record_trade_close.assert_called_once_with("auto_remove_mkt", pos.current_price)
+        rm.update_daily_pnl.assert_called_once_with(-0.50)
+        mock_repo.close_trade_for_position.assert_called_once()
+        # Fail count should be cleared
+        assert "auto_remove_mkt" not in closer._sell_fail_count
+    finally:
+        _stop_patches(patches)
