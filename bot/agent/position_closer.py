@@ -488,6 +488,7 @@ class PositionCloser:
                 )
 
             self._sell_fail_count.pop(pos.market_id, None)
+            self.portfolio.mark_auto_removed(pos.market_id)
 
             logger.warning(
                 "stuck_position_auto_removed",

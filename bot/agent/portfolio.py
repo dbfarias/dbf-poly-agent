@@ -48,6 +48,7 @@ class Portfolio:
         self._realized_pnl_today: float = 0.0
         self._pnl_date: str = ""  # Track which UTC day the PnL belongs to
         self._skip_next_flow: bool = False  # Suppress flow detection after mode switch
+        self._auto_removed_ids: set[str] = set()  # Markets auto-removed from stuck; skip in sync
         self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
         self._redeemer = None
@@ -252,6 +253,14 @@ class Portfolio:
                         market_id=rp.market_id,
                         outcome=rp.outcome,
                         size=rp.size,
+                    )
+                    continue
+
+                # Skip markets that were auto-removed as stuck/worthless
+                if rp.market_id in self._auto_removed_ids:
+                    logger.debug(
+                        "sync_skipping_auto_removed",
+                        market_id=rp.market_id,
                     )
                     continue
 
@@ -696,6 +705,10 @@ class Portfolio:
             self._positions = await repo.get_open()
 
         return pnl
+
+    def mark_auto_removed(self, market_id: str) -> None:
+        """Mark a market as auto-removed so sync won't re-create it."""
+        self._auto_removed_ids.add(market_id)
 
     async def update_position_prices(self, prices: dict[str, float]) -> None:
         """Update current prices for open positions."""
