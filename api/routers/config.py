@@ -132,15 +132,10 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 detail=f"Invalid trading_mode: {update.trading_mode!r}. Must be 'paper' or 'live'.",
             )
         if update.trading_mode == "live":
-            missing_keys = (
-                not settings.poly_api_key
-                or not settings.poly_api_secret
-                or not settings.poly_api_passphrase
-            )
-            if missing_keys:
+            if not settings.poly_private_key:
                 raise HTTPException(
                     status_code=400,
-                    detail="Cannot switch to LIVE: API keys not configured",
+                    detail="Cannot switch to LIVE: POLY_PRIVATE_KEY not configured",
                 )
         old_mode = settings.trading_mode.value
         settings.trading_mode = TradingMode(update.trading_mode)

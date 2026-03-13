@@ -43,15 +43,11 @@ class TestTradingModeToggle:
 
     def setup_method(self):
         self._original_mode = settings.trading_mode
-        self._original_key = settings.poly_api_key
-        self._original_secret = settings.poly_api_secret
-        self._original_passphrase = settings.poly_api_passphrase
+        self._original_private_key = settings.poly_private_key
 
     def teardown_method(self):
         settings.trading_mode = self._original_mode
-        settings.poly_api_key = self._original_key
-        settings.poly_api_secret = self._original_secret
-        settings.poly_api_passphrase = self._original_passphrase
+        settings.poly_private_key = self._original_private_key
 
     @pytest.mark.asyncio
     async def test_toggle_to_live_with_api_keys(self):
@@ -59,9 +55,7 @@ class TestTradingModeToggle:
         from api.routers.config import update_config
 
         settings.trading_mode = TradingMode.PAPER
-        settings.poly_api_key = "test-key"
-        settings.poly_api_secret = "test-secret"
-        settings.poly_api_passphrase = "test-pass"
+        settings.poly_private_key = "0xtest-private-key"
 
         update = _make_update(trading_mode="live")
 
@@ -82,9 +76,7 @@ class TestTradingModeToggle:
         from api.routers.config import update_config
 
         settings.trading_mode = TradingMode.PAPER
-        settings.poly_api_key = ""
-        settings.poly_api_secret = ""
-        settings.poly_api_passphrase = ""
+        settings.poly_private_key = ""
 
         update = _make_update(trading_mode="live")
 
@@ -99,7 +91,7 @@ class TestTradingModeToggle:
                 await update_config(update, _="fake-api-key")
 
         assert exc_info.value.status_code == 400
-        assert "API keys" in exc_info.value.detail
+        assert "POLY_PRIVATE_KEY" in exc_info.value.detail
         # Mode should NOT have changed
         assert settings.trading_mode == TradingMode.PAPER
 
@@ -109,9 +101,7 @@ class TestTradingModeToggle:
         from api.routers.config import update_config
 
         settings.trading_mode = TradingMode.LIVE
-        settings.poly_api_key = "k"
-        settings.poly_api_secret = "s"
-        settings.poly_api_passphrase = "p"
+        settings.poly_private_key = "0xtest-key"
 
         update = _make_update(trading_mode="paper")
 
