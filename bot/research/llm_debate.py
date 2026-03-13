@@ -691,7 +691,7 @@ async def debate_signal(
             # Edge validation deprecated — edges are algo-computed
 
             if not consensus.approved:
-                # Consensus said PASS — skip challenger
+                # Consensus rejected — skip challenger
                 elapsed = time.monotonic() - start
                 cost_tracker.add(total_cost)
                 result = DebateResult(
@@ -754,11 +754,11 @@ async def debate_signal(
             question=question[:60],
             proposer="PASS",
             challenger="skipped",
-            approved=False,
+            approved=True,
             cost_usd=round(total_cost, 5),
         )
         result = DebateResult(
-            approved=False,
+            approved=True,
             proposer_verdict="PASS",
             proposer_confidence=prop_confidence,
             proposer_reasoning=prop_reasoning,

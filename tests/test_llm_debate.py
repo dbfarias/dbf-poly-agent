@@ -217,7 +217,7 @@ class TestDebateSignal:
             )
 
         assert result is not None
-        assert not result.approved
+        assert result.approved  # PASS = signal approved, skip challenger
         assert result.proposer_verdict == "PASS"
         assert result.challenger_verdict == "skipped"
         # Challenger should NOT have been called
