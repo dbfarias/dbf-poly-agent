@@ -285,6 +285,22 @@ export default function Settings() {
     var_limit: ["VaR Limit", "Value at Risk limit (negative). Trading pauses if daily VaR exceeds this."],
     zscore_threshold: ["Z-Score Threshold", "Z-score threshold for anomalous price movements."],
     min_edge_for_debate: ["Min Edge for Debate", "Signals below this edge skip the LLM debate gate."],
+    spread_penalty_factor: ["Spread Penalty Factor", "Multiplier for bid-ask spread penalty on edge adjustments."],
+    cal_gap_weight: ["Calibration Gap Weight", "Weight of calibration gap in edge adjustment calculation."],
+    recompute_interval: ["Learner Recompute (sec)", "How often the adaptive learner recomputes strategy weights."],
+    unpause_grace_hours: ["Unpause Grace (hours)", "Grace period before a re-enabled strategy can be auto-paused again."],
+    llm_debate_cache_ttl_approved: ["Debate Cache TTL Approved (sec)", "How long an approved LLM debate result stays cached."],
+    llm_debate_cache_ttl_rejected: ["Debate Cache TTL Rejected (sec)", "How long a rejected LLM debate result stays cached."],
+    cooldown_time_decay: ["Cooldown: Time Decay (hours)", "Per-strategy cooldown for time_decay."],
+    cooldown_arbitrage: ["Cooldown: Arbitrage (hours)", "Per-strategy cooldown for arbitrage."],
+    cooldown_value_betting: ["Cooldown: Value Betting (hours)", "Per-strategy cooldown for value_betting."],
+    cooldown_price_divergence: ["Cooldown: Price Divergence (hours)", "Per-strategy cooldown for price_divergence."],
+    cooldown_swing_trading: ["Cooldown: Swing Trading (hours)", "Per-strategy cooldown for swing_trading."],
+    cooldown_market_making: ["Cooldown: Market Making (hours)", "Per-strategy cooldown for market_making."],
+    cooldown_weather_trading: ["Cooldown: Weather (hours)", "Per-strategy cooldown for weather_trading."],
+    cooldown_crypto_short_term: ["Cooldown: Crypto Short Term (hours)", "Per-strategy cooldown for crypto_short_term."],
+    cooldown_news_sniping: ["Cooldown: News Sniping (hours)", "Per-strategy cooldown for news_sniping."],
+    cooldown_copy_trading: ["Cooldown: Copy Trading (hours)", "Per-strategy cooldown for copy_trading."],
   };
 
   const STRATEGY_LABELS: Record<string, [string, string]> = {
@@ -341,6 +357,7 @@ export default function Settings() {
     EDGE_SCALE: ["Edge Scale", "Scaling factor for edge computation from raw inputs."],
     MIN_HOLD_SECONDS: ["Min Hold (seconds)", "Minimum hold time in seconds before any exit."],
     MIN_MOMENTUM_TICKS: ["Min Momentum Ticks", "Minimum consecutive price rises to trigger entry."],
+    MIN_WIN_RATE_THRESHOLD: ["Min Win Rate Threshold", "Minimum whale win rate to consider copying a trade."],
   };
 
   const isRiskPct = (key: string) =>

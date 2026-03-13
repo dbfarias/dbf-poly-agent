@@ -254,6 +254,10 @@ class TradingEngine:
         self.min_balance_for_trades: float = settings.min_balance_for_trades
         self.min_edge_for_debate: float = 0.015
 
+        # Edge adjustment params (configurable via admin)
+        self.spread_penalty_factor: float = self.SPREAD_PENALTY_FACTOR
+        self.cal_gap_weight: float = self.CAL_GAP_WEIGHT
+
     def _cooldown_key(self, market_id: str, strategy: str) -> str:
         """Cooldown key scoped by market + strategy."""
         return f"{market_id}|{strategy}"
@@ -1821,13 +1825,8 @@ class TradingEngine:
         except Exception as e:
             logger.debug("mark_scan_traded_failed", error=str(e))
 
-    # Spread penalty: each $0.01 of spread costs this fraction of edge.
-    # At SPREAD_PENALTY=0.5, a $0.04 spread penalizes edge by 2%.
+    # Edge adjustment defaults (overridable via admin quality_params)
     SPREAD_PENALTY_FACTOR = 0.5
-
-    # Calibration gap: weight applied to the overconfidence gap.
-    # If calibrator says 70% bin wins only 56% (factor=0.8), gap = 14%.
-    # At CAL_GAP_WEIGHT=0.3, this reduces edge by 4.2%.
     CAL_GAP_WEIGHT = 0.3
 
     async def _apply_edge_adjustments(self, signal) -> None:
@@ -1844,7 +1843,7 @@ class TradingEngine:
                 book = await self.clob_client.get_order_book(signal.token_id)
                 spread = book.spread
                 if spread is not None and spread > 0:
-                    penalty = spread * self.SPREAD_PENALTY_FACTOR
+                    penalty = spread * self.spread_penalty_factor
                     signal.edge -= penalty
                     adjustments["spread"] = round(spread, 4)
                     adjustments["spread_penalty"] = round(-penalty, 4)
@@ -1859,7 +1858,7 @@ class TradingEngine:
             and calibrated < signal.estimated_prob
         ):
             gap = signal.estimated_prob - calibrated
-            penalty = gap * self.CAL_GAP_WEIGHT
+            penalty = gap * self.cal_gap_weight
             signal.edge -= penalty
             adjustments["calibration_gap"] = round(gap, 4)
             adjustments["calibration_penalty"] = round(-penalty, 4)

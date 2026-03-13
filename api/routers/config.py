@@ -73,6 +73,24 @@ def _get_quality_params(engine) -> dict:
         rm = engine.risk_manager
         result["var_limit"] = rm.var_limit
         result["zscore_threshold"] = rm.zscore_threshold
+    # Edge adjustment params
+    result["spread_penalty_factor"] = engine.spread_penalty_factor
+    result["cal_gap_weight"] = engine.cal_gap_weight
+    # Per-strategy cooldown overrides
+    for strategy_name, hours in engine._strategy_cooldown_hours.items():
+        result[f"cooldown_{strategy_name}"] = hours
+    # Learner advanced params
+    if hasattr(engine, "learner"):
+        result["recompute_interval"] = engine.learner.RECOMPUTE_INTERVAL
+        result["unpause_grace_hours"] = engine.learner.UNPAUSE_GRACE_HOURS
+    # LLM debate cache TTLs
+    from bot.research.llm_debate import _CACHE_TTL_APPROVED, _CACHE_TTL_REJECTED
+    result["llm_debate_cache_ttl_approved"] = getattr(
+        settings, "llm_debate_cache_ttl_approved", _CACHE_TTL_APPROVED
+    )
+    result["llm_debate_cache_ttl_rejected"] = getattr(
+        settings, "llm_debate_cache_ttl_rejected", _CACHE_TTL_REJECTED
+    )
     return result
 
 
@@ -293,7 +311,47 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 # RiskManager params
                 "var_limit": ("risk_manager", "var_limit", float, -0.5, 0.0),
                 "zscore_threshold": ("risk_manager", "zscore_threshold", float, 0.0, 5.0),
+                # Edge adjustment params
+                "spread_penalty_factor": ("engine", "spread_penalty_factor", float, 0.0, 2.0),
+                "cal_gap_weight": ("engine", "cal_gap_weight", float, 0.0, 1.0),
+                # Learner advanced params
+                "recompute_interval": ("learner", "RECOMPUTE_INTERVAL", int, 60, 3600),
+                "unpause_grace_hours": ("learner", "UNPAUSE_GRACE_HOURS", float, 0.5, 48.0),
             }
+            # Per-strategy cooldown overrides
+            _strategy_cooldown_spec = {}
+            for sname in engine._strategy_cooldown_hours:
+                _strategy_cooldown_spec[f"cooldown_{sname}"] = sname
+            for key, value in update.quality_params.items():
+                if key in _strategy_cooldown_spec:
+                    try:
+                        value = float(value)
+                        if 0.01 <= value <= 24.0:
+                            sname = _strategy_cooldown_spec[key]
+                            engine._strategy_cooldown_hours[sname] = value
+                            changes.append(f"quality.{key}={value}")
+                    except (TypeError, ValueError):
+                        pass
+                    continue
+                # LLM debate cache TTLs (stored on settings object)
+                if key == "llm_debate_cache_ttl_approved":
+                    try:
+                        value = float(value)
+                        if 300 <= value <= 86400:
+                            settings.llm_debate_cache_ttl_approved = value
+                            changes.append(f"quality.{key}={value}")
+                    except (TypeError, ValueError):
+                        pass
+                    continue
+                if key == "llm_debate_cache_ttl_rejected":
+                    try:
+                        value = float(value)
+                        if 60 <= value <= 14400:
+                            settings.llm_debate_cache_ttl_rejected = value
+                            changes.append(f"quality.{key}={value}")
+                    except (TypeError, ValueError):
+                        pass
+                    continue
             for key, value in update.quality_params.items():
                 spec = _quality_spec.get(key)
                 if not spec:

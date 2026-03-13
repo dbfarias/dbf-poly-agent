@@ -59,6 +59,12 @@ _QUALITY_ATTR_MAP: dict[str, tuple[str, str]] = {
     "market_cooldown_hours": ("_engine", "market_cooldown_hours"),
     "min_balance_for_trades": ("_engine", "min_balance_for_trades"),
     "min_edge_for_debate": ("_engine", "min_edge_for_debate"),
+    # Edge adjustment params
+    "spread_penalty_factor": ("_engine", "spread_penalty_factor"),
+    "cal_gap_weight": ("_engine", "cal_gap_weight"),
+    # Learner advanced params
+    "recompute_interval": ("learner", "RECOMPUTE_INTERVAL"),
+    "unpause_grace_hours": ("learner", "UNPAUSE_GRACE_HOURS"),
 }
 
 # Global settings that are persisted
@@ -342,10 +348,49 @@ _QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
     "market_cooldown_hours": (float, 0.25, 24.0),
     "min_balance_for_trades": (float, 0.0, 100.0),
     "min_edge_for_debate": (float, 0.0, 0.10),
+    # Edge adjustment params
+    "spread_penalty_factor": (float, 0.0, 2.0),
+    "cal_gap_weight": (float, 0.0, 1.0),
+    # Learner advanced params
+    "recompute_interval": (int, 60, 3600),
+    "unpause_grace_hours": (float, 0.5, 48.0),
 }
 
 
 def _apply_quality(engine, param: str, value) -> int:
+    # Per-strategy cooldown overrides
+    if param.startswith("cooldown_"):
+        strategy_name = param[len("cooldown_"):]
+        if strategy_name in engine._strategy_cooldown_hours:
+            try:
+                value = float(value)
+                if 0.01 <= value <= 24.0:
+                    engine._strategy_cooldown_hours[strategy_name] = value
+                    return 1
+            except (TypeError, ValueError):
+                pass
+        return 0
+
+    # LLM debate cache TTLs (stored on settings object)
+    if param == "llm_debate_cache_ttl_approved":
+        try:
+            value = float(value)
+            if 300 <= value <= 86400:
+                settings.llm_debate_cache_ttl_approved = value
+                return 1
+        except (TypeError, ValueError):
+            pass
+        return 0
+    if param == "llm_debate_cache_ttl_rejected":
+        try:
+            value = float(value)
+            if 60 <= value <= 14400:
+                settings.llm_debate_cache_ttl_rejected = value
+                return 1
+        except (TypeError, ValueError):
+            pass
+        return 0
+
     mapping = _QUALITY_ATTR_MAP.get(param)
     if not mapping:
         return 0

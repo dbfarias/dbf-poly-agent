@@ -28,6 +28,8 @@ def _make_engine():
     engine.learner = MagicMock()
     engine.learner.calibrator = MagicMock()
     engine.learner.calibrator.is_trained = False
+    engine.spread_penalty_factor = TradingEngine.SPREAD_PENALTY_FACTOR
+    engine.cal_gap_weight = TradingEngine.CAL_GAP_WEIGHT
     return engine
 
 

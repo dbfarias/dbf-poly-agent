@@ -21,9 +21,6 @@ MAX_CONCURRENT_COPIES = 3
 TAKE_PROFIT_PCT = 0.05
 STOP_LOSS_PCT = 0.08
 MAX_HOLD_HOURS = 72
-MIN_WIN_RATE_THRESHOLD = 0.55
-
-
 class CopyTradingStrategy(BaseStrategy):
     """Copy top trader positions: proportional sizing, filtered by quality."""
 
@@ -37,6 +34,7 @@ class CopyTradingStrategy(BaseStrategy):
     WHALE_BANKROLL_ESTIMATE = 10000.0
     BASE_EDGE = 0.03
     WIN_RATE_BONUS_SCALE = 0.10
+    MIN_WIN_RATE_THRESHOLD = 0.55
     TAKE_PROFIT_PCT = TAKE_PROFIT_PCT
     STOP_LOSS_PCT = STOP_LOSS_PCT
     MAX_HOLD_HOURS = MAX_HOLD_HOURS
@@ -51,6 +49,7 @@ class CopyTradingStrategy(BaseStrategy):
         "WHALE_BANKROLL_ESTIMATE": {"type": float, "min": 1000.0, "max": 100000.0},
         "BASE_EDGE": {"type": float, "min": 0.0, "max": 0.15},
         "WIN_RATE_BONUS_SCALE": {"type": float, "min": 0.0, "max": 0.50},
+        "MIN_WIN_RATE_THRESHOLD": {"type": float, "min": 0.3, "max": 0.9},
         "TAKE_PROFIT_PCT": {"type": float, "min": 0.01, "max": 0.15},
         "STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.20},
         "MAX_HOLD_HOURS": {"type": float, "min": 1, "max": 168},
@@ -94,7 +93,7 @@ class CopyTradingStrategy(BaseStrategy):
 
     def _compute_edge(self, win_rate: float) -> float:
         """Compute edge: base + win_rate bonus."""
-        bonus = max(0.0, (win_rate - MIN_WIN_RATE_THRESHOLD) * self.WIN_RATE_BONUS_SCALE)
+        bonus = max(0.0, (win_rate - self.MIN_WIN_RATE_THRESHOLD) * self.WIN_RATE_BONUS_SCALE)
         return self.BASE_EDGE + bonus
 
     def _whale_trade_to_signal(
