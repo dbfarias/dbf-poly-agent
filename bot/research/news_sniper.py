@@ -23,7 +23,7 @@ logger = structlog.get_logger()
 _DEDUP_MAX = 5000
 
 # Minimum thresholds for a snipe candidate
-MIN_KEYWORD_OVERLAP = 0.20
+MIN_KEYWORD_OVERLAP = 0.30  # Keyword recall: % of market keywords found in headline
 MIN_SENTIMENT_ABS = 0.08
 MIN_PRICE = 0.05
 MAX_PRICE = 0.95
@@ -50,8 +50,8 @@ class NewsSniper:
     1. Build keyword index from cached markets (refreshed every 5 min)
     2. Fetch RSS via NewsFetcher (top 50 markets by volume)
     3. For each new headline (dedup by SHA-256, LRU 5000):
-       - Compute Jaccard keyword overlap with each market
-       - If overlap >= 0.20 AND abs(VADER sentiment) >= 0.08
+       - Compute keyword recall (market keywords found in headline)
+       - If recall >= 0.30 AND abs(VADER sentiment) >= 0.08
          AND price in [0.05, 0.95]: emit SnipeCandidate
     """
 
@@ -137,6 +137,18 @@ class NewsSniper:
         union = len(set_a | set_b)
         return intersection / union if union > 0 else 0.0
 
+    @staticmethod
+    def keyword_recall(headline_words: set[str], market_keywords: set[str]) -> float:
+        """Fraction of market keywords found in headline.
+
+        Better than Jaccard for matching: headlines have many extra words
+        that dilute Jaccard, but recall focuses on how many *market* keywords
+        the headline covers.
+        """
+        if not market_keywords or not headline_words:
+            return 0.0
+        return len(headline_words & market_keywords) / len(market_keywords)
+
     async def poll(self) -> list[SnipeCandidate]:
         """Run one polling cycle: fetch RSS, match to markets, return candidates.
 
@@ -185,11 +197,11 @@ class NewsSniper:
             if abs(sentiment) < MIN_SENTIMENT_ABS:
                 continue
 
-            # Match against all indexed markets
+            # Match against all indexed markets using keyword recall
             best_overlap = 0.0
             matched_any = False
             for market_id, market_kw in self._keyword_index.items():
-                overlap = self.jaccard_overlap(headline_words, market_kw)
+                overlap = self.keyword_recall(headline_words, market_kw)
                 best_overlap = max(best_overlap, overlap)
                 if overlap < MIN_KEYWORD_OVERLAP:
                     continue

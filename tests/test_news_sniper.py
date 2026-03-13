@@ -62,6 +62,30 @@ class TestJaccardOverlap:
         assert NewsSniper.jaccard_overlap(set(), set()) == 0.0
 
 
+class TestKeywordRecall:
+    def test_full_recall(self):
+        # All market keywords found in headline
+        headline = {"trump", "wins", "2028", "election", "presidential"}
+        market = {"trump", "election", "2028"}
+        assert NewsSniper.keyword_recall(headline, market) == 1.0
+
+    def test_partial_recall(self):
+        # 2 of 5 market keywords in headline
+        headline = {"trump", "announces", "2028", "campaign", "rally"}
+        market = {"trump", "2028", "election", "presidential", "win"}
+        assert abs(NewsSniper.keyword_recall(headline, market) - 0.4) < 0.01
+
+    def test_no_recall(self):
+        headline = {"bitcoin", "rally", "crypto"}
+        market = {"trump", "election", "2028"}
+        assert NewsSniper.keyword_recall(headline, market) == 0.0
+
+    def test_empty_sets(self):
+        assert NewsSniper.keyword_recall(set(), {"a"}) == 0.0
+        assert NewsSniper.keyword_recall({"a"}, set()) == 0.0
+        assert NewsSniper.keyword_recall(set(), set()) == 0.0
+
+
 class TestHeadlineDedup:
     def test_mark_and_check(self, sniper):
         assert not sniper._is_seen("Test headline")
@@ -159,7 +183,7 @@ class TestPoll:
         ) as mock_fetch:
             mock_fetch.return_value = [news_item]
 
-            # We need keyword overlap >= 0.20 and sentiment >= 0.08
+            # We need keyword recall >= 0.30 and sentiment >= 0.08
             # The keyword index needs to match the headline words
             with patch(
                 "bot.research.news_sniper.get_headline_sentiment",
