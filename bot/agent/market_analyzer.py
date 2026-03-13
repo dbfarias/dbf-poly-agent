@@ -469,17 +469,20 @@ class MarketAnalyzer:
         if age_hours is not None and age_hours > self.MAX_POSITION_AGE_HOURS:
             return f"max_age ({age_hours:.0f}h > {self.MAX_POSITION_AGE_HOURS:.0f}h)"
 
-        # Take profit: lock in gains when price near certainty
+        # Take profit: lock in gains when price near certainty AND actually profitable
         if position.current_price >= self.TAKE_PROFIT_PRICE:
             if age_hours is not None and age_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
                 profit_pct = (
                     (position.current_price - position.avg_price) / position.avg_price
                     if position.avg_price > 0 else 0.0
                 )
-                return (
-                    f"take_profit (price={position.current_price:.4f},"
-                    f" +{profit_pct:.1%} after {age_hours:.0f}h)"
-                )
+                # Only take profit if actually in profit (prevents selling at a loss
+                # for positions entered above the take_profit_price threshold)
+                if profit_pct > 0:
+                    return (
+                        f"take_profit (price={position.current_price:.4f},"
+                        f" +{profit_pct:.1%} after {age_hours:.0f}h)"
+                    )
 
         # Unmatched strategy: apply default exit threshold
         if not strategy_matched and position.current_price < self.DEFAULT_EXIT_PRICE:
