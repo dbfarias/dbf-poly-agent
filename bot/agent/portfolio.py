@@ -47,6 +47,7 @@ class Portfolio:
         self._peak_equity: float = settings.initial_bankroll
         self._realized_pnl_today: float = 0.0
         self._pnl_date: str = ""  # Track which UTC day the PnL belongs to
+        self._skip_next_flow: bool = False  # Suppress flow detection after mode switch
         self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
         self._redeemer = None
@@ -88,10 +89,15 @@ class Portfolio:
         return self._peak_equity
 
     def reset_daily_state(self, equity: float) -> None:
-        """Reset daily PnL counters and peak equity to current equity."""
+        """Reset daily PnL counters and peak equity to current equity.
+
+        Also sets _skip_next_flow to suppress false capital-flow detection
+        on mode switches (paper cash → live balance creates a phantom flow).
+        """
         self._realized_pnl_today = 0.0
         self._day_start_equity = equity
         self._peak_equity = equity
+        self._skip_next_flow = True
 
     def restore_realized_pnl(self, pnl: float, date: str) -> None:
         """Restore realized PnL from persisted state after restart.
@@ -350,6 +356,17 @@ class Portfolio:
         If the difference is significant (>$0.50), record a CapitalFlow and
         adjust day_start_equity so PnL calculations remain deposit-immune.
         """
+        # After mode switch, the first balance read is the real Polymarket
+        # balance which differs from paper cash — skip to avoid phantom flow
+        if self._skip_next_flow:
+            self._skip_next_flow = False
+            logger.info(
+                "capital_flow_skipped_mode_switch",
+                old_cash=round(self._cash, 4),
+                new_balance=round(new_balance, 4),
+            )
+            return
+
         flow = new_balance - self._cash
         if abs(flow) < 0.50:
             return
