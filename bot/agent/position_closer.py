@@ -147,8 +147,11 @@ class PositionCloser:
                     fail_count=count,
                 )
                 # Paper mode: safe to auto-remove (no on-chain tokens)
-                # Live mode: keep in DB — tokens exist on-chain, need manual resolution
+                # Live mode: auto-remove only near-worthless positions after many failures
+                # (tokens exist on-chain but are essentially worthless)
                 if settings.is_paper:
+                    await self._auto_remove_stuck(pos)
+                elif count >= 10 and pos.current_price < 0.05:
                     await self._auto_remove_stuck(pos)
             return
 

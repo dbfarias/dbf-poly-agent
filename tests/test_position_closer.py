@@ -922,3 +922,57 @@ async def test_stuck_position_not_auto_removed_in_live_mode():
         pf.record_trade_close.assert_not_called()
     finally:
         _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_stuck_position_auto_removed_in_live_near_worthless():
+    """In live mode, near-worthless positions are auto-removed after 10+ failures."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = False
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position(market_id="live_worthless_mkt")
+        pos.current_price = 0.02  # Near worthless
+        om.close_position = AsyncMock(return_value=None)
+        pf.record_trade_close = AsyncMock(return_value=-0.80)
+
+        mock_session = AsyncMock()
+        mock_repo = MagicMock()
+        mock_repo.close_trade_for_position = AsyncMock()
+        mocks["async_session"].return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mocks["async_session"].return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
+            for _ in range(10):
+                await closer.close_position(pos)
+
+        # Position should have been auto-removed at attempt 10
+        pf.record_trade_close.assert_called_once_with("live_worthless_mkt", 0.02)
+        rm.update_daily_pnl.assert_called_once_with(-0.80)
+        assert "live_worthless_mkt" not in closer._sell_fail_count
+    finally:
+        _stop_patches(patches)
+
+
+@pytest.mark.asyncio
+async def test_stuck_position_not_auto_removed_in_live_high_price():
+    """In live mode, positions with price >= 0.05 are NOT auto-removed."""
+    patches = _common_patches()
+    mocks = _enter_patches(patches)
+    try:
+        mocks["settings"].is_paper = False
+        closer, om, pf, rm = _make_closer()
+        pos = _make_position(market_id="live_highprice_mkt")
+        pos.current_price = 0.10  # Not near worthless
+        om.close_position = AsyncMock(return_value=None)
+
+        for _ in range(15):
+            await closer.close_position(pos)
+
+        # Position should still be stuck, NOT auto-removed
+        assert "live_highprice_mkt" in closer.stuck_positions
+        assert closer._sell_fail_count["live_highprice_mkt"] == 15
+        pf.record_trade_close.assert_not_called()
+    finally:
+        _stop_patches(patches)
