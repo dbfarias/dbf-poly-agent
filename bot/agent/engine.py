@@ -1451,6 +1451,9 @@ class TradingEngine:
                 )
                 signal.metadata["calibrated_prob"] = calibrated
 
+            # --- Edge adjustments (spread penalty + calibration gap) ---
+            await self._apply_edge_adjustments(signal)
+
             _urgency = (
                 self._learner_adjustments.urgency_multiplier
                 if self._learner_adjustments
@@ -1817,6 +1820,62 @@ class TradingEngine:
                 await repo.mark_scan_traded(signal.market_id, signal.strategy)
         except Exception as e:
             logger.debug("mark_scan_traded_failed", error=str(e))
+
+    # Spread penalty: each $0.01 of spread costs this fraction of edge.
+    # At SPREAD_PENALTY=0.5, a $0.04 spread penalizes edge by 2%.
+    SPREAD_PENALTY_FACTOR = 0.5
+
+    # Calibration gap: weight applied to the overconfidence gap.
+    # If calibrator says 70% bin wins only 56% (factor=0.8), gap = 14%.
+    # At CAL_GAP_WEIGHT=0.3, this reduces edge by 4.2%.
+    CAL_GAP_WEIGHT = 0.3
+
+    async def _apply_edge_adjustments(self, signal) -> None:
+        """Adjust signal edge for spread friction and calibration gap.
+
+        Inspired by quant analysis: real edge must exceed transaction costs
+        (spread) and account for historical over/under-confidence (calibration).
+        """
+        adjustments: dict[str, float] = {}
+
+        # 1. Spread penalty — wider spread = higher transaction cost = less real edge
+        if not settings.is_paper:
+            try:
+                book = await self.clob_client.get_order_book(signal.token_id)
+                spread = book.spread
+                if spread is not None and spread > 0:
+                    penalty = spread * self.SPREAD_PENALTY_FACTOR
+                    signal.edge -= penalty
+                    adjustments["spread"] = round(spread, 4)
+                    adjustments["spread_penalty"] = round(-penalty, 4)
+            except Exception:
+                pass  # Spread check in _check_liquidity will catch failures
+
+        # 2. Calibration gap — if our probability estimates are overconfident,
+        #    the real edge is lower than computed
+        calibrated = signal.metadata.get("calibrated_prob")
+        if (
+            isinstance(calibrated, (int, float))
+            and calibrated < signal.estimated_prob
+        ):
+            gap = signal.estimated_prob - calibrated
+            penalty = gap * self.CAL_GAP_WEIGHT
+            signal.edge -= penalty
+            adjustments["calibration_gap"] = round(gap, 4)
+            adjustments["calibration_penalty"] = round(-penalty, 4)
+
+        if adjustments:
+            signal.metadata["edge_adjustments"] = adjustments
+            logger.info(
+                "edge_adjusted",
+                strategy=signal.strategy,
+                market_id=signal.market_id[:20],
+                original_edge=round(signal.edge + sum(
+                    v for k, v in adjustments.items() if k.endswith("_penalty")
+                ), 4),
+                adjusted_edge=round(signal.edge, 4),
+                **adjustments,
+            )
 
     async def _check_liquidity(self, signal) -> bool:
         """Check order book has reasonable exit liquidity before trading.
