@@ -114,11 +114,11 @@ class WeatherTradingStrategy(BaseStrategy):
     MIN_HOLD_SECONDS = 1800  # 30 min
 
     # Entry thresholds — buy YES tokens priced below this
-    ENTRY_THRESHOLD = 0.15
+    ENTRY_THRESHOLD = 0.50
     # Exit threshold — sell when YES price rises above this
-    EXIT_THRESHOLD = 0.45
-    MIN_EDGE = 0.03
-    CONFIDENCE_THRESHOLD = 0.5
+    EXIT_THRESHOLD = 0.65
+    MIN_EDGE = 0.05
+    CONFIDENCE_THRESHOLD = 0.40
     MIN_HOURS_TO_RESOLUTION = 2.0
     LOOKAHEAD_DAYS = 4  # today + 3 days
     MAX_SIGNALS_PER_SCAN = 5
@@ -305,20 +305,26 @@ class WeatherTradingStrategy(BaseStrategy):
                 question=question[:80],
             )
 
-            if yes_price >= self.ENTRY_THRESHOLD:
-                self.logger.debug(
-                    "weather_price_above_threshold",
-                    price=yes_price, threshold=self.ENTRY_THRESHOLD,
-                )
-                return None
-
             # Calculate edge: how underpriced is this bucket?
             # Forecast says this bucket should win → fair value ~0.70-0.90
             # depending on confidence. Edge = fair_value - market_price.
             fair_value = min(0.90, 0.50 + confidence * 0.40)
             edge = fair_value - yes_price
 
+            if yes_price >= self.ENTRY_THRESHOLD:
+                self.logger.info(
+                    "weather_price_above_threshold",
+                    price=yes_price, threshold=self.ENTRY_THRESHOLD,
+                    edge=round(edge, 3),
+                )
+                return None
+
             if edge < self.MIN_EDGE:
+                self.logger.info(
+                    "weather_edge_too_low",
+                    price=yes_price, edge=round(edge, 3),
+                    min_edge=self.MIN_EDGE, fair_value=round(fair_value, 3),
+                )
                 return None
 
             signal_confidence = min(0.95, 0.6 + confidence * 0.3)

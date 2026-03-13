@@ -159,7 +159,7 @@ class TestPoll:
         ) as mock_fetch:
             mock_fetch.return_value = [news_item]
 
-            # We need keyword overlap >= 0.35 and sentiment >= 0.15
+            # We need keyword overlap >= 0.20 and sentiment >= 0.08
             # The keyword index needs to match the headline words
             with patch(
                 "bot.research.news_sniper.get_headline_sentiment",
@@ -243,10 +243,10 @@ class TestSentimentFilter:
             sniper._news_fetcher, "fetch_news", new_callable=AsyncMock
         ) as mock_fetch:
             mock_fetch.return_value = [news_item]
-            # Low sentiment — should be filtered
+            # Low sentiment — should be filtered (below MIN_SENTIMENT_ABS=0.08)
             with patch(
                 "bot.research.news_sniper.get_headline_sentiment",
-                return_value=0.1,
+                return_value=0.05,
             ):
                 candidates = await sniper.poll()
 

@@ -27,7 +27,7 @@ class NewsFetcher:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 timeout=self.TIMEOUT,
-                follow_redirects=False,
+                follow_redirects=True,
             )
         return self._client
 

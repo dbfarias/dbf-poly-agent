@@ -492,7 +492,7 @@ class TestWeatherTradingExit:
     @pytest.mark.asyncio()
     async def test_exit_threshold(self, strategy):
         result = await strategy.should_exit(
-            "m1", 0.50, avg_price=0.10,
+            "m1", 0.70, avg_price=0.10,
         )
         assert result is not False
         assert "exit_threshold" in str(result)

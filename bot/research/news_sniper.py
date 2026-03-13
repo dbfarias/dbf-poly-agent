@@ -23,10 +23,10 @@ logger = structlog.get_logger()
 _DEDUP_MAX = 5000
 
 # Minimum thresholds for a snipe candidate
-MIN_KEYWORD_OVERLAP = 0.35
-MIN_SENTIMENT_ABS = 0.15
-MIN_PRICE = 0.20
-MAX_PRICE = 0.80
+MIN_KEYWORD_OVERLAP = 0.20
+MIN_SENTIMENT_ABS = 0.08
+MIN_PRICE = 0.05
+MAX_PRICE = 0.95
 
 
 @dataclass(frozen=True)
@@ -51,8 +51,8 @@ class NewsSniper:
     2. Fetch RSS via NewsFetcher (top 50 markets by volume)
     3. For each new headline (dedup by SHA-256, LRU 5000):
        - Compute Jaccard keyword overlap with each market
-       - If overlap >= 0.50 AND abs(VADER sentiment) >= 0.30
-         AND price in [0.20, 0.80]: emit SnipeCandidate
+       - If overlap >= 0.20 AND abs(VADER sentiment) >= 0.08
+         AND price in [0.05, 0.95]: emit SnipeCandidate
     """
 
     KEYWORD_REFRESH_INTERVAL = 300  # 5 min
@@ -186,10 +186,14 @@ class NewsSniper:
                 continue
 
             # Match against all indexed markets
+            best_overlap = 0.0
+            matched_any = False
             for market_id, market_kw in self._keyword_index.items():
                 overlap = self.jaccard_overlap(headline_words, market_kw)
+                best_overlap = max(best_overlap, overlap)
                 if overlap < MIN_KEYWORD_OVERLAP:
                     continue
+                matched_any = True
 
                 yes_price = self._market_prices.get(market_id, 0.5)
                 if yes_price < MIN_PRICE or yes_price > MAX_PRICE:
@@ -206,6 +210,15 @@ class NewsSniper:
                         yes_price=yes_price,
                         published=item.published,
                     )
+                )
+
+            if not matched_any and best_overlap > 0:
+                logger.debug(
+                    "news_headline_no_match",
+                    headline=item.title[:60],
+                    sentiment=round(sentiment, 3),
+                    best_overlap=round(best_overlap, 3),
+                    min_overlap=MIN_KEYWORD_OVERLAP,
                 )
 
         if candidates:
