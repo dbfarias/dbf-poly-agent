@@ -1870,7 +1870,7 @@ class TradingEngine:
                 "edge_adjusted",
                 strategy=signal.strategy,
                 market_id=signal.market_id[:20],
-                original_edge=round(signal.edge + sum(
+                original_edge=round(signal.edge - sum(
                     v for k, v in adjustments.items() if k.endswith("_penalty")
                 ), 4),
                 adjusted_edge=round(signal.edge, 4),
