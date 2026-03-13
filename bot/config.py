@@ -36,7 +36,7 @@ class RiskConfig:
         "max_positions": 8,            # Was 6: weather+crypto need room
         "max_per_position_pct": 0.30,  # Was 0.40: safer per-trade sizing for live
         "max_deployed_pct": 0.65,      # Was 0.60: slightly more capital at work
-        "daily_loss_limit_pct": 0.06,
+        "daily_loss_limit_pct": 0.10,  # Was 0.06: small bankroll needs room
         "max_drawdown_pct": 0.12,
         "min_edge_pct": 0.02,          # Was 0.01: reject sub-2% edge trades
         "min_win_prob": 0.55,
