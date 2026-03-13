@@ -1,12 +1,12 @@
 """Configuration API endpoints."""
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
 from api.schemas import BotConfig, BotConfigUpdate
-from bot.config import RiskConfig, settings
+from bot.config import RiskConfig, TradingMode, settings
 from bot.data.settings_store import SettingsStore
 from bot.research.llm_debate import cost_tracker as llm_cost_tracker
 
@@ -67,6 +67,7 @@ def _get_quality_params(engine) -> dict:
     result["market_cooldown_hours"] = engine.market_cooldown_hours
     result["debate_cooldown_hours"] = engine.debate_cooldown_hours
     result["min_balance_for_trades"] = engine.min_balance_for_trades
+    result["min_edge_for_debate"] = engine.min_edge_for_debate
     # RiskManager params
     if hasattr(engine, "risk_manager"):
         rm = engine.risk_manager
@@ -122,6 +123,33 @@ async def get_config(_: str = Depends(verify_api_key)):
 @router.put("/")
 async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key)):
     changes: list[str] = []
+
+    # Trading mode toggle
+    if update.trading_mode is not None:
+        if update.trading_mode not in ("paper", "live"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid trading_mode: {update.trading_mode!r}. Must be 'paper' or 'live'.",
+            )
+        if update.trading_mode == "live":
+            missing_keys = (
+                not settings.poly_api_key
+                or not settings.poly_api_secret
+                or not settings.poly_api_passphrase
+            )
+            if missing_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot switch to LIVE: API keys not configured",
+                )
+        old_mode = settings.trading_mode.value
+        settings.trading_mode = TradingMode(update.trading_mode)
+        logger.warning(
+            "TRADING_MODE_CHANGED",
+            old_mode=old_mode,
+            new_mode=update.trading_mode,
+        )
+        changes.append(f"trading_mode={update.trading_mode}")
 
     # Global settings
     if update.scan_interval_seconds is not None:
@@ -251,6 +279,8 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                     "closer", "rebalance_resolution_max_loss_pct",
                     float, 0.01, 0.5,
                 ),
+                # Engine-level debate params
+                "min_edge_for_debate": ("engine", "min_edge_for_debate", float, 0.0, 0.10),
                 # RiskManager params
                 "var_limit": ("risk_manager", "var_limit", float, -0.5, 0.0),
                 "zscore_threshold": ("risk_manager", "zscore_threshold", float, 0.0, 5.0),

@@ -252,6 +252,7 @@ class TradingEngine:
         }
         self.debate_cooldown_hours: float = 6.0  # skip re-debating rejected markets
         self.min_balance_for_trades: float = settings.min_balance_for_trades
+        self.min_edge_for_debate: float = 0.015
 
     def _cooldown_key(self, market_id: str, strategy: str) -> str:
         """Cooldown key scoped by market + strategy."""
@@ -1206,7 +1207,7 @@ class TradingEngine:
                 )
 
             # Skip debate for low-edge signals (save API cost)
-            min_edge_for_debate = 0.015
+            min_edge_for_debate = self.min_edge_for_debate
             if not skip_debate and signal.edge < min_edge_for_debate:
                 logger.debug(
                     "signal_skipped_low_edge_no_debate",

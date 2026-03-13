@@ -404,7 +404,9 @@ def _get_cached_debate(
     if entry is None:
         return None
     result, ts = entry
-    ttl = _CACHE_TTL_APPROVED if result.approved else _CACHE_TTL_REJECTED
+    ttl_approved = getattr(settings, "llm_debate_cache_ttl_approved", _CACHE_TTL_APPROVED)
+    ttl_rejected = getattr(settings, "llm_debate_cache_ttl_rejected", _CACHE_TTL_REJECTED)
+    ttl = ttl_approved if result.approved else ttl_rejected
     if time.monotonic() - ts > ttl:
         _debate_cache.pop(key, None)
         return None

@@ -58,6 +58,7 @@ _QUALITY_ATTR_MAP: dict[str, tuple[str, str]] = {
     # Engine-level params (target resolved as engine itself, not engine.attr)
     "market_cooldown_hours": ("_engine", "market_cooldown_hours"),
     "min_balance_for_trades": ("_engine", "min_balance_for_trades"),
+    "min_edge_for_debate": ("_engine", "min_edge_for_debate"),
 }
 
 # Global settings that are persisted
@@ -93,6 +94,10 @@ class SettingsStore:
             value = getattr(update, attr, None)
             if value is not None:
                 items[f"global.{attr}"] = json.dumps(value)
+
+        # Trading mode
+        if getattr(update, "trading_mode", None) is not None:
+            items["global.trading_mode"] = json.dumps(update.trading_mode)
 
         # Risk config
         if update.risk_config:
@@ -250,6 +255,14 @@ _GLOBAL_RANGES: dict[str, tuple[type, float, float]] = {
 
 
 def _apply_global(attr: str, value) -> int:
+    # Special case: trading_mode is not in _GLOBAL_ATTRS
+    if attr == "trading_mode":
+        from bot.config import TradingMode
+        if value in ("paper", "live"):
+            settings.trading_mode = TradingMode(value)
+            return 1
+        return 0
+
     if attr not in _GLOBAL_ATTRS or not hasattr(settings, attr):
         return 0
 
@@ -328,6 +341,7 @@ _QUALITY_RANGES: dict[str, tuple[type, float, float]] = {
     # Engine-level params
     "market_cooldown_hours": (float, 0.25, 24.0),
     "min_balance_for_trades": (float, 0.0, 100.0),
+    "min_edge_for_debate": (float, 0.0, 0.10),
 }
 
 

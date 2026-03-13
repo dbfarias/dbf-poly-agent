@@ -126,6 +126,7 @@ export default function Settings() {
   const [disabledStrategies, setDisabledStrategies] = useState<Set<string>>(
     new Set(),
   );
+  const [tradingMode, setTradingMode] = useState("paper");
   const [llm, setLlm] = useState({
     use_llm_sentiment: false,
     use_llm_debate: false,
@@ -150,6 +151,7 @@ export default function Settings() {
     setQuality(config.quality_params);
     setStrategyParams(config.strategy_params);
     setDisabledStrategies(new Set(config.disabled_strategies ?? []));
+    setTradingMode(config.trading_mode ?? "paper");
     setLlm({
       use_llm_sentiment: config.use_llm_sentiment ?? false,
       use_llm_debate: config.use_llm_debate ?? false,
@@ -263,6 +265,26 @@ export default function Settings() {
     stop_loss_pct: ["Stop Loss (%)", "Exit a position if it loses this percentage from entry price."],
     near_worthless_price: ["Near Worthless Price ($)", "Always exit positions below this price."],
     default_exit_price: ["Default Exit Price ($)", "Exit threshold for positions with no strategy-specific exit rule."],
+    max_position_age_hours: ["Max Position Age (hours)", "Force-exit positions older than this."],
+    take_profit_price: ["Take Profit Price ($)", "Exit when price reaches this level."],
+    take_profit_min_hold_hours: ["TP Min Hold (hours)", "Minimum hold before take-profit triggers."],
+    pause_lookback: ["Pause Lookback (trades)", "Number of recent trades to evaluate for strategy pausing."],
+    pause_win_rate: ["Pause Win Rate", "Minimum win rate to avoid strategy auto-pause."],
+    pause_min_loss: ["Pause Min Loss ($)", "Minimum cumulative loss to trigger strategy pause."],
+    pause_cooldown_hours: ["Pause Cooldown (hours)", "How long a paused strategy stays paused."],
+    multiplier_min: ["Multiplier Min", "Minimum position size multiplier from adaptive learning."],
+    multiplier_max: ["Multiplier Max", "Maximum position size multiplier from adaptive learning."],
+    min_trades_for_adjustment: ["Min Trades for Adj.", "Minimum completed trades before learner adjusts."],
+    min_rebalance_edge: ["Min Rebalance Edge", "Minimum edge to rebalance/exit a position."],
+    min_hold_seconds: ["Min Hold (seconds)", "Minimum hold time before exits are allowed."],
+    rebalance_resolution_shield_hours: ["Resolution Shield (hours)", "Hours before resolution to protect positions from rebalancing."],
+    rebalance_resolution_max_loss_pct: ["Resolution Max Loss (%)", "Max loss allowed when selling near resolution."],
+    market_cooldown_hours: ["Market Cooldown (hours)", "Cooldown before re-entering the same market."],
+    debate_cooldown_hours: ["Debate Cooldown (hours)", "Cooldown before re-debating a rejected market."],
+    min_balance_for_trades: ["Min Balance ($)", "Minimum cash balance required to open new trades."],
+    var_limit: ["VaR Limit", "Value at Risk limit (negative). Trading pauses if daily VaR exceeds this."],
+    zscore_threshold: ["Z-Score Threshold", "Z-score threshold for anomalous price movements."],
+    min_edge_for_debate: ["Min Edge for Debate", "Signals below this edge skip the LLM debate gate."],
   };
 
   const STRATEGY_LABELS: Record<string, [string, string]> = {
@@ -284,6 +306,41 @@ export default function Settings() {
     MIN_MOMENTUM: ["Min Momentum", "Minimum price momentum (consecutive rising ticks) to trigger a swing trade."],
     MAX_HOLD_HOURS: ["Max Hold Hours", "Maximum hours to hold a position before forced exit."],
     MIN_HOURS_LEFT: ["Min Hours Left", "Minimum hours to market resolution for entry."],
+    SPORTS_IMBALANCE_THRESHOLD: ["Sports Imbalance Threshold", "Minimum price imbalance on sports markets to trigger a trade."],
+    EXIT_TAKE_PROFIT_PCT: ["Exit Take Profit (%)", "Take profit threshold for exiting positions."],
+    EXIT_MIN_HOLD_HOURS: ["Exit Min Hold (hours)", "Minimum hours to hold before take-profit exit is allowed."],
+    RELATIVE_STOP_LOSS: ["Relative Stop Loss", "Dynamic stop loss relative to entry price."],
+    MEAN_REVERSION_THRESHOLD: ["Mean Reversion Threshold", "Threshold for mean reversion signals."],
+    VELOCITY_BOOST: ["Velocity Boost", "Boost factor when price velocity is positive."],
+    VELOCITY_PENALTY: ["Velocity Penalty", "Penalty factor when price velocity is negative."],
+    VPIN_THRESHOLD: ["VPIN Threshold", "Volume-synchronized probability of informed trading threshold."],
+    EXIT_TP_EARLY_PCT: ["Exit TP Early (%)", "Early-stage take profit percentage."],
+    EXIT_TP_MID_PCT: ["Exit TP Mid (%)", "Mid-stage take profit percentage."],
+    EXIT_TP_LATE_PCT: ["Exit TP Late (%)", "Late-stage take profit percentage."],
+    EXIT_STOP_LOSS_PCT: ["Exit Stop Loss (%)", "Stop loss percentage for exit logic."],
+    ENTRY_THRESHOLD: ["Entry Threshold", "Minimum signal strength to enter a position."],
+    EXIT_THRESHOLD: ["Exit Threshold", "Signal level that triggers position exit."],
+    CONFIDENCE_THRESHOLD: ["Confidence Threshold", "Minimum confidence to proceed with a trade."],
+    LOOKAHEAD_DAYS: ["Lookahead Days", "Number of days to look ahead for weather/event forecasts."],
+    MAX_SIGNALS_PER_SCAN: ["Max Signals Per Scan", "Maximum signals to generate per market scan cycle."],
+    EXIT_MAX_AGE_HOURS: ["Exit Max Age (hours)", "Force exit if position exceeds this age."],
+    IMBALANCE_WEIGHT: ["Imbalance Weight", "Weight of orderbook imbalance in signal computation."],
+    SPOT_MOMENTUM_WEIGHT: ["Spot Momentum Weight", "Weight of spot price momentum in signal computation."],
+    VOLUME_ANOMALY_WEIGHT: ["Volume Anomaly Weight", "Weight of volume anomaly in signal computation."],
+    MAX_CONCURRENT: ["Max Concurrent", "Maximum concurrent positions for this strategy."],
+    MAX_MARKET_MINUTES: ["Max Market Minutes", "Maximum market duration in minutes for crypto 5-min trades."],
+    MAX_COPY_SIGNALS_PER_CYCLE: ["Max Copy Signals/Cycle", "Maximum copy trade signals per scan cycle."],
+    MAX_CONCURRENT_COPIES: ["Max Concurrent Copies", "Maximum concurrent copy trade positions."],
+    MIN_COPY_USD: ["Min Copy Size ($)", "Minimum copy trade size in USD."],
+    MAX_COPY_USD: ["Max Copy Size ($)", "Maximum copy trade size in USD."],
+    WHALE_BANKROLL_ESTIMATE: ["Whale Bankroll Est. ($)", "Estimated whale bankroll for proportional sizing."],
+    BASE_EDGE: ["Base Edge", "Base edge attributed to whale copy trades."],
+    WIN_RATE_BONUS_SCALE: ["Win Rate Bonus Scale", "How much whale win rate above threshold boosts edge."],
+    TAKE_PROFIT_MIN_HOLD_HOURS: ["TP Min Hold (hours)", "Minimum hold time before take-profit exit is allowed."],
+    MAX_EDGE: ["Max Edge", "Maximum edge cap for signal generation."],
+    EDGE_SCALE: ["Edge Scale", "Scaling factor for edge computation from raw inputs."],
+    MIN_HOLD_SECONDS: ["Min Hold (seconds)", "Minimum hold time in seconds before any exit."],
+    MIN_MOMENTUM_TICKS: ["Min Momentum Ticks", "Minimum consecutive price rises to trigger entry."],
   };
 
   const isRiskPct = (key: string) =>
@@ -317,22 +374,39 @@ export default function Settings() {
         <h3 className="font-medium text-white mb-4">Trading Controls</h3>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex items-center gap-4 sm:flex-1 w-full sm:w-auto">
+            {/* Mode Toggle */}
             <div className="flex-1">
               <div className="text-sm text-zinc-400 flex items-center">
                 Mode
-                <HelpTooltip text="PAPER mode simulates trades without real money. LIVE mode executes real orders on Polymarket. Change this in the .env file." />
+                <HelpTooltip text="PAPER mode simulates trades. LIVE executes real orders on Polymarket." />
               </div>
-              <div
-                className="text-lg font-bold text-white mt-1"
-                data-testid="trading-mode"
+              <button
+                onClick={() => {
+                  if (tradingMode === "paper") {
+                    if (window.confirm("\u26a0\ufe0f You are about to enable LIVE trading with real money. Are you sure?")) {
+                      setTradingMode("live");
+                      configMut.mutate({ trading_mode: "live" });
+                    }
+                  } else {
+                    setTradingMode("paper");
+                    configMut.mutate({ trading_mode: "paper" });
+                  }
+                }}
+                className={`mt-1 px-3 py-1.5 rounded-full text-sm font-bold transition-all ${
+                  tradingMode === "live"
+                    ? "bg-red-600 text-white animate-pulse"
+                    : "bg-amber-600 text-white"
+                }`}
+                data-testid="trading-mode-toggle"
               >
-                {config?.trading_mode.toUpperCase()}
-              </div>
+                {tradingMode.toUpperCase()}
+              </button>
             </div>
+            {/* Status */}
             <div className="flex-1">
               <div className="text-sm text-zinc-400 flex items-center">
                 Status
-                <HelpTooltip text="Whether the bot is currently running or paused. Use the button to manually pause/resume trading." />
+                <HelpTooltip text="Whether the bot is currently running or paused." />
               </div>
               <div
                 className={`text-lg font-bold mt-1 ${risk?.is_paused ? "text-red-400" : "text-green-400"}`}
@@ -341,15 +415,8 @@ export default function Settings() {
                 {risk?.is_paused ? "PAUSED" : "RUNNING"}
               </div>
             </div>
-            <div className="flex-1">
-              <div className="text-sm text-zinc-400 flex items-center">
-                Mode
-              </div>
-              <div className="text-lg font-bold text-indigo-400 mt-1">
-                {config?.trading_mode?.toUpperCase()}
-              </div>
-            </div>
           </div>
+          {/* Buttons */}
           <div className="flex gap-2 w-full sm:w-auto">
             {risk?.is_paused ? (
               <button
@@ -370,11 +437,7 @@ export default function Settings() {
             )}
             <button
               onClick={() => {
-                if (
-                  window.confirm(
-                    "Reset daily PnL and peak equity to current values?",
-                  )
-                ) {
+                if (window.confirm("Reset daily PnL and peak equity to current values?")) {
                   resetMut.mutate();
                 }
               }}

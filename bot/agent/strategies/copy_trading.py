@@ -18,15 +18,10 @@ logger = structlog.get_logger()
 # Constants
 MAX_COPY_SIGNALS_PER_CYCLE = 2
 MAX_CONCURRENT_COPIES = 3
-MIN_COPY_USD = 1.0
-MAX_COPY_USD = 5.0
-WHALE_BANKROLL_ESTIMATE = 10_000.0  # Assume whales have ~$10K
-BASE_EDGE = 0.03
-WIN_RATE_BONUS_SCALE = 0.10
 TAKE_PROFIT_PCT = 0.05
 STOP_LOSS_PCT = 0.08
 MAX_HOLD_HOURS = 72
-TAKE_PROFIT_MIN_HOLD_HOURS = 2.0
+MIN_WIN_RATE_THRESHOLD = 0.55
 
 
 class CopyTradingStrategy(BaseStrategy):
@@ -37,20 +32,32 @@ class CopyTradingStrategy(BaseStrategy):
 
     # Tunable params
     MIN_EDGE = 0.02
+    MIN_COPY_USD = 1.0
+    MAX_COPY_USD = 5.0
+    WHALE_BANKROLL_ESTIMATE = 10000.0
+    BASE_EDGE = 0.03
+    WIN_RATE_BONUS_SCALE = 0.10
     TAKE_PROFIT_PCT = TAKE_PROFIT_PCT
     STOP_LOSS_PCT = STOP_LOSS_PCT
     MAX_HOLD_HOURS = MAX_HOLD_HOURS
     MAX_COPY_SIGNALS_PER_CYCLE = MAX_COPY_SIGNALS_PER_CYCLE
     MAX_CONCURRENT_COPIES = MAX_CONCURRENT_COPIES
+    TAKE_PROFIT_MIN_HOLD_HOURS = 2.0
 
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.15},
+        "MIN_COPY_USD": {"type": float, "min": 0.5, "max": 20.0},
+        "MAX_COPY_USD": {"type": float, "min": 1.0, "max": 50.0},
+        "WHALE_BANKROLL_ESTIMATE": {"type": float, "min": 1000.0, "max": 100000.0},
+        "BASE_EDGE": {"type": float, "min": 0.0, "max": 0.15},
+        "WIN_RATE_BONUS_SCALE": {"type": float, "min": 0.0, "max": 0.50},
         "TAKE_PROFIT_PCT": {"type": float, "min": 0.01, "max": 0.15},
         "STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.20},
         "MAX_HOLD_HOURS": {"type": float, "min": 1, "max": 168},
         "MAX_COPY_SIGNALS_PER_CYCLE": {"type": int, "min": 1, "max": 10},
         "MAX_CONCURRENT_COPIES": {"type": int, "min": 1, "max": 10},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 7200},
+        "TAKE_PROFIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 48.0},
     }
 
     def __init__(
@@ -80,15 +87,15 @@ class CopyTradingStrategy(BaseStrategy):
                 pass
 
         # Proportional: whale_notional * (my_bankroll / whale_bankroll_est)
-        ratio = bankroll / WHALE_BANKROLL_ESTIMATE
+        ratio = bankroll / self.WHALE_BANKROLL_ESTIMATE
         raw_size = whale_notional * ratio
 
-        return max(MIN_COPY_USD, min(MAX_COPY_USD, raw_size))
+        return max(self.MIN_COPY_USD, min(self.MAX_COPY_USD, raw_size))
 
     def _compute_edge(self, win_rate: float) -> float:
         """Compute edge: base + win_rate bonus."""
-        bonus = max(0.0, (win_rate - MIN_WIN_RATE_THRESHOLD) * WIN_RATE_BONUS_SCALE)
-        return BASE_EDGE + bonus
+        bonus = max(0.0, (win_rate - MIN_WIN_RATE_THRESHOLD) * self.WIN_RATE_BONUS_SCALE)
+        return self.BASE_EDGE + bonus
 
     def _whale_trade_to_signal(
         self, trade: WhaleTrade, market: GammaMarket,
@@ -227,7 +234,7 @@ class CopyTradingStrategy(BaseStrategy):
                 return "stop_loss"
 
         # Take-profit: only after minimum hold
-        if avg_price > 0 and held_hours >= TAKE_PROFIT_MIN_HOLD_HOURS:
+        if avg_price > 0 and held_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
             profit_pct = (current_price - avg_price) / avg_price
             if profit_pct >= self.TAKE_PROFIT_PCT:
                 self.logger.info(
@@ -247,8 +254,3 @@ class CopyTradingStrategy(BaseStrategy):
             return "max_hold_time"
 
         return False
-
-
-# Module-level constants referenced in _compute_edge
-MIN_WIN_RATE_THRESHOLD = 0.55
-WIN_RATE_BONUS_SCALE = 0.10

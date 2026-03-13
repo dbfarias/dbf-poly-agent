@@ -17,12 +17,9 @@ logger = structlog.get_logger()
 
 # Strategy constants
 MAX_SIGNALS_PER_CYCLE = 3
-MAX_EDGE = 0.10
-EDGE_SCALE = 0.15
 TAKE_PROFIT_PCT = 0.02
 STOP_LOSS_PCT = 0.05
 MAX_HOLD_HOURS = 24
-TAKE_PROFIT_MIN_HOLD_HOURS = 1.0
 
 
 class NewsSniperStrategy(BaseStrategy):
@@ -33,18 +30,24 @@ class NewsSniperStrategy(BaseStrategy):
 
     # Tunable params
     MIN_EDGE = 0.02
+    MAX_EDGE = 0.10
+    EDGE_SCALE = 0.15
     TAKE_PROFIT_PCT = TAKE_PROFIT_PCT
     STOP_LOSS_PCT = STOP_LOSS_PCT
     MAX_HOLD_HOURS = MAX_HOLD_HOURS
     MAX_SIGNALS_PER_CYCLE = MAX_SIGNALS_PER_CYCLE
+    TAKE_PROFIT_MIN_HOLD_HOURS = 1.0
 
     _MUTABLE_PARAMS = {
         "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.15},
+        "MAX_EDGE": {"type": float, "min": 0.01, "max": 0.30},
+        "EDGE_SCALE": {"type": float, "min": 0.01, "max": 0.50},
         "TAKE_PROFIT_PCT": {"type": float, "min": 0.005, "max": 0.10},
         "STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.15},
         "MAX_HOLD_HOURS": {"type": float, "min": 1, "max": 72},
         "MAX_SIGNALS_PER_CYCLE": {"type": int, "min": 1, "max": 10},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 3600},
+        "TAKE_PROFIT_MIN_HOLD_HOURS": {"type": float, "min": 0.0, "max": 24.0},
     }
 
     def __init__(self, *args, news_sniper: NewsSniper | None = None, **kwargs):
@@ -60,8 +63,8 @@ class NewsSniperStrategy(BaseStrategy):
             return None
 
         # Edge = abs(sentiment) * keyword_overlap * EDGE_SCALE, capped
-        raw_edge = abs(candidate.sentiment) * candidate.keyword_overlap * EDGE_SCALE
-        edge = min(raw_edge, MAX_EDGE)
+        raw_edge = abs(candidate.sentiment) * candidate.keyword_overlap * self.EDGE_SCALE
+        edge = min(raw_edge, self.MAX_EDGE)
 
         if edge < self.MIN_EDGE:
             return None
@@ -175,7 +178,7 @@ class NewsSniperStrategy(BaseStrategy):
                 return "stop_loss"
 
         # Take-profit: only after minimum hold
-        if avg_price > 0 and held_hours >= TAKE_PROFIT_MIN_HOLD_HOURS:
+        if avg_price > 0 and held_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
             profit_pct = (current_price - avg_price) / avg_price
             if profit_pct >= self.TAKE_PROFIT_PCT:
                 self.logger.info(

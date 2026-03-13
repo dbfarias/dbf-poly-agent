@@ -190,6 +190,7 @@ class BotConfig(BaseModel):
 
 
 class BotConfigUpdate(BaseModel):
+    trading_mode: str | None = None
     scan_interval_seconds: int | None = Field(default=None, ge=5, le=3600)
     max_daily_loss_pct: float | None = Field(default=None, gt=0.0, le=0.5)
     max_drawdown_pct: float | None = Field(default=None, gt=0.0, le=0.5)
