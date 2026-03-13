@@ -173,16 +173,21 @@ class NewsSniper:
         if not top_keywords:
             return []
 
+        logger.info(
+            "news_sniper_polling",
+            keywords=top_keywords[:5],
+            markets_indexed=len(self._keyword_index),
+        )
+
         news_items = await self._news_fetcher.fetch_news(
             top_keywords, max_results=20,
         )
 
-        if news_items:
-            logger.info(
-                "news_sniper_fetched",
-                items=len(news_items),
-                keywords=top_keywords[:5],
-            )
+        logger.info(
+            "news_sniper_fetched",
+            items=len(news_items),
+            keywords=top_keywords[:5],
+        )
 
         candidates: list[SnipeCandidate] = []
 
