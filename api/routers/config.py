@@ -138,12 +138,26 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                     detail="Cannot switch to LIVE: POLY_PRIVATE_KEY not configured",
                 )
         old_mode = settings.trading_mode.value
-        settings.trading_mode = TradingMode(update.trading_mode)
-        logger.warning(
-            "TRADING_MODE_CHANGED",
-            old_mode=old_mode,
-            new_mode=update.trading_mode,
-        )
+        if old_mode != update.trading_mode:
+            settings.trading_mode = TradingMode(update.trading_mode)
+            logger.warning(
+                "TRADING_MODE_CHANGED",
+                old_mode=old_mode,
+                new_mode=update.trading_mode,
+            )
+            # Reset portfolio/risk state so paper PnL doesn't bleed into live
+            try:
+                engine = get_engine()
+                equity = engine.portfolio.total_equity
+                engine.risk_manager.reset_daily_state(equity)
+                engine.portfolio.reset_daily_state(equity)
+                logger.info(
+                    "mode_switch_state_reset",
+                    equity=equity,
+                    new_mode=update.trading_mode,
+                )
+            except RuntimeError:
+                pass
         changes.append(f"trading_mode={update.trading_mode}")
 
     # Global settings
