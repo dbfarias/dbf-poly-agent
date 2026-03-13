@@ -1,9 +1,10 @@
 """News sniping pipeline — poll RSS, match headlines to markets, score.
 
-Zero LLM cost: uses keyword overlap (Jaccard) + VADER sentiment to detect
+Zero LLM cost: uses keyword recall + VADER sentiment to detect
 breaking news that may move Polymarket prices before the market reacts.
 """
 
+import asyncio
 import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -149,6 +150,55 @@ class NewsSniper:
             return 0.0
         return len(headline_words & market_keywords) / len(market_keywords)
 
+    def _build_search_queries(self, max_queries: int = 5) -> list[list[str]]:
+        """Build diverse search queries from market keywords.
+
+        Strategy: pick one market per query, use its top 2-3 keywords.
+        This yields specific RSS results that are more likely to match
+        individual markets (vs. a single generic query).
+        """
+        # Score markets by keyword uniqueness (fewer shared keywords = more specific)
+        all_kw_count: dict[str, int] = {}
+        for kw_set in self._keyword_index.values():
+            for kw in kw_set:
+                all_kw_count[kw] = all_kw_count.get(kw, 0) + 1
+
+        market_scores: list[tuple[str, float]] = []
+        for market_id, kw_set in self._keyword_index.items():
+            if len(kw_set) < 2:
+                continue
+            # Prefer markets with specific (low-frequency) keywords
+            specificity = sum(1.0 / all_kw_count[kw] for kw in kw_set)
+            market_scores.append((market_id, specificity))
+
+        # Sort by specificity (most specific first)
+        market_scores.sort(key=lambda x: x[1], reverse=True)
+
+        queries: list[list[str]] = []
+        used_keywords: set[str] = set()
+
+        for market_id, _ in market_scores:
+            if len(queries) >= max_queries:
+                break
+
+            kw_set = self._keyword_index[market_id]
+            # Pick up to 3 keywords, preferring specific ones
+            sorted_kws = sorted(kw_set, key=lambda k: all_kw_count.get(k, 0))
+            query_kws = [kw for kw in sorted_kws[:3] if len(kw) > 2]
+
+            if len(query_kws) < 2:
+                continue
+
+            # Skip if too similar to existing queries
+            kw_frozen = frozenset(query_kws)
+            if kw_frozen & used_keywords == kw_frozen:
+                continue
+
+            queries.append(query_kws)
+            used_keywords.update(query_kws)
+
+        return queries
+
     async def poll(self) -> list[SnipeCandidate]:
         """Run one polling cycle: fetch RSS, match to markets, return candidates.
 
@@ -159,34 +209,45 @@ class NewsSniper:
         if not self._keyword_index:
             return []
 
-        # Fetch news using top volume keywords (aggregate across markets)
-        all_keywords: list[str] = []
-        for kw_set in list(self._keyword_index.values())[:50]:
-            all_keywords.extend(kw_set)
+        # Build diverse search queries from market keywords.
+        # Instead of one query with the most-frequent keywords (which yields
+        # generic results), we create several small queries from different
+        # markets so the RSS results are more likely to match.
+        queries = self._build_search_queries(max_queries=5)
 
-        # Deduplicate keywords, take top 10 by frequency
-        kw_freq: dict[str, int] = {}
-        for kw in all_keywords:
-            kw_freq[kw] = kw_freq.get(kw, 0) + 1
-        top_keywords = sorted(kw_freq, key=kw_freq.get, reverse=True)[:10]
-
-        if not top_keywords:
+        if not queries:
             return []
 
         logger.info(
             "news_sniper_polling",
-            keywords=top_keywords[:5],
+            queries=queries[:3],
             markets_indexed=len(self._keyword_index),
         )
 
-        news_items = await self._news_fetcher.fetch_news(
-            top_keywords, max_results=20,
-        )
+        # Fetch in parallel (one HTTP call per query)
+        fetch_tasks = [
+            self._news_fetcher.fetch_news(q, max_results=10)
+            for q in queries
+        ]
+        results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+        # Merge & deduplicate by title
+        seen_titles: set[str] = set()
+        news_items = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("news_query_failed", error=str(result))
+                continue
+            for item in result:
+                title_key = item.title.strip().lower()
+                if title_key not in seen_titles:
+                    seen_titles.add(title_key)
+                    news_items.append(item)
 
         logger.info(
             "news_sniper_fetched",
             items=len(news_items),
-            keywords=top_keywords[:5],
+            queries=len(queries),
         )
 
         candidates: list[SnipeCandidate] = []

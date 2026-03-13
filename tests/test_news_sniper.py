@@ -111,6 +111,39 @@ class TestHeadlineDedup:
         assert h1 == h2
 
 
+class TestBuildSearchQueries:
+    def test_builds_queries_from_markets(self, sniper):
+        sniper._keyword_index = {
+            "m1": {"trump", "election", "2028", "presidential"},
+            "m2": {"bitcoin", "price", "100k", "december"},
+            "m3": {"inflation", "rate", "federal", "reserve"},
+        }
+        queries = sniper._build_search_queries(max_queries=3)
+        assert len(queries) >= 1
+        assert all(len(q) >= 2 for q in queries)
+
+    def test_respects_max_queries(self, sniper):
+        sniper._keyword_index = {
+            f"m{i}": {f"kw{i}a", f"kw{i}b", f"kw{i}c"}
+            for i in range(20)
+        }
+        queries = sniper._build_search_queries(max_queries=5)
+        assert len(queries) <= 5
+
+    def test_empty_index_returns_empty(self, sniper):
+        sniper._keyword_index = {}
+        queries = sniper._build_search_queries()
+        assert queries == []
+
+    def test_skips_markets_with_few_keywords(self, sniper):
+        sniper._keyword_index = {
+            "m1": {"one"},  # Too few
+            "m2": {"bitcoin", "price", "target"},
+        }
+        queries = sniper._build_search_queries()
+        assert len(queries) == 1  # Only m2
+
+
 class TestKeywordRefresh:
     def test_refresh_builds_index(self, sniper, mock_market_cache):
         market = MagicMock()
