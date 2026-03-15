@@ -55,7 +55,14 @@ class GammaMarket(BaseModel):
         if not self.end_date_iso:
             return None
         try:
-            return datetime.fromisoformat(self.end_date_iso.replace("Z", "+00:00"))
+            raw = self.end_date_iso.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(raw)
+            # Date-only strings (e.g. "2026-03-15") parse as midnight UTC,
+            # but markets resolve during the day.  Use 23:59 UTC instead
+            # so they remain eligible until the date actually passes.
+            if "T" not in self.end_date_iso and dt.hour == 0 and dt.minute == 0:
+                dt = dt.replace(hour=23, minute=59)
+            return dt
         except (ValueError, AttributeError):
             return None
 

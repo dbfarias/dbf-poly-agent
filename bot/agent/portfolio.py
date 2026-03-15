@@ -203,7 +203,7 @@ class Portfolio:
             from bot.data.settings_store import StateStore
 
             saved_peak = await StateStore.load_peak_equity()
-            if saved_peak is not None and saved_peak > self._peak_equity:
+            if saved_peak is not None:
                 self._peak_equity = saved_peak
                 logger.info(
                     "peak_equity_restored",
