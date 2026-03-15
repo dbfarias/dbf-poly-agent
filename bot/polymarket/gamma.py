@@ -246,6 +246,8 @@ class GammaClient:
                 "active": "true",
                 "closed": "false",
                 "limit": limit,
+                "order": "volume24hr",
+                "ascending": "false",
             }
             markets = await self._fetch_gamma_markets(params)
             if markets:
