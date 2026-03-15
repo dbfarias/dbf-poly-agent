@@ -198,20 +198,19 @@ class Portfolio:
                 self._day_start_equity = self.total_equity
                 logger.error("day_start_equity_persist_failed", error=str(e))
 
-        # Restore peak equity from DB on first sync (survives restarts)
-        if need_daily_reset:
-            try:
-                from bot.data.settings_store import StateStore
+        # Restore peak equity from DB (survives restarts, including mid-day)
+        try:
+            from bot.data.settings_store import StateStore
 
-                saved_peak = await StateStore.load_peak_equity()
-                if saved_peak is not None and saved_peak > self._peak_equity:
-                    self._peak_equity = saved_peak
-                    logger.info(
-                        "peak_equity_restored",
-                        peak=round(saved_peak, 4),
-                    )
-            except Exception as e:
-                logger.error("peak_equity_restore_failed", error=str(e))
+            saved_peak = await StateStore.load_peak_equity()
+            if saved_peak is not None and saved_peak > self._peak_equity:
+                self._peak_equity = saved_peak
+                logger.info(
+                    "peak_equity_restored",
+                    peak=round(saved_peak, 4),
+                )
+        except Exception as e:
+            logger.error("peak_equity_restore_failed", error=str(e))
 
         # Update peak equity (adjusted for flows so deposits don't inflate peak)
         equity = self.total_equity

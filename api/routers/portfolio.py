@@ -312,6 +312,7 @@ async def delete_capital_flow(
     from bot.data.repositories import CapitalFlowRepository
 
     repo = CapitalFlowRepository(db)
+    logger.info("capital_flow_delete_requested", flow_id=flow_id)
     deleted = await repo.delete_by_id(flow_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Capital flow {flow_id} not found")
