@@ -169,6 +169,10 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
                 equity = engine.portfolio.total_equity
                 engine.risk_manager.reset_daily_state(equity)
                 engine.portfolio.reset_daily_state(equity)
+                # Persist new peak equity so sync() doesn't restore old value
+                from bot.data.settings_store import StateStore as _StateStore
+
+                await _StateStore.save_peak_equity(equity)
                 logger.info(
                     "mode_switch_state_reset",
                     equity=equity,
@@ -398,6 +402,8 @@ async def resume_trading(_: str = Depends(verify_api_key)):
     engine.risk_manager.resume(current_equity=equity)
     from bot.data.settings_store import StateStore
     await StateStore.save_trading_paused(False)
+    # Persist new peak equity so sync() doesn't restore the old value
+    await StateStore.save_peak_equity(equity)
     return {"status": "resumed", "peak_equity_reset_to": round(equity, 2)}
 
 
@@ -414,6 +420,12 @@ async def reset_risk_state(_: str = Depends(verify_api_key)):
     # Reset via encapsulated methods (no direct private attribute access)
     engine.risk_manager.reset_daily_state(equity)
     engine.portfolio.reset_daily_state(equity)
+
+    # Persist new peak equity to StateStore so the next sync() cycle
+    # doesn't restore the old (higher) value from DB
+    from bot.data.settings_store import StateStore
+
+    await StateStore.save_peak_equity(equity)
 
     logger.info(
         "risk_state_reset",

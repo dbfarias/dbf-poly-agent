@@ -426,6 +426,9 @@ class TestPauseResume:
         with patch(
             "bot.data.settings_store.StateStore.save_trading_paused",
             new_callable=AsyncMock,
+        ), patch(
+            "bot.data.settings_store.StateStore.save_peak_equity",
+            new_callable=AsyncMock,
         ):
             yield
 
@@ -449,6 +452,15 @@ class TestPauseResume:
 
 
 class TestResetRiskState:
+    @pytest.fixture(autouse=True)
+    def _mock_state_store(self):
+        from unittest.mock import AsyncMock, patch
+        with patch(
+            "bot.data.settings_store.StateStore.save_peak_equity",
+            new_callable=AsyncMock,
+        ):
+            yield
+
     async def test_reset_returns_expected_keys(self, client, mock_engine):
         """POST /risk/reset returns status, equity, daily_pnl, peak_equity."""
         mock_engine.portfolio.total_equity = 12.5
