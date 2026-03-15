@@ -57,10 +57,10 @@ class GammaMarket(BaseModel):
         try:
             raw = self.end_date_iso.replace("Z", "+00:00")
             dt = datetime.fromisoformat(raw)
-            # Date-only strings (e.g. "2026-03-15") parse as midnight UTC,
-            # but markets resolve during the day.  Use 23:59 UTC instead
-            # so they remain eligible until the date actually passes.
-            if "T" not in self.end_date_iso and dt.hour == 0 and dt.minute == 0:
+            # Midnight-UTC end dates (e.g. "2026-03-15" or "2026-03-15T00:00:00Z")
+            # mean "resolves during this day", not "already expired at midnight".
+            # Shift to 23:59 UTC so same-day markets remain eligible.
+            if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
                 dt = dt.replace(hour=23, minute=59)
             return dt
         except (ValueError, AttributeError):
