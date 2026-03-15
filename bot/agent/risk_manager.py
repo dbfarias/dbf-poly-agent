@@ -196,6 +196,14 @@ class RiskManager:
             available_capital=available, calibration=calibration,
         )
         if size <= 0:
+            logger.info(
+                "position_size_zero",
+                strategy=signal.strategy,
+                market_id=signal.market_id,
+                price=signal.market_price,
+                bankroll=round(bankroll, 2),
+                available=round(available, 2),
+            )
             return False, 0.0, "Position size too small"
 
         logger.info(
@@ -480,15 +488,26 @@ class RiskManager:
             min_usd = min_shares * signal.market_price
             max_position = bankroll * config["max_per_position_pct"]
             if size < min_usd:
-                # Only bump if min position is within risk limits
-                if min_usd <= max_position and min_usd <= (available_capital or bankroll) * 0.95:
+                # Allow min position even if it slightly exceeds max_per_position
+                # for small bankrolls — cap at 50% of bankroll as hard ceiling
+                hard_cap = bankroll * 0.50
+                avail_cap = (available_capital or bankroll) * 0.95
+                if min_usd <= hard_cap and min_usd <= avail_cap:
                     logger.info(
                         "size_bumped_to_min_5_shares",
                         kelly_usd=round(size, 2),
                         min_usd=round(min_usd, 2),
+                        max_position=round(max_position, 2),
                     )
                     size = min_usd
                 else:
+                    logger.info(
+                        "min_shares_too_expensive",
+                        min_usd=round(min_usd, 2),
+                        hard_cap=round(hard_cap, 2),
+                        avail_cap=round(avail_cap, 2),
+                        price=signal.market_price,
+                    )
                     size = 0.0
 
         return size

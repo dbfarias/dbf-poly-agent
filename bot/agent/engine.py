@@ -1634,7 +1634,7 @@ class TradingEngine:
                                     )
 
                     if not risk_override:
-                        logger.debug(
+                        logger.info(
                             "signal_rejected",
                             strategy=signal.strategy,
                             reason=reason,
