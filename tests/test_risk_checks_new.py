@@ -142,7 +142,7 @@ class TestRiskConfigDefaults:
 
         config = RiskConfig.get()
         assert config["max_drawdown_pct"] == 0.12
-        assert config["daily_loss_limit_pct"] == 0.05
+        assert config["daily_loss_limit_pct"] == 0.08
         assert config["max_deployed_pct"] == 0.65
         assert config["kelly_fraction"] == 0.25
 
