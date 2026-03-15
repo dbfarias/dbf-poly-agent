@@ -285,7 +285,13 @@ class RiskManager:
         When urgency > 1.0 (behind daily target), scales up to 95% max.
         Keeps a cash reserve so the bot can react to better opportunities.
         """
-        deployed = sum(p.cost_basis for p in open_positions if p.is_open)
+        # Exclude stuck positions (< 5 shares, unsellable) from deployed
+        # capital — they'll resolve on-chain but shouldn't block new trades
+        sellable = [
+            p for p in open_positions
+            if p.is_open and (p.size >= self.MIN_SELLABLE_SHARES or settings.is_paper)
+        ]
+        deployed = sum(p.cost_basis for p in sellable)
         available = bankroll - deployed
         base_pct = config.get("max_deployed_pct", 0.60)
         # Scale up when behind daily target (urgency > 1.0)
