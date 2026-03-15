@@ -382,9 +382,9 @@ class RiskManager:
         # permanently freeze trading — other gates (Z-score, VPIN,
         # spread check) protect against bad trades now.
         if bankroll < 25:
-            effective_limit = -0.35
+            effective_limit = -0.15  # Was -0.35: tighter for recovery mode
         elif bankroll < 50:
-            effective_limit = -0.20
+            effective_limit = -0.12  # Was -0.20
         elif bankroll < 100:
             effective_limit = -0.10
         else:

@@ -350,6 +350,7 @@ class TestCalibrationKelly:
         rm = RiskManager()
         from bot.config import RiskConfig
 
+        RiskConfig.reset()
         config = RiskConfig.get()
         signal = TradeSignal(
             strategy="time_decay",
@@ -379,14 +380,15 @@ class TestCalibrationKelly:
         from bot.config import RiskConfig
 
         config = RiskConfig.get()
+        # Use a lower-prob signal so Kelly is naturally below max_per_position_pct cap
         signal = TradeSignal(
             strategy="time_decay",
             market_id="mkt1",
             token_id="token1",
             side=OrderSide.BUY,
-            estimated_prob=0.92,
-            market_price=0.86,
-            edge=0.06,
+            estimated_prob=0.70,
+            market_price=0.65,
+            edge=0.05,
             size_usd=0.0,
             confidence=0.85,
             metadata={},
@@ -396,7 +398,7 @@ class TestCalibrationKelly:
         size_with_cal = rm._calculate_size(
             signal, 100.0, config,
             available_capital=80.0,
-            calibration={"90-95": 0.8},  # Underconfident
+            calibration={"60-70": 0.8},  # Underconfident in this bucket
         )
 
         assert size_with_cal > size_no_cal

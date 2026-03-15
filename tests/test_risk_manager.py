@@ -253,10 +253,10 @@ class TestCheckDailyLoss:
 
     def test_exact_boundary_passes(self, rm):
         config = RiskConfig.get()
-        # Trade-based: _daily_pnl=-1.2, limit=1.2 → -1.2 < -1.2 is False → passes
+        # Trade-based: _daily_pnl=-1.0, limit=1.0 (5% of 20) → -1.0 < -1.0 is False → passes
         rm._day_start_equity = 20.0
-        rm._daily_pnl = -1.2
-        assert rm._check_daily_loss(18.8, config).passed is True
+        rm._daily_pnl = -1.0
+        assert rm._check_daily_loss(19.0, config).passed is True
 
     def test_trade_based_not_equity_delta(self, rm):
         """Daily loss uses trade-based _daily_pnl, not equity delta."""
@@ -560,7 +560,7 @@ class TestCalculateSize:
         signal = make_signal(estimated_prob=0.92, market_price=0.87)
         size = rm._calculate_size(signal, 1.0, config)
         # bankroll=1.0, 5-share min=$4.35 exceeds
-        # max_per_position (30% of $1 = $0.30) → returns 0
+        # max_per_position (10% of $1 = $0.10) → returns 0
         assert size == 0.0
 
     def test_kelly_produces_varied_sizes(self, rm):
@@ -568,10 +568,10 @@ class TestCalculateSize:
         config = RiskConfig.get()
         # Strong signal: higher Kelly → bigger trade
         strong = make_signal(estimated_prob=0.95, market_price=0.86)
-        big_size = rm._calculate_size(strong, 30.0, config)
+        big_size = rm._calculate_size(strong, 100.0, config)
         # Weaker signal: lower Kelly → smaller trade (may hit 5-share floor)
         weak = make_signal(estimated_prob=0.80, market_price=0.72)
-        small_size = rm._calculate_size(weak, 30.0, config)
+        small_size = rm._calculate_size(weak, 100.0, config)
         # Both produce positive sizes; strong signal gets bigger
         assert big_size >= small_size
         assert big_size > 1.0  # at least $1

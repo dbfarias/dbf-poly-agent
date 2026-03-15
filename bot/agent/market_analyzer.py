@@ -336,7 +336,7 @@ class MarketAnalyzer:
         return all_signals
 
     # Universal stop-loss thresholds
-    STOP_LOSS_PCT = 0.20  # Exit if lost 20%+ of entry price (was 15% — too tight with spread)
+    STOP_LOSS_PCT = 0.12  # Exit if lost 12%+ of entry price (was 20% — too wide for $14 bankroll)
     NEAR_WORTHLESS_PRICE = 0.10  # Always exit below 10 cents
     DEFAULT_EXIT_PRICE = 0.70  # Fallback exit for unmatched strategies
     MAX_POSITION_AGE_HOURS = 72.0  # Auto-close after 3 days (capital efficiency)

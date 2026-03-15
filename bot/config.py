@@ -34,14 +34,14 @@ class RiskConfig:
 
     _DEFAULTS: dict[str, object] = {
         "max_positions": 8,            # Was 6: weather+crypto need room
-        "max_per_position_pct": 0.30,  # Was 0.40: safer per-trade sizing for live
+        "max_per_position_pct": 0.10,  # Was 0.30: $14 bankroll → max $1.40/trade
         "max_deployed_pct": 0.65,      # Was 0.60: slightly more capital at work
-        "daily_loss_limit_pct": 0.10,  # Was 0.06: small bankroll needs room
+        "daily_loss_limit_pct": 0.05,  # Was 0.10: tighter for recovery ($0.70/day max)
         "max_drawdown_pct": 0.12,
-        "min_edge_pct": 0.02,          # Was 0.01: reject sub-2% edge trades
+        "min_edge_pct": 0.02,          # 2% minimum edge (time-adjusted down to 0.6%)
         "min_win_prob": 0.55,
         "max_per_category_pct": 0.35,  # Was 0.40: less concentration per category
-        "kelly_fraction": 0.25,        # Was 0.35: more conservative for live
+        "kelly_fraction": 0.25,        # Quarter-Kelly for conservative sizing
     }
 
     _CONFIG: dict[str, object] = dict(_DEFAULTS)

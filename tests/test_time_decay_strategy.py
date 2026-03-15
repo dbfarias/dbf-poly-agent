@@ -126,31 +126,31 @@ class TestCalculateConfidence:
     def test_base_confidence(self, strategy):
         # Low price (0.80), far resolution (720h) → base only
         conf = strategy._calculate_confidence(0.80, 720.0)
-        assert conf == pytest.approx(0.75)
+        assert conf == pytest.approx(0.65)
 
     def test_price_ge_095_adds_010(self, strategy):
         conf = strategy._calculate_confidence(0.96, 720.0)
-        assert conf == pytest.approx(0.85)
+        assert conf == pytest.approx(0.75)
 
     def test_price_ge_090_adds_003(self, strategy):
         conf = strategy._calculate_confidence(0.91, 720.0)
-        assert conf == pytest.approx(0.78)
+        assert conf == pytest.approx(0.68)
 
     def test_hours_le_12_adds_012(self, strategy):
         conf = strategy._calculate_confidence(0.80, 10.0)
-        assert conf == pytest.approx(0.87)
+        assert conf == pytest.approx(0.77)
 
     def test_hours_le_24_adds_010(self, strategy):
         conf = strategy._calculate_confidence(0.80, 20.0)
-        assert conf == pytest.approx(0.85)
+        assert conf == pytest.approx(0.75)
 
     def test_hours_le_48_adds_006(self, strategy):
         conf = strategy._calculate_confidence(0.80, 40.0)
-        assert conf == pytest.approx(0.81)
+        assert conf == pytest.approx(0.71)
 
     def test_hours_le_72_adds_003(self, strategy):
         conf = strategy._calculate_confidence(0.80, 60.0)
-        assert conf == pytest.approx(0.78)
+        assert conf == pytest.approx(0.68)
 
 
 # ---------------------------------------------------------------------------

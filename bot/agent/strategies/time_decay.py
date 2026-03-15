@@ -31,11 +31,11 @@ URGENCY_CAP_SHORT = 72.0    # Urgency 1.0 → up to 3 days
 URGENCY_CAP_MAX = 168.0     # Urgency 1.3+ → up to 7 days
 
 # Strategy parameters
-MIN_IMPLIED_PROB = 0.90   # Raised: 85% was too loose, 22% WR on non-Bitcoin
+MIN_IMPLIED_PROB = 0.92   # Stricter: only very high-prob markets
 MAX_PRICE = 0.97
-MIN_PRICE = 0.85          # Raised: 0.75-0.89 had 20% WR, 0.90+ had 57% WR
+MIN_PRICE = 0.80          # Lowered: cheaper tokens = more edge room
 MIN_EDGE = 0.015          # 1.5% min edge (max possible ~2% from time factor)
-CONFIDENCE_BASE = 0.75
+CONFIDENCE_BASE = 0.65    # Lower base = smaller positions via Kelly
 
 # Reject coin-flip markets (e.g. "Bitcoin Up or Down 7:05-7:10AM")
 COINFLIP_KEYWORDS = ["up or down", "opens up or down"]

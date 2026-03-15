@@ -79,10 +79,10 @@ class TestVarCheck:
         for r in [-0.08, -0.10, -0.07, -0.12, -0.09, -0.11, -0.08]:
             tracker.record_return(r)
         rm = RiskManager(returns_tracker=tracker)
-        # $12 → -35% limit → passes (VaR -12.2% > -35%)
+        # $12 → -15% limit → blocks (VaR -12.2% < -15% is False → passes)
         assert rm._check_daily_var(12.0).passed
-        # $30 → -20% limit → passes (VaR -12.2% > -20%)
-        assert rm._check_daily_var(30.0).passed
+        # $30 → -12% limit → blocks (VaR -12.2% < -12%)
+        assert not rm._check_daily_var(30.0).passed
         # $60 → -10% limit → blocks (VaR -12.2% < -10%)
         assert not rm._check_daily_var(60.0).passed
         # $100 → -5% limit → blocks (VaR -12.2% < -5%)
@@ -142,7 +142,7 @@ class TestRiskConfigDefaults:
 
         config = RiskConfig.get()
         assert config["max_drawdown_pct"] == 0.12
-        assert config["daily_loss_limit_pct"] == 0.10
+        assert config["daily_loss_limit_pct"] == 0.05
         assert config["max_deployed_pct"] == 0.65
         assert config["kelly_fraction"] == 0.25
 

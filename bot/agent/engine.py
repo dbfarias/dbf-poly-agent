@@ -239,15 +239,15 @@ class TradingEngine:
 
         # Per-strategy cooldown overrides (short-lived markets need shorter cooldowns)
         self._strategy_cooldown_hours: dict[str, float] = {
-            "crypto_short_term": 0.083,  # 5 min
-            "news_sniping": 0.25,        # 15 min
+            "crypto_short_term": 0.033,  # 2 min (was 5 min — faster rescan)
+            "news_sniping": 0.167,       # 10 min (was 15 min)
             "weather_trading": 0.5,      # 30 min
-            "arbitrage": 0.25,           # 15 min
+            "arbitrage": 0.083,          # 5 min (was 15 min — faster arb capture)
             "copy_trading": 0.5,         # 30 min
             "time_decay": 1.0,
-            "value_betting": 1.0,
+            "value_betting": 0.5,        # 30 min (was 1h)
             "price_divergence": 1.0,
-            "swing_trading": 3.0,
+            "swing_trading": 1.0,        # 1h (was 3h — allow re-entry)
             "market_making": 1.0,
         }
         self.debate_cooldown_hours: float = 6.0  # skip re-debating rejected markets

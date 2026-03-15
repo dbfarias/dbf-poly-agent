@@ -312,8 +312,11 @@ class TestRapidSignalSuccession:
             )
             for i in range(5)
         ]
-        # Small equity so 5 trades can't all fit
-        _setup_engine_for_evaluate(engine, signals, equity=15.0)
+        # Equity sized so first trades fit but max_deployed limits later ones
+        # max_per_position_pct=0.10 → each trade ~$5 (5-share floor at $0.86)
+        # max_deployed_pct=0.65 → cap at $32.50 of $50, so ~6 trades max but
+        # cycle_committed tracking rejects later signals as bankroll depletes
+        _setup_engine_for_evaluate(engine, signals, equity=50.0)
 
         trade_count = 0
 
@@ -335,7 +338,7 @@ class TestRapidSignalSuccession:
             mock_settings.use_llm_debate = False
             mock_settings.is_paper = True
             mock_settings.use_llm_post_mortem = False
-            mock_settings.initial_bankroll = 15.0
+            mock_settings.initial_bankroll = 50.0
             mock_bus.emit = AsyncMock()
 
             engine.research_engine = MagicMock()
@@ -343,8 +346,10 @@ class TestRapidSignalSuccession:
 
             _found, _approved, placed = await engine._evaluate_signals()
 
-        # With $15 equity, can't fill all 5 trades at ~$5 each when positions
-        # count toward deployed capital limits. At least one should be rejected.
+        # With 5 signals across 5 different categories, max_positions=8 won't block,
+        # but max_deployed_pct=0.65 ($32.50) limits total trades. At least one
+        # should be placed and the set should not be all 5 (deployed cap or
+        # per-position cap rejection).
         assert placed < 5
         assert placed >= 1  # at least some placed
 

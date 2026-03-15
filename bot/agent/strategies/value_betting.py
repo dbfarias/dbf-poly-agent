@@ -211,9 +211,10 @@ class ValueBettingStrategy(BaseStrategy):
         # 2) Volume depth bonus: thicker books = more reliable signal
         # 3) Time discount: shorter resolution → higher confidence in signal
         abs_imb = abs(imbalance)
-        # nonlinear edge from imbalance magnitude:
-        # 0.08→0.57%, 0.15→1.45%, 0.25→3.12%, 0.40→6.32%
-        base_edge = abs_imb ** 1.5 * 0.5
+        # Linear edge from imbalance magnitude:
+        # 0.08→1.6%, 0.10→2.0%, 0.15→3.0%, 0.25→5.0%
+        # (was nonlinear abs_imb^1.5*0.5: required 15%+ for 2% edge)
+        base_edge = abs_imb * 0.2
 
         # Volume depth factor: scale 0.8-1.2 based on book thickness
         # 500 vol = 1.0 baseline, 2000+ = 1.2 max, <200 = 0.8 min

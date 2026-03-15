@@ -160,7 +160,7 @@ class TestCheckStopLoss:
         assert "stop_loss" in reason
 
     def test_18pct_loss_no_exit(self):
-        pos = _position(avg_price=0.50, current_price=0.42)  # 16% loss, below 20% threshold
+        pos = _position(avg_price=0.50, current_price=0.45)  # 10% loss, below 12% threshold
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is None
 
