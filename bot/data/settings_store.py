@@ -517,6 +517,28 @@ class StateStore:
         return cash, bankroll
 
     @staticmethod
+    async def save_peak_equity(value: float) -> None:
+        """Persist peak equity so it survives restarts."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            await repo.set_many({"state.peak_equity": json.dumps(value)})
+
+    @staticmethod
+    async def load_peak_equity() -> float | None:
+        """Load persisted peak equity. Returns None if not set."""
+        async with async_session() as session:
+            repo = SettingsRepository(session)
+            raw = await repo.get("state.peak_equity")
+
+        if raw is None:
+            return None
+
+        try:
+            return float(json.loads(raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    @staticmethod
     async def save_market_cooldowns(cooldowns: dict[str, str]) -> None:
         """Persist market cooldowns as JSON (market_id → ISO datetime)."""
         async with async_session() as session:

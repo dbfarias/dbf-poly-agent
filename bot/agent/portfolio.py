@@ -198,12 +198,34 @@ class Portfolio:
                 self._day_start_equity = self.total_equity
                 logger.error("day_start_equity_persist_failed", error=str(e))
 
+        # Restore peak equity from DB on first sync (survives restarts)
+        if need_daily_reset:
+            try:
+                from bot.data.settings_store import StateStore
+
+                saved_peak = await StateStore.load_peak_equity()
+                if saved_peak is not None and saved_peak > self._peak_equity:
+                    self._peak_equity = saved_peak
+                    logger.info(
+                        "peak_equity_restored",
+                        peak=round(saved_peak, 4),
+                    )
+            except Exception as e:
+                logger.error("peak_equity_restore_failed", error=str(e))
+
         # Update peak equity (adjusted for flows so deposits don't inflate peak)
         equity = self.total_equity
         trading_pnl = self._realized_pnl_today + self.unrealized_pnl
         adjusted_peak = self._day_start_equity + trading_pnl
         if adjusted_peak > self._peak_equity:
             self._peak_equity = adjusted_peak
+            # Persist so it survives restarts
+            try:
+                from bot.data.settings_store import StateStore
+
+                await StateStore.save_peak_equity(self._peak_equity)
+            except Exception:
+                pass  # Non-critical
 
         # Persist paper cash so it survives restarts
         if settings.is_paper:
@@ -311,10 +333,14 @@ class Portfolio:
 
                 if lp.strategy == "external":
                     # External positions: close immediately (no longer on chain)
+                    # Update cash so _detect_capital_flow doesn't see a false deposit
+                    settlement = lp.current_price * lp.size
+                    self._cash += settlement
                     await pos_repo.close(lp.market_id)
                     logger.info(
                         "external_position_closed",
                         market_id=lp.market_id,
+                        settlement=round(settlement, 4),
                     )
                 else:
                     # Bot-opened positions: check if market has resolved
@@ -538,6 +564,11 @@ class Portfolio:
         pnl = (settlement_price - position.avg_price) * position.size
         await pos_repo.close(position.market_id)
         self._realized_pnl_today += pnl
+
+        # Update cash with settlement proceeds so _detect_capital_flow
+        # doesn't see the returning funds as a false deposit
+        settlement_proceeds = settlement_price * position.size
+        self._cash += settlement_proceeds
 
         if self._risk_manager and pnl != 0:
             self._risk_manager.update_daily_pnl(pnl)

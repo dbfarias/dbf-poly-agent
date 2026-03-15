@@ -126,8 +126,10 @@ async def get_daily_pnl(
 
         # Use trading_pnl from the last snapshot of the day (deposit-immune).
         # Falls back to equity delta for old snapshots without trading_pnl.
-        last_tpnl = getattr(last_snap, "trading_pnl", None) or 0.0
-        pnl = last_tpnl if last_tpnl != 0.0 else (end_eq - start_eq)
+        # Use trading_pnl (deposit-immune) when available.
+        # Only fall back to equity delta for old snapshots without the column.
+        last_tpnl = getattr(last_snap, "trading_pnl", None)
+        pnl = last_tpnl if last_tpnl is not None else (end_eq - start_eq)
 
         target = start_eq * target_pct
         pnl_pct = (
@@ -298,6 +300,22 @@ async def get_capital_flows(
         )
         for f in flows
     ]
+
+
+@router.delete("/capital-flows/{flow_id}")
+async def delete_capital_flow(
+    flow_id: int,
+    _: str = Depends(verify_api_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a capital flow entry (e.g. false auto-detected deposit)."""
+    from bot.data.repositories import CapitalFlowRepository
+
+    repo = CapitalFlowRepository(db)
+    deleted = await repo.delete_by_id(flow_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Capital flow {flow_id} not found")
+    return {"success": True, "deleted_id": flow_id}
 
 
 class ForceRemoveRequest(BaseModel):

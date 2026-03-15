@@ -151,7 +151,7 @@ class PositionCloser:
                 # (tokens exist on-chain but are essentially worthless)
                 if settings.is_paper:
                     await self._auto_remove_stuck(pos)
-                elif count >= 10 and pos.current_price < 0.05:
+                elif count >= 5 and pos.current_price < 0.10:
                     await self._auto_remove_stuck(pos)
             return
 

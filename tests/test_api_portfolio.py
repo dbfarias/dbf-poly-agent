@@ -361,6 +361,7 @@ class TestGetDailyPnl:
             total_equity=18.50,
             cash_balance=6.0,
             positions_value=12.5,
+            trading_pnl=0.50,
         )
         db_session.add_all([snap1, snap2])
         await db_session.commit()
@@ -413,6 +414,7 @@ class TestGetDailyPnl:
             total_equity=20.50,  # +2.5% > 1% target
             cash_balance=10.0,
             positions_value=10.5,
+            trading_pnl=0.50,
         )
         db_session.add_all([snap_am, snap_pm])
         await db_session.commit()
@@ -457,6 +459,7 @@ class TestGetDailyPnl:
             total_equity=19.50,
             cash_balance=10.0,
             positions_value=9.5,
+            trading_pnl=-0.50,
         )
         db_session.add_all([snap_am, snap_pm])
         await db_session.commit()

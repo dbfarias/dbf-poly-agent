@@ -557,6 +557,18 @@ class CapitalFlowRepository:
         )
         return list(result.scalars().all())
 
+    async def delete_by_id(self, flow_id: int) -> bool:
+        """Delete a capital flow entry by ID. Returns True if found and deleted."""
+        result = await self.session.execute(
+            select(CapitalFlow).where(CapitalFlow.id == flow_id)
+        )
+        flow = result.scalar_one_or_none()
+        if flow is None:
+            return False
+        await self.session.delete(flow)
+        await self.session.commit()
+        return True
+
 
 class SettingsRepository:
     def __init__(self, session: AsyncSession):

@@ -926,14 +926,14 @@ async def test_stuck_position_not_auto_removed_in_live_mode():
 
 @pytest.mark.asyncio
 async def test_stuck_position_auto_removed_in_live_near_worthless():
-    """In live mode, near-worthless positions are auto-removed after 10+ failures."""
+    """In live mode, near-worthless positions are auto-removed after 5+ failures (price < $0.10)."""
     patches = _common_patches()
     mocks = _enter_patches(patches)
     try:
         mocks["settings"].is_paper = False
         closer, om, pf, rm = _make_closer()
         pos = _make_position(market_id="live_worthless_mkt")
-        pos.current_price = 0.02  # Near worthless
+        pos.current_price = 0.02  # Near worthless (< $0.10)
         om.close_position = AsyncMock(return_value=None)
         pf.record_trade_close = AsyncMock(return_value=-0.80)
 
@@ -944,10 +944,10 @@ async def test_stuck_position_auto_removed_in_live_near_worthless():
         mocks["async_session"].return_value.__aexit__ = AsyncMock(return_value=False)
 
         with patch("bot.data.repositories.TradeRepository", return_value=mock_repo):
-            for _ in range(10):
+            for _ in range(5):
                 await closer.close_position(pos)
 
-        # Position should have been auto-removed at attempt 10
+        # Position should have been auto-removed at attempt 5
         pf.record_trade_close.assert_called_once_with("live_worthless_mkt", 0.02)
         rm.update_daily_pnl.assert_called_once_with(-0.80)
         assert "live_worthless_mkt" not in closer._sell_fail_count
@@ -957,7 +957,7 @@ async def test_stuck_position_auto_removed_in_live_near_worthless():
 
 @pytest.mark.asyncio
 async def test_stuck_position_not_auto_removed_in_live_high_price():
-    """In live mode, positions with price >= 0.05 are NOT auto-removed."""
+    """In live mode, positions with price >= 0.10 are NOT auto-removed."""
     patches = _common_patches()
     mocks = _enter_patches(patches)
     try:
