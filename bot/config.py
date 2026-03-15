@@ -34,7 +34,7 @@ class RiskConfig:
 
     _DEFAULTS: dict[str, object] = {
         "max_positions": 8,            # Was 6: weather+crypto need room
-        "max_per_position_pct": 0.10,  # Was 0.30: $14 bankroll → max $1.40/trade
+        "max_per_position_pct": 0.15,  # 15%: $15 bankroll → max $2.25/trade
         "max_deployed_pct": 0.65,      # Was 0.60: slightly more capital at work
         "daily_loss_limit_pct": 0.08,  # 8%: enough headroom to trade without blocking too early
         "max_drawdown_pct": 0.12,
