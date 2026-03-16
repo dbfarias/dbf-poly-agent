@@ -198,11 +198,11 @@ class TestDebateContextResearchAlignment:
         assert "DISAGREES" in block
         assert "RED FLAG" in block
 
-    def test_research_unknown_shows_question(self):
+    def test_research_unknown_is_silent(self):
+        """When research_agrees is None, no alignment info is emitted (neutral)."""
         ctx = DebateContext(research_agrees=None)
         block = _format_context_block(ctx)
-        assert "❓" in block
-        assert "Insufficient data" in block
+        assert "RESEARCH ALIGNMENT" not in block
 
     def test_twitter_sentiment_included(self):
         ctx = DebateContext(twitter_sentiment=0.45)

@@ -171,7 +171,7 @@ class TestDebateSignal:
         with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
             mock_tracker.is_over_budget = True
             result = await debate_signal(
-                question="Q?", strategy="test", edge=0.05,
+                question="Q?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -185,7 +185,7 @@ class TestDebateSignal:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = ""
             result = await debate_signal(
-                question="Q?", strategy="test", edge=0.05,
+                question="Q?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -211,7 +211,7 @@ class TestDebateSignal:
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
-                question="Will X?", strategy="value_betting", edge=0.05,
+                question="Will X?", strategy="value_betting", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="Orderbook imbalance",
             )
@@ -253,7 +253,7 @@ class TestDebateSignal:
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will BTC reach $100k?", strategy="value_betting",
-                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                edge=0.04, price=0.45, estimated_prob=0.49, confidence=0.8,
                 reasoning="Strong imbalance",
             )
 
@@ -459,7 +459,7 @@ class TestDebateRiskRejection:
         result = await debate_risk_rejection(
             question="Q?", strategy="test",
             rejection_reason="Trading is paused",
-            edge=0.05, price=0.5, estimated_prob=0.55, size_usd=2.0,
+            edge=0.02, price=0.5, estimated_prob=0.55, size_usd=2.0,
         )
         assert result is None
 
@@ -647,7 +647,7 @@ class TestMultiRoundDebate:
             mock_settings.use_multi_round_debate = False
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
-                question="Will X?", strategy="test", edge=0.05,
+                question="Will X?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -704,7 +704,7 @@ class TestMultiRoundDebate:
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
                 question="Will BTC reach $100k?", strategy="value_betting",
-                edge=0.05, price=0.5, estimated_prob=0.55, confidence=0.8,
+                edge=0.02, price=0.5, estimated_prob=0.55, confidence=0.8,
                 reasoning="Strong edge",
             )
 
@@ -853,7 +853,7 @@ class TestMultiRoundDebate:
             mock_settings.use_multi_round_debate = True
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
-                question="Will X?", strategy="test", edge=0.08,
+                question="Will X?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.58, confidence=0.9,
                 reasoning="Strong",
             )
@@ -894,7 +894,7 @@ class TestMultiRoundDebate:
             mock_settings.use_multi_round_debate = True
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
-                question="Will X?", strategy="test", edge=0.05,
+                question="Will X?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -943,7 +943,7 @@ class TestMultiRoundDebate:
             mock_settings.use_multi_round_debate = True
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
-                question="Will X?", strategy="test", edge=0.05,
+                question="Will X?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.8,
                 reasoning="test",
             )
@@ -1002,10 +1002,10 @@ class TestDebateCache:
             total_cost_usd=0.001,
             elapsed_s=1.5,
         )
-        key = _debate_cache_key("Q?", "test", 0.5, 0.05)
+        key = _debate_cache_key("Q?", "test", 0.5, 0.02)
         _debate_cache[key] = (result, time.monotonic())
 
-        cached = _get_cached_debate("Q?", "test", price=0.5, edge=0.05)
+        cached = _get_cached_debate("Q?", "test", price=0.5, edge=0.02)
         assert cached is not None
         assert cached.approved is True
         assert cached.total_cost_usd == 0.0  # Cost zeroed on cache hit
@@ -1023,11 +1023,11 @@ class TestDebateCache:
             total_cost_usd=0.001,
             elapsed_s=0.5,
         )
-        key = _debate_cache_key("Q?", "test", 0.5, 0.05)
+        key = _debate_cache_key("Q?", "test", 0.5, 0.02)
         # Backdate the timestamp so it's expired
         _debate_cache[key] = (result, time.monotonic() - 99999)
 
-        assert _get_cached_debate("Q?", "test", price=0.5, edge=0.05) is None
+        assert _get_cached_debate("Q?", "test", price=0.5, edge=0.02) is None
         # Expired entry should be cleaned up
         assert key not in _debate_cache
 
@@ -1085,7 +1085,7 @@ class TestDebateCache:
             result1 = await debate_signal(
                 question="Will BTC hit $1M?",
                 strategy="value_betting",
-                edge=0.05, price=0.5, estimated_prob=0.55,
+                edge=0.02, price=0.5, estimated_prob=0.55,
                 confidence=0.7, reasoning="test",
             )
 
@@ -1100,7 +1100,7 @@ class TestDebateCache:
             result2 = await debate_signal(
                 question="Will BTC hit $1M?",
                 strategy="value_betting",
-                edge=0.05, price=0.5, estimated_prob=0.55,
+                edge=0.02, price=0.5, estimated_prob=0.55,
                 confidence=0.7, reasoning="test",
             )
 
@@ -1171,7 +1171,7 @@ class TestDebateWithConsensus:
         with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
             mock_tracker.is_over_budget = True
             result = await debate_with_consensus(
-                question="Q?", strategy="test", edge=0.05,
+                question="Q?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -1185,7 +1185,7 @@ class TestDebateWithConsensus:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = ""
             result = await debate_with_consensus(
-                question="Q?", strategy="test", edge=0.05,
+                question="Q?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -1228,7 +1228,7 @@ class TestDebateWithConsensus:
             mock_settings.anthropic_api_key = "sk-test"
             result = await debate_with_consensus(
                 question="Will BTC hit $100k?", strategy="value_betting",
-                edge=0.05, price=0.5, estimated_prob=0.55, confidence=0.8,
+                edge=0.02, price=0.5, estimated_prob=0.55, confidence=0.8,
                 reasoning="Strong imbalance",
             )
 
@@ -1291,7 +1291,7 @@ class TestDebateWithConsensus:
             mock_tracker.is_over_budget = False
             mock_settings.anthropic_api_key = "sk-test"
             result = await debate_with_consensus(
-                question="Will X?", strategy="test", edge=0.05,
+                question="Will X?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
             )
@@ -1354,7 +1354,7 @@ class TestWhaleSummaryIntegration:
             mock_settings.use_multi_round_debate = False
             result = await debate_signal(
                 question="Will BTC hit $100k?", strategy="value_betting",
-                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                edge=0.02, price=0.45, estimated_prob=0.53, confidence=0.8,
                 reasoning="Strong imbalance",
                 whale_summary="3 whale orders, $5,000 total, net bias: BUY",
             )
@@ -1387,7 +1387,7 @@ class TestWhaleSummaryIntegration:
             mock_settings.anthropic_api_key = "sk-test"
             mock_settings.use_llm_consensus = False
             result = await debate_signal(
-                question="Will X?", strategy="test", edge=0.05,
+                question="Will X?", strategy="test", edge=0.02,
                 price=0.5, estimated_prob=0.55, confidence=0.7,
                 reasoning="test",
                 whale_summary="",
@@ -1446,7 +1446,7 @@ class TestConsensusIntegrationWithDebateSignal:
             mock_settings.use_multi_round_debate = False
             result = await debate_signal(
                 question="Will BTC hit $100k?", strategy="value_betting",
-                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                edge=0.02, price=0.45, estimated_prob=0.53, confidence=0.8,
                 reasoning="Strong",
             )
 
@@ -1530,7 +1530,7 @@ class TestMediumRiskOverride:
             mock_settings.daily_target_pct = 1.0
             result = await debate_signal(
                 question="Will BTC hit $100k?", strategy="value_betting",
-                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                edge=0.02, price=0.45, estimated_prob=0.53, confidence=0.8,
                 reasoning="Strong orderbook imbalance",
             )
 
@@ -1573,7 +1573,7 @@ class TestMediumRiskOverride:
             mock_settings.daily_target_pct = 1.0
             result = await debate_signal(
                 question="Will X happen?", strategy="value_betting",
-                edge=0.08, price=0.45, estimated_prob=0.53, confidence=0.8,
+                edge=0.02, price=0.45, estimated_prob=0.53, confidence=0.8,
                 reasoning="Strong signal",
             )
 
@@ -1613,7 +1613,7 @@ class TestMediumRiskOverride:
             mock_settings.daily_target_pct = 1.0
             result = await debate_signal(
                 question="Will Y?", strategy="time_decay",
-                edge=0.04, price=0.50, estimated_prob=0.54, confidence=0.5,
+                edge=0.02, price=0.50, estimated_prob=0.52, confidence=0.5,
                 reasoning="Weak edge",
             )
 
@@ -1654,7 +1654,7 @@ class TestMediumRiskOverride:
             mock_settings.daily_target_pct = 1.0
             result = await debate_signal(
                 question="Will Z happen soon?", strategy="value_betting",
-                edge=0.10, price=0.40, estimated_prob=0.50, confidence=0.9,
+                edge=0.02, price=0.40, estimated_prob=0.50, confidence=0.9,
                 reasoning="Very strong signal",
             )
 
@@ -1681,7 +1681,7 @@ class TestContextEnrichment:
         )
         prompt = _format_proposer_prompt(
             question="Will BTC hit $110k?", strategy="value_betting",
-            edge=0.05, price=0.45, estimated_prob=0.50, confidence=0.7,
+            edge=0.02, price=0.45, estimated_prob=0.50, confidence=0.7,
             reasoning="Orderbook imbalance", sentiment_score=0.3,
             hours_to_resolution=48.0, context=ctx,
         )
@@ -1718,8 +1718,144 @@ class TestContextEnrichment:
         """Without context, prompts should not contain track record."""
         prompt = _format_proposer_prompt(
             question="Will X?", strategy="test",
-            edge=0.05, price=0.50, estimated_prob=0.55, confidence=0.7,
+            edge=0.02, price=0.50, estimated_prob=0.55, confidence=0.7,
             reasoning="Test", sentiment_score=None,
             hours_to_resolution=None, context=None,
         )
         assert "BOT TRACK RECORD" not in prompt
+
+
+class TestAutoApproveAndPassOverride:
+    """Tests for edge-based auto-approve and PASS override mechanisms."""
+
+    async def test_auto_approve_strong_edge(self):
+        """Edge >= 5% with safe price auto-approves without calling LLM."""
+        with patch("bot.research.llm_debate.cost_tracker") as mock_tracker:
+            mock_tracker.is_over_budget = False
+            result = await debate_signal(
+                question="Will BTC hit $80k?", strategy="time_decay",
+                edge=0.06, price=0.30, estimated_prob=0.36,
+                confidence=0.8, reasoning="Strong algo edge",
+            )
+
+        assert result is not None
+        assert result.approved is True
+        assert result.proposer_verdict == "BUY"
+        assert "Auto-approved" in result.proposer_reasoning
+        assert result.total_cost_usd == 0.0
+
+    async def test_auto_approve_skipped_extreme_price(self):
+        """Edge >= 5% but price > 0.90 should NOT auto-approve."""
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(
+            text="VERDICT: BUY\nCONFIDENCE: 0.8\nREASONING: Good"
+        )]
+        mock_response.usage.input_tokens = 200
+        mock_response.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK_LEVEL: LOW\nOBJECTIONS: None"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[mock_response, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.daily_target_pct = 1.0
+            result = await debate_signal(
+                question="Will X?", strategy="time_decay",
+                edge=0.06, price=0.95, estimated_prob=1.01,
+                confidence=0.8, reasoning="High price",
+            )
+
+        # Should NOT auto-approve because price > 0.90
+        assert result is not None
+        assert mock_client.messages.create.call_count >= 1  # LLM was called
+
+    async def test_pass_override_at_3pct_edge(self):
+        """Proposer PASS with edge >= 3% forces through to challenger."""
+        prop_resp = MagicMock()
+        prop_resp.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.4\nREASONING: Uncertain"
+        )]
+        prop_resp.usage.input_tokens = 200
+        prop_resp.usage.output_tokens = 30
+
+        chal_resp = MagicMock()
+        chal_resp.content = [MagicMock(
+            text="VERDICT: APPROVE\nRISK_LEVEL: LOW\nOBJECTIONS: None"
+        )]
+        chal_resp.usage.input_tokens = 300
+        chal_resp.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[prop_resp, chal_resp]
+        )
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            mock_settings.use_multi_round_debate = False
+            mock_settings.daily_target_pct = 1.0
+            result = await debate_signal(
+                question="Will Y?", strategy="market_making",
+                edge=0.04, price=0.50, estimated_prob=0.54,
+                confidence=0.7, reasoning="Decent edge",
+            )
+
+        assert result is not None
+        # Proposer PASS was overridden → went to challenger → APPROVE
+        assert result.approved is True
+        assert "[OVERRIDE" in result.proposer_reasoning
+        # Both proposer and challenger were called
+        assert mock_client.messages.create.call_count == 2
+
+    async def test_pass_not_overridden_below_3pct(self):
+        """Proposer PASS with edge < 3% is respected (no override)."""
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(
+            text="VERDICT: PASS\nCONFIDENCE: 0.3\nREASONING: Too thin"
+        )]
+        mock_response.usage.input_tokens = 200
+        mock_response.usage.output_tokens = 30
+
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+        with (
+            patch("bot.research.llm_debate.cost_tracker") as mock_tracker,
+            patch("bot.research.llm_debate.settings") as mock_settings,
+            patch(_ANTHROPIC_PATCH, return_value=mock_client),
+        ):
+            mock_tracker.is_over_budget = False
+            mock_settings.anthropic_api_key = "sk-test"
+            mock_settings.use_llm_consensus = False
+            result = await debate_signal(
+                question="Will Z?", strategy="test",
+                edge=0.02, price=0.50, estimated_prob=0.52,
+                confidence=0.5, reasoning="Weak",
+            )
+
+        assert result is not None
+        assert result.approved is False
+        assert result.proposer_verdict == "PASS"
+        # Only proposer was called (no override to challenger)
+        assert mock_client.messages.create.call_count == 1

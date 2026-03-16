@@ -640,6 +640,28 @@ async def debate_signal(
         logger.info("llm_debate_budget_exhausted", today_cost=cost_tracker.today_cost)
         return None
 
+    # Auto-approve strong algorithmic edges — trust the math over LLM judgment
+    auto_approve_edge = 0.05  # 5%+ edge: skip debate, auto-approve
+    if edge >= auto_approve_edge and 0.10 <= price <= 0.90:
+        logger.info(
+            "llm_debate_auto_approved",
+            question=question[:60],
+            strategy=strategy,
+            edge=round(edge, 4),
+            price=round(price, 3),
+        )
+        return DebateResult(
+            approved=True,
+            proposer_verdict="BUY",
+            proposer_confidence=0.9,
+            proposer_reasoning=f"Auto-approved: edge {edge:.1%} >= 5% threshold",
+            challenger_verdict="skipped",
+            challenger_risk="LOW",
+            challenger_objections="Auto-approved due to strong algorithmic edge",
+            total_cost_usd=0.0,
+            elapsed_s=0.0,
+        )
+
     # Check cache — avoid re-debating the same market/strategy/price/edge
     cached = _get_cached_debate(question, strategy, price=price, edge=edge)
     if cached is not None:
@@ -746,32 +768,61 @@ async def debate_signal(
         prop_verdict, prop_confidence, prop_reasoning, _prop_edge_valid = _parse_proposer(
             prop_text,
         )
-
-    # If proposer says PASS (don't buy), reject without challenger
-    if prop_verdict == "PASS":
-        elapsed = time.monotonic() - start
-        cost_tracker.add(total_cost)
+        # Log raw proposer output for debugging
         logger.info(
-            "llm_debate_complete",
+            "llm_proposer_raw",
             question=question[:60],
-            proposer="PASS",
-            challenger="skipped",
-            approved=False,
-            cost_usd=round(total_cost, 5),
+            verdict=prop_verdict,
+            confidence=prop_confidence,
+            reasoning=prop_reasoning[:200],
+            raw_text=prop_text[:300],
+            edge=round(edge, 4),
+            price=round(price, 3),
         )
-        result = DebateResult(
-            approved=False,
-            proposer_verdict="PASS",
-            proposer_confidence=prop_confidence,
-            proposer_reasoning=prop_reasoning,
-            challenger_verdict="skipped",
-            challenger_risk="N/A",
-            challenger_objections="Proposer said PASS — trade rejected",
-            total_cost_usd=total_cost,
-            elapsed_s=round(elapsed, 2),
-        )
-        _cache_debate(question, strategy, result, price=price, edge=edge)
-        return result
+
+    # If proposer says PASS (don't buy), check for edge override before rejecting
+    if prop_verdict == "PASS":
+        # Override: if edge >= 3% and price in safe range, the algorithm is more
+        # trustworthy than an overly-conservative LLM. Force through to challenger.
+        edge_override_threshold = 0.03  # 3%
+        if edge >= edge_override_threshold and 0.10 <= price <= 0.90:
+            logger.info(
+                "llm_proposer_pass_overridden",
+                question=question[:60],
+                edge=round(edge, 4),
+                price=round(price, 3),
+                proposer_reasoning=prop_reasoning[:200],
+            )
+            prop_verdict = "BUY"
+            prop_confidence = max(prop_confidence, 0.6)
+            prop_reasoning = (
+                f"[OVERRIDE: proposer PASS overridden due to edge {edge:.1%} >= 3%] "
+                + prop_reasoning
+            )
+        else:
+            elapsed = time.monotonic() - start
+            cost_tracker.add(total_cost)
+            logger.info(
+                "llm_debate_complete",
+                question=question[:60],
+                proposer="PASS",
+                challenger="skipped",
+                approved=False,
+                cost_usd=round(total_cost, 5),
+            )
+            result = DebateResult(
+                approved=False,
+                proposer_verdict="PASS",
+                proposer_confidence=prop_confidence,
+                proposer_reasoning=prop_reasoning,
+                challenger_verdict="skipped",
+                challenger_risk="N/A",
+                challenger_objections="Proposer said PASS — trade rejected",
+                total_cost_usd=total_cost,
+                elapsed_s=round(elapsed, 2),
+            )
+            _cache_debate(question, strategy, result, price=price, edge=edge)
+            return result
 
     # --- CHALLENGER ---
     challenger_msg = _format_challenger_prompt(
@@ -1121,8 +1172,7 @@ def _format_context_block(ctx: DebateContext) -> str:
             "RED FLAG — news sentiment contradicts this trade. "
             "Require stronger evidence to proceed."
         )
-    else:
-        parts.append("RESEARCH ALIGNMENT: ❓ Insufficient data to confirm direction.")
+    # Note: when research_agrees is None, we say nothing — no data is neutral, not negative
 
     if ctx.twitter_sentiment != 0.0:
         parts.append(f"Twitter/X sentiment: {ctx.twitter_sentiment:+.2f}")
