@@ -469,15 +469,18 @@ class MarketAnalyzer:
         if age_hours is not None and age_hours > self.MAX_POSITION_AGE_HOURS:
             return f"max_age ({age_hours:.0f}h > {self.MAX_POSITION_AGE_HOURS:.0f}h)"
 
-        # Take profit: lock in gains when price near certainty AND actually profitable
+        # Take profit: lock in gains when price near certainty AND actually profitable.
+        # Skip for positions bought at high prices (>= 0.90) — these are resolution
+        # bets expecting $1.00 payout; taking +0.2% profit when 4-10% is expected
+        # from resolution is wrong. Let them resolve naturally.
         if position.current_price >= self.TAKE_PROFIT_PRICE:
-            if age_hours is not None and age_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
+            if position.avg_price >= 0.90:
+                pass  # Resolution bet — hold until $1.00 or $0.00
+            elif age_hours is not None and age_hours >= self.TAKE_PROFIT_MIN_HOLD_HOURS:
                 profit_pct = (
                     (position.current_price - position.avg_price) / position.avg_price
                     if position.avg_price > 0 else 0.0
                 )
-                # Only take profit if actually in profit (prevents selling at a loss
-                # for positions entered above the take_profit_price threshold)
                 if profit_pct > 0:
                     return (
                         f"take_profit (price={position.current_price:.4f},"

@@ -209,11 +209,19 @@ class TestCheckStopLoss:
     # --- Take profit (universal at $0.95) ---
 
     def test_take_profit_at_95_after_6h(self):
+        """Take profit fires for low-avg positions that rallied to $0.95+."""
         old_time = datetime.now(timezone.utc) - timedelta(hours=8)
-        pos = _position(avg_price=0.90, current_price=0.95, created_at=old_time)
+        pos = _position(avg_price=0.50, current_price=0.95, created_at=old_time)
         reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
         assert reason is not None
         assert "take_profit" in reason
+
+    def test_no_take_profit_resolution_bet(self):
+        """Positions bought >= $0.90 are resolution bets — never take profit."""
+        old_time = datetime.now(timezone.utc) - timedelta(hours=8)
+        pos = _position(avg_price=0.95, current_price=0.96, created_at=old_time)
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None
 
     def test_no_take_profit_below_95(self):
         old_time = datetime.now(timezone.utc) - timedelta(hours=8)
