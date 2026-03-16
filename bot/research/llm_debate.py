@@ -747,7 +747,7 @@ async def debate_signal(
             prop_text,
         )
 
-    # If proposer says PASS, skip challenger (save cost)
+    # If proposer says PASS (don't buy), reject without challenger
     if prop_verdict == "PASS":
         elapsed = time.monotonic() - start
         cost_tracker.add(total_cost)
@@ -756,17 +756,17 @@ async def debate_signal(
             question=question[:60],
             proposer="PASS",
             challenger="skipped",
-            approved=True,
+            approved=False,
             cost_usd=round(total_cost, 5),
         )
         result = DebateResult(
-            approved=True,
+            approved=False,
             proposer_verdict="PASS",
             proposer_confidence=prop_confidence,
             proposer_reasoning=prop_reasoning,
             challenger_verdict="skipped",
             challenger_risk="N/A",
-            challenger_objections="Proposer passed — no challenger needed",
+            challenger_objections="Proposer said PASS — trade rejected",
             total_cost_usd=total_cost,
             elapsed_s=round(elapsed, 2),
         )

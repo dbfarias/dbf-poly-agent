@@ -217,10 +217,10 @@ class TestDebateSignal:
             )
 
         assert result is not None
-        assert result.approved  # PASS = signal approved, skip challenger
+        assert not result.approved  # PASS = proposer rejects trade
         assert result.proposer_verdict == "PASS"
         assert result.challenger_verdict == "skipped"
-        # Challenger should NOT have been called
+        # Challenger should NOT have been called (proposer already rejected)
         assert mock_client.messages.create.call_count == 1
 
     async def test_full_debate_approve(self):
