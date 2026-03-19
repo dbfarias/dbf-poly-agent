@@ -1131,6 +1131,24 @@ class TradingEngine:
                 )
                 continue
 
+            # Skip markets where we already have an open position
+            open_market_ids = {p.market_id for p in self.portfolio.positions}
+            if signal.market_id in open_market_ids:
+                logger.info(
+                    "signal_skipped_existing_position",
+                    market_id=signal.market_id[:20],
+                    strategy=signal.strategy,
+                )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason="Already have an open position on this market",
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
+                continue
+
             # Skip markets with existing pending orders
             if signal.market_id in pending_markets:
                 logger.info(

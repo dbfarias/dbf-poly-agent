@@ -52,7 +52,7 @@ class DataApiClient:
                         outcome=p.get("outcome", ""),
                         question=p.get("title", ""),
                         size=float(p.get("size", 0)),
-                        avg_price=float(p.get("avgPrice", 0)),
+                        avg_price=float(p.get("avgPrice") or p.get("curPrice", 0)),
                         current_price=float(p.get("curPrice", 0)),
                         unrealized_pnl=float(p.get("cashPnl", 0)),
                     )
