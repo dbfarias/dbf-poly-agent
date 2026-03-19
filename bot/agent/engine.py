@@ -235,6 +235,7 @@ class TradingEngine:
         # trade is placed (scanning without trading does NOT set a cooldown).
         self._market_cooldown: dict[str, datetime] = {}  # {"market_id|strategy": tradeable_after}
         self._debate_cooldown: dict[str, datetime] = {}  # {market_id: debate_again_after}
+        self._alert_cooldowns: dict[str, datetime] = {}  # {market_id: alert_again_after}
         self.market_cooldown_hours: float = 1.0  # default for most strategies
 
         # Per-strategy cooldown overrides (short-lived markets need shorter cooldowns)
@@ -458,6 +459,69 @@ class TradingEngine:
             logger.info("daily_state_auto_reset_on_startup", equity=current_equity)
         except Exception as e:
             logger.error("daily_state_auto_reset_failed", error=str(e))
+
+    async def _analyze_positions_for_alerts(self) -> None:
+        """Run LLM analysis on open positions and send EXIT push alerts.
+
+        Runs every 30 cycles (~30 min). Each market_id has a 4-hour cooldown
+        so the same position won't spam repeated alerts.
+        Only EXIT + High confidence triggers a notification.
+        """
+        positions = self.portfolio.positions
+        if not positions:
+            return
+
+        from datetime import timedelta
+
+        from bot.utils.position_analyzer import analyze_position_for_exit
+        from bot.utils.push_notifications import push_notify_position_alert
+
+        now = datetime.now(timezone.utc)
+        alert_cooldown = timedelta(hours=4)
+
+        for position in positions:
+            market_id = position.market_id
+
+            # Skip if alerted recently
+            if market_id in self._alert_cooldowns:
+                if now < self._alert_cooldowns[market_id]:
+                    continue
+
+            # Get days to expiry from market cache
+            days_to_expiry: float | None = None
+            market = self.market_cache.get_market(market_id)
+            if market is not None:
+                end = getattr(market, "end_date", None)
+                if end is not None:
+                    if end.tzinfo is None:
+                        end = end.replace(tzinfo=timezone.utc)
+                    days_to_expiry = max(0.0, (end - now).total_seconds() / 86400)
+
+            verdict, confidence, reason = await analyze_position_for_exit(
+                question=position.question,
+                outcome=position.outcome,
+                avg_price=position.avg_price,
+                current_price=position.current_price,
+                size=position.size,
+                unrealized_pnl=position.unrealized_pnl,
+                days_to_expiry=days_to_expiry,
+            )
+
+            if verdict == "EXIT" and confidence == "High":
+                await push_notify_position_alert(
+                    question=position.question,
+                    outcome=position.outcome,
+                    current_price=position.current_price,
+                    unrealized_pnl=position.unrealized_pnl,
+                    reason=reason,
+                )
+                self._alert_cooldowns[market_id] = now + alert_cooldown
+                logger.info(
+                    "position_exit_alert_sent",
+                    market_id=market_id[:20],
+                    question=position.question[:50],
+                    pnl=position.unrealized_pnl,
+                )
 
     async def _persist_state(self) -> None:
         """Persist ephemeral state to DB (called after trades)."""
@@ -844,6 +908,13 @@ class TradingEngine:
         ]
         for mid in expired:
             del self._debate_cooldown[mid]
+
+        # 13. Analyze open positions for EXIT alerts (every 30 cycles ~30 min)
+        if self._cycle_count % 30 == 0 and self.portfolio.open_position_count > 0:
+            try:
+                await self._analyze_positions_for_alerts()
+            except Exception as e:
+                logger.debug("position_alert_analysis_failed", error=str(e))
 
         logger.info(
             "cycle_complete",

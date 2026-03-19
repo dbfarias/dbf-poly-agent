@@ -179,6 +179,19 @@ async def push_notify_risk_limit(limit_type: str, current: float, threshold: flo
     })
 
 
+async def push_notify_position_alert(
+    question: str, outcome: str, current_price: float, unrealized_pnl: float, reason: str
+) -> None:
+    """Send EXIT alert when LLM recommends closing a position."""
+    pnl_str = f"${unrealized_pnl:+.2f}"
+    await _send_to_all({
+        "title": f"⚠️ EXIT Recommended: {outcome}",
+        "body": f"{question[:70]} @ ${current_price:.3f} | PnL {pnl_str} — {reason}",
+        "tag": f"exit-alert-{question[:30]}",
+        "data": {"url": "/"},
+    })
+
+
 async def push_notify_daily_summary(
     equity: float, daily_pnl: float, daily_return: float, trades: int, win_rate: float
 ) -> None:
