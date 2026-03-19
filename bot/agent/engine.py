@@ -444,6 +444,21 @@ class TradingEngine:
         except Exception as e:
             logger.error("restore_cooldowns_failed", error=str(e))
 
+        # Auto-reset daily state on every startup (deploy or crash recovery).
+        # Equity and positions are preserved; only intraday tracking counters
+        # reset so VaR / daily-loss-limit start clean.
+        try:
+            from bot.data.settings_store import StateStore
+
+            current_equity = self.portfolio.total_equity
+            self.risk_manager.reset_daily_state(current_equity)
+            self.portfolio.reset_daily_state(current_equity)
+            await StateStore.save_day_start_equity(current_equity, trading_day())
+            await StateStore.save_daily_pnl(0.0, trading_day())
+            logger.info("daily_state_auto_reset_on_startup", equity=current_equity)
+        except Exception as e:
+            logger.error("daily_state_auto_reset_failed", error=str(e))
+
     async def _persist_state(self) -> None:
         """Persist ephemeral state to DB (called after trades)."""
         await self.risk_manager.persist_daily_pnl()
