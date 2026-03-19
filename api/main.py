@@ -50,13 +50,17 @@ async def lifespan(app: FastAPI):
 
     async def _push_broadcast_trade(**kwargs):
         try:
+            side = kwargs.get("side", "BUY")
+            pnl = kwargs.get("pnl", 0) or 0
+            action = "closed" if side.upper() == "SELL" else "opened"
             await push_notify_trade(
-                action="opened",
+                action=action,
                 strategy=kwargs.get("strategy", ""),
                 question=kwargs.get("question", ""),
-                side=kwargs.get("side", "BUY"),
+                side=side,
                 price=kwargs.get("price", 0),
                 size=kwargs.get("size", 0),
+                pnl=pnl,
             )
         except Exception:
             pass  # Never let push failures affect the trading loop

@@ -52,6 +52,7 @@ class Portfolio:
         self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
         self._redeemer = None
+        self._peak_equity_loaded: bool = False  # Load from DB only once at startup
 
     @property
     def cash(self) -> float:
@@ -198,19 +199,21 @@ class Portfolio:
                 self._day_start_equity = self.total_equity
                 logger.error("day_start_equity_persist_failed", error=str(e))
 
-        # Restore peak equity from DB (survives restarts, including mid-day)
-        try:
-            from bot.data.settings_store import StateStore
+        # Restore peak equity from DB once at startup (not on every sync)
+        if not self._peak_equity_loaded:
+            try:
+                from bot.data.settings_store import StateStore
 
-            saved_peak = await StateStore.load_peak_equity()
-            if saved_peak is not None:
-                self._peak_equity = saved_peak
-                logger.info(
-                    "peak_equity_restored",
-                    peak=round(saved_peak, 4),
-                )
-        except Exception as e:
-            logger.error("peak_equity_restore_failed", error=str(e))
+                saved_peak = await StateStore.load_peak_equity()
+                if saved_peak is not None:
+                    self._peak_equity = saved_peak
+                    logger.info(
+                        "peak_equity_restored",
+                        peak=round(saved_peak, 4),
+                    )
+                self._peak_equity_loaded = True
+            except Exception as e:
+                logger.error("peak_equity_restore_failed", error=str(e))
 
         # Update peak equity (adjusted for flows so deposits don't inflate peak)
         equity = self.total_equity
