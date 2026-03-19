@@ -179,6 +179,9 @@ class OrderManager:
             fee_rate_bps=fee_rate_bps,
             fee_amount_usd=round(fee_usd, 6),
             is_paper=settings.is_paper,
+            category=signal.metadata.get("category", ""),
+            debate_path=signal.metadata.get("debate_path", ""),
+            research_multiplier_applied=signal.metadata.get("research_multiplier", 0.0),
         )
 
         async with async_session() as session:

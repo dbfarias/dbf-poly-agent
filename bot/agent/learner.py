@@ -178,22 +178,16 @@ class PerformanceLearner:
 
         async with async_session() as session:
             repo = TradeRepository(session)
-            trades = await repo.get_recent(limit=500)
+            recent_raw = await repo.get_closed_trades(limit=2000)
 
-        # Filter to resolved trades from last 30 days.
-        # Only count trades with exit_reason set — unresolved BUY entries
-        # (pnl=0, no exit) would dilute win rates and PnL stats.
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        # Apply 90-day lookback (closed BUY trades only, already filtered in query).
+        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
         recent = []
-        for t in trades:
-            if t.status not in ("filled", "completed"):
-                continue
-            if not t.exit_reason:
-                continue
+        for t in recent_raw:
             created = t.created_at
             if created is not None and created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
-            if created is not None and created >= cutoff:
+            if created is None or created >= cutoff:
                 recent.append(t)
 
         # Group by (strategy, category)

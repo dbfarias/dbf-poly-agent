@@ -64,6 +64,24 @@ class TradeRepository:
         )
         return list(result.scalars().all())
 
+    async def get_closed_trades(self, limit: int = 2000) -> list[Trade]:
+        """Get closed BUY trades (filled + exit_reason set) for learner analysis.
+
+        Unlike get_recent(), this queries directly for resolved positions
+        without wasting the limit on SELL/expired/pending trades.
+        """
+        result = await self.session.execute(
+            select(Trade)
+            .where(
+                Trade.side == "BUY",
+                Trade.status.in_(["filled", "completed"]),
+                Trade.exit_reason != "",
+            )
+            .order_by(Trade.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def get_by_strategy(self, strategy: str, limit: int = 100) -> list[Trade]:
         result = await self.session.execute(
             select(Trade)

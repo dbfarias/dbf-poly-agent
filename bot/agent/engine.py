@@ -1433,6 +1433,18 @@ class TradingEngine:
                             "final_reasoning": debate_result.final_reasoning,
                         }
                     signal.metadata["llm_debate"] = debate_meta
+
+                    # Track how this trade was approved/rejected for learning
+                    if debate_result.approved:
+                        if "Auto-approved" in debate_result.proposer_reasoning:
+                            signal.metadata["debate_path"] = "auto_approved"
+                        elif "[OVERRIDE:" in debate_result.proposer_reasoning:
+                            signal.metadata["debate_path"] = "challenger_override"
+                        else:
+                            signal.metadata["debate_path"] = "debate_passed"
+                    else:
+                        signal.metadata["debate_path"] = "debate_rejected"
+
                     await log_llm_debate(
                         strategy=signal.strategy,
                         market_id=signal.market_id,
@@ -1775,6 +1787,12 @@ class TradingEngine:
 
             signals_approved += 1
             signal.size_usd = size
+
+            # Enrich category from research engine if signal category is empty
+            # (market.category = groupItemTitle is usually "" on Polymarket API;
+            # CategoryClassifier in research engine classifies correctly)
+            if not signal.metadata.get("category") and research is not None:
+                signal.metadata["category"] = research.market_category or ""
 
             # Execute trade
             trade = await self.order_manager.execute_signal(signal)

@@ -146,7 +146,7 @@ class TestLearnerPostMortemFeedback:
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = MagicMock()
-        mock_repo.get_recent = AsyncMock(return_value=trades)
+        mock_repo.get_closed_trades = AsyncMock(return_value=trades)
         mock_repo.upsert = AsyncMock()
 
         with (
@@ -192,7 +192,7 @@ class TestLearnerPostMortemFeedback:
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = MagicMock()
-        mock_repo.get_recent = AsyncMock(return_value=trades)
+        mock_repo.get_closed_trades = AsyncMock(return_value=trades)
 
         with (
             patch("bot.agent.learner.async_session", return_value=mock_session),
@@ -237,7 +237,7 @@ class TestLearnerPostMortemFeedback:
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = MagicMock()
-        mock_repo.get_recent = AsyncMock(return_value=trades)
+        mock_repo.get_closed_trades = AsyncMock(return_value=trades)
 
         with (
             patch("bot.agent.learner.async_session", return_value=mock_session),
@@ -280,7 +280,7 @@ class TestLearnerPostMortemFeedback:
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = MagicMock()
-        mock_repo.get_recent = AsyncMock(return_value=trades)
+        mock_repo.get_closed_trades = AsyncMock(return_value=trades)
 
         with (
             patch("bot.agent.learner.async_session", return_value=mock_session),

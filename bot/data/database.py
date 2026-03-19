@@ -69,6 +69,8 @@ async def _migrate(eng) -> None:
         ("trades", "source_wallet", "TEXT NOT NULL DEFAULT ''"),
         ("strategy_metrics", "profit_factor", "REAL NOT NULL DEFAULT 0.0"),
         ("portfolio_snapshots", "trading_pnl", "REAL NOT NULL DEFAULT 0.0"),
+        ("trades", "debate_path", "TEXT NOT NULL DEFAULT ''"),
+        ("trades", "research_multiplier_applied", "REAL NOT NULL DEFAULT 0.0"),
     ]
 
     async with eng.begin() as conn:

@@ -59,6 +59,12 @@ class Trade(Base):
     entry_price: Mapped[float] = mapped_column(Float, default=0.0)  # For SELL: original buy price
     is_paper: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Debate tracking
+    # Values: "auto_approved", "challenger_override", "debate_passed", "debate_rejected", ""
+    debate_path: Mapped[str] = mapped_column(String(32), default="")
+    # The research_multiplier value (from news/sentiment) applied at trade time
+    research_multiplier_applied: Mapped[float] = mapped_column(Float, default=0.0)
+
     __table_args__ = (Index("idx_trades_strategy_status", "strategy", "status"),)
 
 

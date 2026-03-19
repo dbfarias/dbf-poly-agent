@@ -443,12 +443,12 @@ class TestComputeStats:
             )
             mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            # Mock TradeRepository.get_recent to return empty list
+            # Mock TradeRepository.get_closed_trades to return empty list
             with patch(
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = []
+                mock_trade_repo.get_closed_trades.return_value = []
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 # Mock StrategyMetricRepository
@@ -483,7 +483,7 @@ class TestComputeStats:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo.get_closed_trades.return_value = trades
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
@@ -580,16 +580,16 @@ class TestComputeDailyProgress:
 
 
     async def test_compute_stats_ignores_unresolved_trades(self):
-        """compute_stats should exclude trades without exit_reason (unresolved BUYs)."""
+        """compute_stats should count only trades returned by get_closed_trades.
+
+        Filtering (exit_reason set, BUY side, filled status) is now done at
+        the repository layer inside get_closed_trades(). The learner trusts
+        that query to return only resolved trades.
+        """
         learner = PerformanceLearner()
 
-        # Mix of resolved and unresolved trades
+        # Only resolved trades — mirrors what get_closed_trades() returns from DB
         resolved = make_trades(10, 8, strategy="time_decay", category="politics")
-        unresolved = [
-            make_trade(strategy="time_decay", category="politics", pnl=0.0, exit_reason="")
-            for _ in range(20)
-        ]
-        all_trades = resolved + unresolved
 
         with patch("bot.agent.learner.async_session") as mock_session_ctx:
             mock_session = AsyncMock()
@@ -602,7 +602,7 @@ class TestComputeDailyProgress:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = all_trades
+                mock_trade_repo.get_closed_trades.return_value = resolved
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
@@ -613,7 +613,7 @@ class TestComputeDailyProgress:
 
                     await learner.compute_stats()
 
-                    # Only the 10 resolved trades should be counted
+                    # All 10 resolved trades should be counted
                     key = ("time_decay", "politics")
                     assert key in learner._stats
                     assert learner._stats[key].total_trades == 10
@@ -637,7 +637,7 @@ class TestLearnerAdjustmentsUrgency:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = []
+                mock_trade_repo.get_closed_trades.return_value = []
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
@@ -780,7 +780,7 @@ class TestProfitFactorEdgeAdjustment:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo.get_closed_trades.return_value = trades
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
@@ -821,7 +821,7 @@ class TestProfitFactorEdgeAdjustment:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo.get_closed_trades.return_value = trades
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
@@ -855,7 +855,7 @@ class TestProfitFactorEdgeAdjustment:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo.get_closed_trades.return_value = trades
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
@@ -893,7 +893,7 @@ class TestProfitFactorEdgeAdjustment:
                 "bot.agent.learner.TradeRepository"
             ) as mock_trade_repo_cls:
                 mock_trade_repo = AsyncMock()
-                mock_trade_repo.get_recent.return_value = trades
+                mock_trade_repo.get_closed_trades.return_value = trades
                 mock_trade_repo_cls.return_value = mock_trade_repo
 
                 with patch(
