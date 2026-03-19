@@ -1756,6 +1756,9 @@ class TradingEngine:
 
         research_agrees: bool | None = None
         twitter_sent = 0.0
+        tweet_cnt = 0
+        article_cnt = 0
+        sentiment_strength = 0.0
 
         if research is not None:
             res_conf = research.confidence
@@ -1767,6 +1770,9 @@ class TradingEngine:
             vol_anomaly = research.is_volume_anomaly
             base_rate = research.historical_base_rate
             twitter_sent = getattr(research, "twitter_sentiment", 0.0)
+            tweet_cnt = getattr(research, "tweet_count", 0)
+            article_cnt = len(research.news_items) if research.news_items else 0
+            sentiment_strength = abs(research.sentiment_score)
 
             # Derive research_agrees from signal metadata (set by direction check)
             if signal.metadata.get("research_agrees"):
@@ -1789,6 +1795,9 @@ class TradingEngine:
             historical_base_rate=base_rate,
             research_agrees=research_agrees,
             twitter_sentiment=twitter_sent,
+            tweet_count=tweet_cnt,
+            news_article_count=article_cnt,
+            research_sentiment_strength=sentiment_strength,
         )
 
     async def _maybe_notify_risk_limit(self, reason: str) -> None:

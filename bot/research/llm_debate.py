@@ -38,6 +38,9 @@ class DebateContext:
     historical_base_rate: float = 0.0
     research_agrees: bool | None = None  # True=agrees, False=disagrees, None=unknown
     twitter_sentiment: float = 0.0
+    tweet_count: int = 0
+    news_article_count: int = 0
+    research_sentiment_strength: float = 0.0  # abs(sentiment_score)
 
 
 def _sanitize_prompt_input(text: str, max_len: int = _MAX_PROMPT_INPUT_LEN) -> str:
@@ -1160,22 +1163,54 @@ def _format_context_block(ctx: DebateContext) -> str:
         )
         parts.append(f"Crypto prices: {prices}")
 
-    # Research alignment
+    # Research alignment — include signal count and strength for context
     if ctx.research_agrees is True:
+        strength_desc = (
+            "strong" if ctx.research_sentiment_strength >= 0.5
+            else "moderate" if ctx.research_sentiment_strength >= 0.25
+            else "weak"
+        )
+        signal_count = ctx.news_article_count + ctx.tweet_count
         parts.append(
-            "RESEARCH ALIGNMENT: ✅ Research AGREES with trade direction. "
+            f"RESEARCH ALIGNMENT: ✅ Research AGREES with trade direction "
+            f"({signal_count} signals, {strength_desc} sentiment "
+            f"{ctx.research_sentiment_strength:+.2f}). "
             "News sentiment supports this trade — higher conviction warranted."
         )
     elif ctx.research_agrees is False:
+        strength_desc = (
+            "strong" if ctx.research_sentiment_strength >= 0.5
+            else "moderate" if ctx.research_sentiment_strength >= 0.25
+            else "weak"
+        )
+        signal_count = ctx.news_article_count + ctx.tweet_count
         parts.append(
-            "RESEARCH ALIGNMENT: ⚠️ Research DISAGREES with trade direction. "
+            f"RESEARCH ALIGNMENT: ⚠️ Research DISAGREES with trade direction "
+            f"({signal_count} signals, {strength_desc} opposition "
+            f"{ctx.research_sentiment_strength:+.2f}). "
             "RED FLAG — news sentiment contradicts this trade. "
             "Require stronger evidence to proceed."
         )
     # Note: when research_agrees is None, we say nothing — no data is neutral, not negative
 
-    if ctx.twitter_sentiment != 0.0:
-        parts.append(f"Twitter/X sentiment: {ctx.twitter_sentiment:+.2f}")
+    # Twitter/X sentiment — separate block with confidence level
+    if ctx.tweet_count > 0:
+        direction = (
+            "bullish" if ctx.twitter_sentiment > 0.1
+            else "bearish" if ctx.twitter_sentiment < -0.1
+            else "mixed"
+        )
+        confidence = min(ctx.tweet_count / 5.0, 1.0)
+        weight_note = (
+            "real-time social signal — high weight"
+            if ctx.tweet_count >= 3
+            else "limited data — low weight"
+        )
+        parts.append(
+            f"TWITTER/X: {ctx.tweet_count} tweets ({direction}), "
+            f"sentiment {ctx.twitter_sentiment:+.2f}, "
+            f"confidence {confidence:.0%}. {weight_note}."
+        )
 
     # Signals
     if ctx.is_volume_anomaly:

@@ -205,12 +205,17 @@ class TestDebateContextResearchAlignment:
         assert "RESEARCH ALIGNMENT" not in block
 
     def test_twitter_sentiment_included(self):
-        ctx = DebateContext(twitter_sentiment=0.45)
+        ctx = DebateContext(twitter_sentiment=0.45, tweet_count=3)
         block = _format_context_block(ctx)
-        assert "Twitter/X sentiment" in block
+        assert "TWITTER/X" in block
         assert "+0.45" in block
 
-    def test_zero_twitter_sentiment_excluded(self):
-        ctx = DebateContext(twitter_sentiment=0.0)
+    def test_zero_tweet_count_excluded(self):
+        ctx = DebateContext(twitter_sentiment=0.45, tweet_count=0)
         block = _format_context_block(ctx)
-        assert "Twitter/X sentiment" not in block
+        assert "TWITTER/X" not in block
+
+    def test_zero_twitter_sentiment_excluded(self):
+        ctx = DebateContext(twitter_sentiment=0.0, tweet_count=0)
+        block = _format_context_block(ctx)
+        assert "TWITTER/X" not in block

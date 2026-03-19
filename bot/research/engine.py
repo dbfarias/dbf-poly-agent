@@ -124,7 +124,8 @@ class ResearchEngine:
             self.research_cache.record_scan(0)
             return
 
-        # Build twitter-eligible set: top 50 by volume + near-resolution (<48h)
+        # Build twitter-eligible set: top 100 by volume + near-resolution (<48h)
+        # + high-volume markets up to 7 days out
         # Priority markets always get twitter regardless
         sorted_by_volume = sorted(
             scan_markets,
@@ -132,9 +133,10 @@ class ResearchEngine:
             reverse=True,
         )
         twitter_eligible_ids = set(priority_ids)
-        for m in sorted_by_volume[:50]:
+        for m in sorted_by_volume[:100]:
             twitter_eligible_ids.add(m.id)
         # Near-resolution markets always get twitter
+        # High-volume markets up to 7 days out also get twitter
         now_utc = datetime.now(timezone.utc)
         for m in scan_markets:
             end = getattr(m, "end_date", None)
@@ -142,7 +144,12 @@ class ResearchEngine:
                 if end.tzinfo is None:
                     end = end.replace(tzinfo=timezone.utc)
                 hours_left = (end - now_utc).total_seconds() / 3600
+                volume = getattr(m, "volume", 0) or 0
                 if 0 < hours_left <= 48:
+                    # All near-resolution markets
+                    twitter_eligible_ids.add(m.id)
+                elif 48 < hours_left <= 168 and volume >= 5000:
+                    # High-volume markets up to 7 days out
                     twitter_eligible_ids.add(m.id)
         self._twitter_eligible_ids = twitter_eligible_ids
 
