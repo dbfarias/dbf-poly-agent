@@ -390,10 +390,24 @@ class TradingEngine:
             from bot.data.settings_store import StateStore
 
             equity, date = await StateStore.load_day_start_equity()
-            if equity > 0:
+            current_equity = self.portfolio.total_equity
+            # Sanity check: stored value must be positive and plausible
+            # (within 50% of current equity to catch corrupted values)
+            is_plausible = (
+                equity > 0
+                and current_equity > 0
+                and abs(equity - current_equity) / current_equity <= 0.5
+            )
+            if is_plausible:
                 self.portfolio.restore_day_start_equity(equity, date)
             else:
-                # First run or no persisted value — save current equity
+                # Corrupted or first run — use current equity as start
+                logger.warning(
+                    "day_start_equity_reset",
+                    stored=equity,
+                    current=current_equity,
+                    reason="implausible value" if equity != 0 else "first run",
+                )
                 await StateStore.save_day_start_equity(
                     self.portfolio.day_start_equity, trading_day(),
                 )
