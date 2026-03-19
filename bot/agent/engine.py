@@ -445,20 +445,10 @@ class TradingEngine:
         except Exception as e:
             logger.error("restore_cooldowns_failed", error=str(e))
 
-        # Auto-reset daily state on every startup (deploy or crash recovery).
-        # Equity and positions are preserved; only intraday tracking counters
-        # reset so VaR / daily-loss-limit start clean.
-        try:
-            from bot.data.settings_store import StateStore
-
-            current_equity = self.portfolio.total_equity
-            self.risk_manager.reset_daily_state(current_equity)
-            self.portfolio.reset_daily_state(current_equity)
-            await StateStore.save_day_start_equity(current_equity, trading_day())
-            await StateStore.save_daily_pnl(0.0, trading_day())
-            logger.info("daily_state_auto_reset_on_startup", equity=current_equity)
-        except Exception as e:
-            logger.error("daily_state_auto_reset_failed", error=str(e))
+        # NOTE: daily state auto-reset happens in _trading_cycle on cycle 1,
+        # AFTER portfolio.sync() has fetched the real Polymarket balance.
+        # We cannot reset here because initial_bankroll may be stale if the
+        # first get_balance() call hasn't run yet.
 
     async def _analyze_positions_for_alerts(self) -> None:
         """Run LLM analysis on open positions and send EXIT push alerts.
@@ -855,6 +845,22 @@ class TradingEngine:
         await self.portfolio.sync()
         self.risk_manager.update_peak_equity(self.portfolio.total_equity)
         self.risk_manager.set_day_start_equity(self.portfolio.day_start_equity)
+
+        # 1c. Auto-reset daily state on first cycle (deploy or crash recovery).
+        # Runs here — after sync — so portfolio.total_equity reflects the real
+        # Polymarket balance, not the stale settings.initial_bankroll default.
+        if self._cycle_count == 1:
+            try:
+                from bot.data.settings_store import StateStore
+
+                current_equity = self.portfolio.total_equity
+                self.risk_manager.reset_daily_state(current_equity)
+                self.portfolio.reset_daily_state(current_equity)
+                await StateStore.save_day_start_equity(current_equity, trading_day())
+                await StateStore.save_daily_pnl(0.0, trading_day())
+                logger.info("daily_state_auto_reset_on_startup", equity=current_equity)
+            except Exception as e:
+                logger.error("daily_state_auto_reset_failed", error=str(e))
 
         # 1b. Subscribe open position tokens to WebSocket for real-time data
         for pos in self.portfolio.positions:
