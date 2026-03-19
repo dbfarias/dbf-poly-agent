@@ -89,23 +89,18 @@ def _apply_urgency_to_edge_multiplier(
 ) -> float:
     """Combine learner edge_multiplier with daily urgency.
 
-    Key insight: urgency should NEVER cancel a learner penalty.
-    - urgency > 1.0 (behind target): only relax if strategy is winning (multiplier <= 1.0).
-      If strategy has a penalty (>1.0), keep the penalty — don't reward bad strategies.
-    - urgency < 1.0 (ahead of target): always tighten (divide by urgency raises the bar).
+    Risk-asymmetric logic:
+    - urgency > 1.0 (behind target / losing day): NO adjustment.
+      Relaxing edge requirements when already losing compounds losses.
+      Let the learner penalty (if any) stand; do not add incentive to trade more.
+    - urgency < 1.0 (ahead of target): tighten — protect gains, require better edge.
     - urgency = 1.0: no change.
 
     Returns clamped to [0.5, 2.0].
     """
-    if urgency == 1.0:
+    if urgency >= 1.0:
+        # Behind or on-pace: never relax, preserve current multiplier
         result = edge_multiplier
-    elif urgency > 1.0:
-        # Behind target — relax ONLY for winning/neutral strategies
-        if edge_multiplier <= 1.0:
-            result = edge_multiplier / urgency
-        else:
-            # Losing strategy: keep penalty, don't reduce it
-            result = edge_multiplier
     else:
         # Ahead of target — tighten all strategies
         result = edge_multiplier / urgency

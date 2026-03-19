@@ -193,8 +193,8 @@ class TestGetCategoryConfidence:
         learner._stats[("time_decay", "politics")] = StrategyStats(
             strategy="time_decay",
             category="politics",
-            total_trades=15,
-            winning_trades=12,  # 80%
+            total_trades=20,
+            winning_trades=16,  # 80%
             total_pnl=2.0,
             avg_edge=0.03,
             avg_estimated_prob=0.92,
@@ -761,10 +761,10 @@ class TestProfitFactorEdgeAdjustment:
         """Strategy with PF < 0.8 should get 40% tighter edge."""
         learner = PerformanceLearner()
 
-        # 10 trades: 3 small wins, 7 big losses → PF < 0.8
+        # 20 trades: 6 small wins, 14 big losses → PF < 0.8
         trades = []
-        for i in range(10):
-            pnl = 0.05 if i < 3 else -0.30  # PF = 0.15 / 2.10 ≈ 0.07
+        for i in range(20):
+            pnl = 0.05 if i < 6 else -0.30  # PF = 0.30 / 4.20 ≈ 0.07
             trades.append(make_trade(
                 strategy="time_decay", category="politics", pnl=pnl,
             ))
@@ -799,13 +799,13 @@ class TestProfitFactorEdgeAdjustment:
                     assert mult >= 1.5
 
     async def test_excellent_pf_relaxes_edge(self):
-        """Strategy with PF > 2.0 and 10+ trades should get 10% relaxed edge."""
+        """Strategy with PF > 2.0 and 20+ trades should get 10% relaxed edge."""
         learner = PerformanceLearner()
 
-        # 15 trades: 12 big wins, 3 small losses → PF > 2.0
+        # 20 trades: 16 big wins, 4 small losses → PF > 2.0
         trades = []
-        for i in range(15):
-            pnl = 0.40 if i < 12 else -0.20  # PF = 4.80 / 0.60 = 8.0
+        for i in range(20):
+            pnl = 0.40 if i < 16 else -0.20  # PF = 6.40 / 0.80 = 8.0
             trades.append(make_trade(
                 strategy="time_decay", category="politics", pnl=pnl,
             ))

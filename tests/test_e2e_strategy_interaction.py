@@ -695,11 +695,11 @@ class TestCalibrationUrgencyComposition:
         # Penalty should be preserved (not reduced by urgency)
         assert result == 1.5
 
-    def test_urgency_relaxes_winning_strategy(self):
-        """High urgency should relax edge for winning strategies."""
+    def test_urgency_behind_target_no_change(self):
+        """High urgency (behind target) should NOT relax edge — preserve risk discipline."""
         result = _apply_urgency_to_edge_multiplier(0.8, urgency=1.5)
-        # Should be relaxed (lower value)
-        assert result < 0.8
+        # No relaxation when behind target
+        assert result == 0.8
 
     def test_urgency_tightens_when_ahead(self):
         """Low urgency (ahead of target) should tighten all strategies."""

@@ -685,11 +685,10 @@ class TestLearnerDebateUrgencyComposition:
         edge_mult = max(0.5, min(2.0, edge_mult))
         assert abs(edge_mult - 1.2) < 0.01
 
-    def test_winning_strategy_urgency_relaxes(self):
-        """learner=0.8 (winning), urgency=1.5 → 0.8/1.5 ≈ 0.533."""
+    def test_behind_target_urgency_no_change(self):
+        """urgency=1.5 (behind target) → no relaxation, edge_mult unchanged."""
         result = _apply_urgency_to_edge_multiplier(0.8, 1.5)
-        expected = 0.8 / 1.5  # ~0.533
-        assert abs(result - expected) < 0.01
+        assert result == 0.8  # Never relax edge when behind target
 
     def test_category_min_edge_overrides_base(self):
         """category_min_edge=0.03, base=0.01 → required_mult=3.0, clamped to 2.0."""

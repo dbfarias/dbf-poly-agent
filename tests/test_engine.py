@@ -610,15 +610,15 @@ class TestApplyUrgencyToEdgeMultiplier:
         result = self._call(1.5, 1.5)
         assert result >= 1.5, "Penalty should not be reduced"
 
-    def test_behind_winning_relaxes(self):
-        """Behind target + winning strategy: relax the edge requirement."""
+    def test_behind_winning_no_change(self):
+        """Behind target + winning strategy: no relaxation — risk discipline preserved."""
         result = self._call(0.8, 1.5)
-        assert result < 0.8, "Winning strategy should relax when behind"
+        assert result == 0.8, "Winning strategy must not relax when behind target"
 
-    def test_behind_neutral_relaxes(self):
-        """Behind target + neutral strategy: relax edge requirement."""
+    def test_behind_neutral_no_change(self):
+        """Behind target + neutral strategy: no change — never relax when losing."""
         result = self._call(1.0, 1.3)
-        assert result < 1.0
+        assert result == 1.0
 
     def test_ahead_tightens(self):
         """Ahead of target: always tighten (raise bar)."""

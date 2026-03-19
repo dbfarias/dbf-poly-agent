@@ -133,7 +133,7 @@ class TestLearnerPostMortemFeedback:
         learner = PerformanceLearner()
         learner.set_daily_context(0.0, 100.0, 0.01)
 
-        trades = make_trades(12, 8, "value_betting", "politics")
+        trades = make_trades(20, 13, "value_betting", "politics")
 
         pm_stats = {
             "value_betting": {
@@ -179,7 +179,7 @@ class TestLearnerPostMortemFeedback:
         learner = PerformanceLearner()
         learner.set_daily_context(0.0, 100.0, 0.01)
 
-        trades = make_trades(12, 8, "value_betting", "politics")
+        trades = make_trades(20, 13, "value_betting", "politics")
 
         pm_stats = {
             "value_betting": {
@@ -224,7 +224,7 @@ class TestLearnerPostMortemFeedback:
         learner = PerformanceLearner()
         learner.set_daily_context(0.0, 100.0, 0.01)
 
-        trades = make_trades(12, 8, "value_betting", "politics")
+        trades = make_trades(20, 13, "value_betting", "politics")
 
         pm_stats = {
             "value_betting": {

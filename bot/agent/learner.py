@@ -21,7 +21,7 @@ from bot.utils.risk_metrics import profit_factor as compute_profit_factor
 logger = structlog.get_logger()
 
 # Minimum trades before adjustments kick in
-MIN_TRADES_FOR_ADJUSTMENT = 10
+MIN_TRADES_FOR_ADJUSTMENT = 20
 
 # Multiplier clamps — never removes all guards or makes them impossibly strict
 MULTIPLIER_MIN = 0.5
