@@ -355,10 +355,7 @@ class MarketAnalyzer:
         exited_ids: set[str] = set()
         now = datetime.now(timezone.utc)
         for position in positions:
-            # Crypto 5-min positions auto-resolve at $0 or $1 — never sell early.
-            # Selling on CLOB loses to spread; just wait for on-chain resolution.
-            if position.strategy == "crypto_short_term":
-                continue
+            # Crypto positions now have swing exit + take profit — check them.
             # 1. Strategy-specific exit check
             strategy_matched = False
             for strategy in self.strategies:
