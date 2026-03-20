@@ -16,7 +16,7 @@ _TIMEOUT = 15.0
 _MAX_TOKENS = 300
 _MAX_PROMPT_INPUT_LEN = 200
 _MIN_CONVICTION_FOR_ANALYST = 0.4
-_CACHE_TTL_APPROVED = 3600.0 * 3   # 3h for approved trades (no need to re-debate)
+_CACHE_TTL_APPROVED = 3600.0 * 6   # 6h for approved trades (no need to re-debate)
 _CACHE_TTL_REJECTED = 1800.0       # 30min for rejections (allow re-try sooner)
 
 
@@ -382,12 +382,12 @@ def _debate_cache_key(
 ) -> str:
     """Build a cache key from question + strategy + bucketed price/edge.
 
-    Price is bucketed to 2 decimal places and edge to 1% increments.
+    Price is bucketed to 5¢ increments and edge to 5% increments.
     This means a meaningful price or edge change will trigger a fresh debate,
     while minor fluctuations reuse the cache.
     """
-    price_bucket = round(price, 2)
-    edge_bucket = round(edge, 2)  # 1% granularity
+    price_bucket = round(price * 20) / 20  # 5¢ buckets
+    edge_bucket = round(edge * 20) / 20    # 5% granularity
     return f"{question.strip().lower()}|{strategy}|{price_bucket}|{edge_bucket}"
 
 

@@ -289,8 +289,8 @@ class TestRedditFetcher:
         from bot.research.reddit_fetcher import RedditFetcher
 
         fetcher = RedditFetcher()
-        # Simulate 3 failures
-        for _ in range(3):
+        # Simulate 5 failures (matches _MAX_FAILURES=5)
+        for _ in range(5):
             fetcher._record_failure()
 
         assert fetcher._is_circuit_open()

@@ -966,8 +966,16 @@ class TradingEngine:
                     "learner_paused_strategies",
                     strategies=list(self._learner_adjustments.paused_strategies),
                 )
-            # Notify on newly paused strategies
-            for s_name, s_wr, s_pnl in self.learner.consume_newly_paused():
+            # Notify on newly paused strategies + force recompute
+            newly_paused_list = list(self.learner.consume_newly_paused())
+            if newly_paused_list:
+                self.learner.force_next_recompute()
+                logger.info(
+                    "learner_emergency_recompute_scheduled",
+                    trigger="strategy_paused",
+                    strategies=[s[0] for s in newly_paused_list],
+                )
+            for s_name, s_wr, s_pnl in newly_paused_list:
                 await log_strategy_paused(s_name, s_wr, s_pnl)
                 await notify_strategy_paused(
                     s_name, f"Win rate {s_wr:.0%}, PnL ${s_pnl:+.2f}"
@@ -1532,6 +1540,11 @@ class TradingEngine:
                 signal.metadata["research_sentiment"] = research.sentiment_score
                 signal.metadata["research_multiplier"] = r_mult
 
+                # Volume anomaly boost: spike = market attention
+                if research.is_volume_anomaly:
+                    edge_multiplier *= 0.85  # 15% more permissive
+                    signal.metadata["volume_anomaly_boost"] = True
+
                 # Twitter sentiment metadata
                 twitter_sent = getattr(research, "twitter_sentiment", 0.0)
                 tw_count = getattr(research, "tweet_count", 0)
@@ -1557,26 +1570,34 @@ class TradingEngine:
                             buying_yes=buying_yes,
                         )
                     elif sentiment_agrees and research.confidence >= 0.5:
-                        edge_multiplier *= 1.2  # Boost when research confirms
+                        # Stronger boost for high-confidence agreement
+                        boost = 1.35 if (
+                            abs(research.sentiment_score) > 0.3
+                            and research.confidence >= 0.5
+                        ) else 1.2
+                        edge_multiplier *= boost
                         signal.metadata["research_agrees"] = True
                         logger.info(
                             "research_agrees",
                             market_id=signal.market_id[:20],
                             sentiment=round(research.sentiment_score, 2),
                             buying_yes=buying_yes,
+                            boost=boost,
                         )
 
-                # Wire historical base rate into confidence scoring
+                # Wire historical base rate into confidence + edge
                 br_raw = getattr(research, "historical_base_rate", 0.0)
                 if isinstance(br_raw, (int, float)) and br_raw > 0:
-                    # If pattern analyzer found similar past trades,
-                    # blend the base rate with signal confidence.
-                    # High base rate (>60%) → boost confidence up to +10%
-                    # Low base rate (<40%) → penalize confidence up to -10%
-                    br_adjustment = (br_raw - 0.5) * 0.2  # maps [0,1] → [-0.1, +0.1]
+                    # Confidence adjustment (±20%, doubled from ±10%)
+                    br_adjustment = (br_raw - 0.5) * 0.4
                     signal.confidence = max(
-                        0.3, min(0.95, signal.confidence + br_adjustment),
+                        0.25, min(0.98, signal.confidence + br_adjustment),
                     )
+                    # Edge adjustment: trust proven patterns
+                    if br_raw > 0.65:
+                        edge_multiplier *= 0.85  # More permissive
+                    elif br_raw < 0.35:
+                        edge_multiplier *= 1.25  # More cautious
                     signal.metadata["historical_base_rate"] = br_raw
 
             # Calibrate estimated probability using historical accuracy

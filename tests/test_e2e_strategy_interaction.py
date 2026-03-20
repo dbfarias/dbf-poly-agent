@@ -775,6 +775,8 @@ class TestEdgeMultiplierComposition:
         research_mock.confidence = 0.2  # Below 0.3 threshold — direction check skipped
         research_mock.twitter_sentiment = 0.0
         research_mock.tweet_count = 0
+        research_mock.is_volume_anomaly = False  # No volume anomaly boost
+        research_mock.historical_base_rate = 0.0  # No base rate adjustment
         engine.research_cache.get = MagicMock(return_value=research_mock)
 
         eval_calls: list[dict] = []

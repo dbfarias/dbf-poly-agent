@@ -158,6 +158,14 @@ class PerformanceLearner:
         self._daily_equity = equity
         self._daily_target_pct = target_pct
 
+    def force_next_recompute(self) -> None:
+        """Force the next compute_stats() call to bypass the interval check.
+
+        Use when a major regime change occurs (strategy paused, etc.)
+        and waiting 5min for recomputation is too slow.
+        """
+        self._last_computed = None
+
     async def compute_stats(self) -> LearnerAdjustments:
         """Compute per-strategy, per-category performance stats.
 
@@ -725,11 +733,13 @@ class PerformanceLearner:
     def _compute_category_min_edges(
         self, stats: dict[tuple[str, str], StrategyStats]
     ) -> dict[str, float]:
-        """Compute dynamic min edge per category based on historical win rate.
+        """Compute dynamic min edge per category based on win rate + PnL.
 
         Categories with strong performance get a lower min_edge (more trades),
         while poorly performing categories get a higher min_edge (fewer trades).
         Only categories with 10+ resolved trades are included.
+        Profitable categories (positive PnL) with high win rate get extra
+        permissive treatment.
         """
         by_category: dict[str, list[StrategyStats]] = {}
         for (_, category), s in stats.items():
@@ -743,9 +753,15 @@ class PerformanceLearner:
 
             wins = sum(s.winning_trades for s in cat_stats)
             win_rate = wins / total
+            cat_pnl = sum(s.total_pnl for s in cat_stats)
+            profitable = cat_pnl > 0
 
-            if win_rate > 0.6:
-                result[category] = 0.015  # Good category → lower edge bar
+            if win_rate > 0.65 and profitable:
+                result[category] = 0.010  # Very good + profitable → very permissive
+            elif win_rate > 0.55 and profitable:
+                result[category] = 0.015  # Good + profitable → permissive
+            elif win_rate > 0.5:
+                result[category] = 0.020  # Decent → slight relax
             elif win_rate >= 0.4:
                 result[category] = 0.025  # Average → default edge
             else:

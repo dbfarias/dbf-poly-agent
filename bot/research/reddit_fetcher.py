@@ -23,8 +23,25 @@ _SUBREDDIT_MAP: dict[str, list[str]] = {
 _USER_AGENT = "polybot-research/1.0"
 _TIMEOUT = 10.0
 _REQUEST_DELAY = 1.0  # Reddit allows ~10 req/min unauthenticated
-_MAX_FAILURES = 3  # Circuit breaker threshold
-_CIRCUIT_BREAK_SECONDS = 300  # 5 min cooldown after failures
+_MAX_FAILURES = 5  # Circuit breaker threshold (raised from 3)
+_CIRCUIT_BREAK_SECONDS = 180  # 3 min cooldown (lowered from 5 min)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return True if this error should count toward circuit breaker.
+
+    Only transient/server errors count. Client errors (4xx except 429)
+    are permanent and should not trigger circuit breaker.
+    """
+    if isinstance(exc, (asyncio.TimeoutError, OSError, ConnectionError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or code >= 500
+    # JSON parse errors, unexpected format — not retryable
+    if isinstance(exc, (ValueError, KeyError, TypeError)):
+        return False
+    return True  # Unknown errors: assume transient
 
 
 class RedditFetcher:
@@ -59,6 +76,10 @@ class RedditFetcher:
 
         Returns list of NewsItem (compatible with Google News items).
         """
+        # Validate keywords before searching
+        if not keywords:
+            return []
+
         # Circuit breaker check
         if self._is_circuit_open():
             return []
@@ -66,18 +87,26 @@ class RedditFetcher:
         subreddits = _SUBREDDIT_MAP.get(category, _SUBREDDIT_MAP["other"])
         query = " ".join(keywords[:3])  # Reddit search works best with fewer terms
 
+        if not query.strip():
+            return []
+
         all_posts: list[NewsItem] = []
         for sub in subreddits[:2]:  # Limit to 2 subreddits per call
             try:
                 posts = await self._search_subreddit(sub, query, max_results)
                 all_posts.extend(posts)
             except Exception as e:
-                logger.debug(
+                retryable = _is_retryable(e)
+                logger.warning(
                     "reddit_search_failed",
                     subreddit=sub,
                     error=str(e),
+                    error_type=type(e).__name__,
+                    retryable=retryable,
+                    failure_count=self._failure_count + (1 if retryable else 0),
                 )
-                self._record_failure()
+                if retryable:
+                    self._record_failure()
                 if self._is_circuit_open():
                     break
 
@@ -115,7 +144,17 @@ class RedditFetcher:
         response = await client.get(url, params=params)
         response.raise_for_status()
 
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as e:
+            logger.warning(
+                "reddit_json_parse_failed",
+                subreddit=subreddit,
+                status=response.status_code,
+                error=str(e),
+            )
+            raise
+
         self._failure_count = 0  # Reset on success
 
         posts: list[NewsItem] = []

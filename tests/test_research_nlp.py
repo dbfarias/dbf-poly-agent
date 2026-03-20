@@ -102,12 +102,12 @@ class TestComputeResearchMultiplier:
     def test_positive_sentiment_lowers_multiplier(self):
         mult = compute_research_multiplier(sentiment=0.7, article_count=10)
         assert mult < 1.0
-        assert mult >= 0.7
+        assert mult >= 0.5  # High-confidence amplified range
 
     def test_negative_sentiment_raises_multiplier(self):
         mult = compute_research_multiplier(sentiment=-0.7, article_count=10)
         assert mult > 1.0
-        assert mult <= 1.3
+        assert mult <= 1.5  # High-confidence amplified range
 
     def test_neutral_returns_one(self):
         # Within ±0.15 neutral zone
@@ -138,7 +138,7 @@ class TestComputeResearchMultiplier:
         assert mult_5 < mult_1  # More articles = stronger effect
 
     def test_bounds(self):
-        # Max positive: should not go below 0.7
-        assert compute_research_multiplier(sentiment=1.0, article_count=100) >= 0.7
-        # Max negative: should not go above 1.3
-        assert compute_research_multiplier(sentiment=-1.0, article_count=100) <= 1.3
+        # Max positive: should not go below 0.5 (high-confidence amplified)
+        assert compute_research_multiplier(sentiment=1.0, article_count=100) >= 0.5
+        # Max negative: should not go above 1.5 (high-confidence amplified)
+        assert compute_research_multiplier(sentiment=-1.0, article_count=100) <= 1.5

@@ -33,13 +33,15 @@ def get_headline_sentiment(headline: str) -> float:
 
 
 def compute_research_multiplier(sentiment: float, article_count: int) -> float:
-    """Convert sentiment score to trading multiplier [0.7, 1.3].
+    """Convert sentiment score to trading multiplier [0.5, 1.5].
 
     Logic:
     - Positive sentiment (>0.15) -> multiplier < 1.0 (market likely priced in, lower edge bar)
     - Negative sentiment (<-0.15) -> multiplier > 1.0 (raise edge bar, be cautious)
     - Neutral / no articles -> 1.0 (no effect)
     - Min 1 article for any effect (Polymarket questions rarely get 3+ hits)
+
+    High-confidence signals (5+ articles, strong sentiment) get amplified range.
 
     The multiplier adjusts the edge requirement:
     - multiplier < 1.0 = more permissive (lower effective min_edge)
@@ -56,16 +58,20 @@ def compute_research_multiplier(sentiment: float, article_count: int) -> float:
     # Scale confidence by article count (max at 5+ articles)
     confidence = min(article_count / 5.0, 1.0)
 
+    # High-confidence amplified range: 5+ articles + strong sentiment
+    high_confidence = article_count >= 5 and abs(sentiment) > 0.5
+    max_effect = 0.5 if high_confidence else 0.3
+    floor = 0.5 if high_confidence else 0.7
+    ceil = 1.5 if high_confidence else 1.3
+
     if sentiment > 0.15:
         # Positive news: lower the edge bar (multiplier < 1.0)
-        # Max effect: 0.7 at sentiment=1.0 with 5+ articles
         effect = (sentiment - 0.15) / 0.85  # 0 to 1
-        return max(0.7, 1.0 - (0.3 * effect * confidence))
+        return max(floor, 1.0 - (max_effect * effect * confidence))
 
     # Negative news: raise the edge bar (multiplier > 1.0)
-    # Max effect: 1.3 at sentiment=-1.0 with 5+ articles
     effect = (-sentiment - 0.15) / 0.85  # 0 to 1
-    return min(1.3, 1.0 + (0.3 * effect * confidence))
+    return min(ceil, 1.0 + (max_effect * effect * confidence))
 
 
 def compute_enhanced_multiplier(
