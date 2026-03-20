@@ -190,6 +190,65 @@ class TestSendToAll:
             # Should save empty list after removing expired
             mock_save.assert_called_once_with([])
 
+    @pytest.mark.asyncio
+    async def test_vapid_claims_include_aud_derived_from_endpoint(self):
+        """Each webpush() call must include an `aud` claim derived from the
+        subscription endpoint origin (RFC 8292 requirement).
+
+        Without `aud`, push services return 403 "aud claim MUST include origin".
+        """
+        subs = [
+            {"endpoint": "https://fcm.googleapis.com/fcm/send/abc123", "keys": {"p256dh": "k1", "auth": "a1"}},
+        ]
+        captured_claims: list[dict] = []
+
+        def fake_webpush(subscription_info, data, vapid_private_key, vapid_claims):
+            captured_claims.append(dict(vapid_claims))
+
+        with (
+            patch("bot.utils.push_notifications._has_vapid", return_value=True),
+            patch("bot.utils.push_notifications._get_subscriptions", new_callable=AsyncMock, return_value=subs),
+            patch("bot.utils.push_notifications.settings") as mock_settings,
+            patch.dict("sys.modules", {"pywebpush": MagicMock(webpush=fake_webpush, WebPushException=Exception)}),
+        ):
+            mock_settings.vapid_private_key = "private_key"
+            mock_settings.vapid_email = "bot@example.com"
+            result = await _send_to_all({"title": "test"})
+
+        assert result == 1
+        assert len(captured_claims) == 1
+        claims = captured_claims[0]
+        assert "aud" in claims
+        assert claims["aud"] == "https://fcm.googleapis.com"
+        assert claims["sub"] == "mailto:bot@example.com"
+
+    @pytest.mark.asyncio
+    async def test_vapid_aud_differs_per_subscription_origin(self):
+        """When subscriptions have different push service origins, each call
+        must send the correct `aud` for its specific endpoint."""
+        subs = [
+            {"endpoint": "https://fcm.googleapis.com/fcm/send/sub1", "keys": {"p256dh": "k1", "auth": "a1"}},
+            {"endpoint": "https://updates.push.services.mozilla.com/push/sub2", "keys": {"p256dh": "k2", "auth": "a2"}},
+        ]
+        captured_claims: list[dict] = []
+
+        def fake_webpush(subscription_info, data, vapid_private_key, vapid_claims):
+            captured_claims.append(dict(vapid_claims))
+
+        with (
+            patch("bot.utils.push_notifications._has_vapid", return_value=True),
+            patch("bot.utils.push_notifications._get_subscriptions", new_callable=AsyncMock, return_value=subs),
+            patch("bot.utils.push_notifications.settings") as mock_settings,
+            patch.dict("sys.modules", {"pywebpush": MagicMock(webpush=fake_webpush, WebPushException=Exception)}),
+        ):
+            mock_settings.vapid_private_key = "private_key"
+            mock_settings.vapid_email = "bot@example.com"
+            result = await _send_to_all({"title": "test"})
+
+        assert result == 2
+        assert captured_claims[0]["aud"] == "https://fcm.googleapis.com"
+        assert captured_claims[1]["aud"] == "https://updates.push.services.mozilla.com"
+
 
 class TestNotificationPayloads:
     @pytest.mark.asyncio

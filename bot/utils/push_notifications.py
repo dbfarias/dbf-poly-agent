@@ -2,6 +2,7 @@
 
 import json
 import re
+from urllib.parse import urlparse
 
 import structlog
 
@@ -96,14 +97,21 @@ async def _send_to_all(payload: dict) -> int:
         logger.warning("pywebpush_not_installed")
         return 0
 
-    vapid_claims = {
-        "sub": f"mailto:{settings.vapid_email}",
-    }
     data = json.dumps(payload)
     sent = 0
     expired_endpoints: list[str] = []
 
     for sub in subs:
+        # Build per-subscription vapid_claims: the `aud` claim must be set to
+        # the origin of the push endpoint URL (RFC 8292 requirement).
+        # Without it, push services return 403 "aud claim MUST include origin".
+        endpoint = sub.get("endpoint", "")
+        parsed = urlparse(endpoint)
+        aud = f"{parsed.scheme}://{parsed.netloc}"
+        vapid_claims = {
+            "sub": f"mailto:{settings.vapid_email}",
+            "aud": aud,
+        }
         try:
             webpush(
                 subscription_info=sub,

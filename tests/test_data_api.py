@@ -299,3 +299,114 @@ async def test_get_positions_parse_error_skips_bad_item(mock_settings):
     # First item OK, second has bad "size" so skipped
     assert len(result) == 1
     assert result[0].market_id == "cond-ok"
+
+
+# ------------------------------------------------------------------
+# No-outcome price inversion (bug fix)
+# ------------------------------------------------------------------
+
+@patch("bot.polymarket.data_api.settings")
+async def test_get_positions_no_outcome_inverts_cur_price(mock_settings):
+    """For No outcome positions, current_price must be 1 - curPrice.
+
+    The Polymarket Data API `curPrice` field is always the YES-token price
+    regardless of which outcome is held.  A No position with curPrice=0.21
+    (YES price ~21¢) should have current_price=0.79 (No token ~79¢).
+    """
+    mock_settings.is_paper = False
+    mock_settings.poly_private_key = None
+
+    api_data = [
+        {
+            "conditionId": "cond-no",
+            "asset": "token-no",
+            "outcome": "No",
+            "title": "US forces enter Iran by March 31?",
+            "size": "5.0",
+            "avgPrice": "0.27",
+            "curPrice": "0.205",   # YES price reported by API
+            "cashPnl": "-0.33",
+        },
+    ]
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=_make_response(json_data=api_data))
+
+    client = DataApiClient()
+    client._client = mock_http
+
+    result = await client.get_positions.__wrapped__(client, address="0xWALLET")
+
+    assert len(result) == 1
+    pos = result[0]
+    assert pos.outcome == "No"
+    # current_price should be the No token price: 1 - 0.205 = 0.795
+    assert pos.current_price == pytest.approx(0.795)
+    # avg_price unchanged (avgPrice field is the actual cost basis)
+    assert pos.avg_price == pytest.approx(0.27)
+
+
+@patch("bot.polymarket.data_api.settings")
+async def test_get_positions_yes_outcome_price_unchanged(mock_settings):
+    """For Yes outcome positions, current_price equals curPrice directly."""
+    mock_settings.is_paper = False
+    mock_settings.poly_private_key = None
+
+    api_data = [
+        {
+            "conditionId": "cond-yes",
+            "asset": "token-yes",
+            "outcome": "Yes",
+            "title": "Will BTC hit 100k?",
+            "size": "10.0",
+            "avgPrice": "0.70",
+            "curPrice": "0.85",
+            "cashPnl": "1.50",
+        },
+    ]
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=_make_response(json_data=api_data))
+
+    client = DataApiClient()
+    client._client = mock_http
+
+    result = await client.get_positions.__wrapped__(client, address="0xWALLET")
+
+    assert len(result) == 1
+    pos = result[0]
+    assert pos.outcome == "Yes"
+    # Yes outcome: current_price == curPrice
+    assert pos.current_price == pytest.approx(0.85)
+
+
+@patch("bot.polymarket.data_api.settings")
+async def test_get_positions_no_outcome_case_insensitive(mock_settings):
+    """No-outcome inversion applies regardless of outcome string casing."""
+    mock_settings.is_paper = False
+    mock_settings.poly_private_key = None
+
+    api_data = [
+        {
+            "conditionId": "cond-no-lower",
+            "asset": "token-no-lower",
+            "outcome": "no",          # lowercase
+            "title": "Some market",
+            "size": "3.0",
+            "avgPrice": "0.40",
+            "curPrice": "0.30",
+            "cashPnl": "0.0",
+        },
+    ]
+
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=_make_response(json_data=api_data))
+
+    client = DataApiClient()
+    client._client = mock_http
+
+    result = await client.get_positions.__wrapped__(client, address="0xWALLET")
+
+    assert len(result) == 1
+    # 1 - 0.30 = 0.70
+    assert result[0].current_price == pytest.approx(0.70)

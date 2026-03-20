@@ -45,15 +45,24 @@ class DataApiClient:
         positions = []
         for p in data:
             try:
+                outcome = p.get("outcome", "")
+                # The Polymarket Data API's `curPrice` field is always the YES-token
+                # price, regardless of which outcome token is held.  For No positions
+                # we must invert it to obtain the actual No-token market price.
+                yes_price = float(p.get("curPrice", 0))
+                if outcome.lower() == "no":
+                    token_price = 1.0 - yes_price
+                else:
+                    token_price = yes_price
                 positions.append(
                     PositionInfo(
                         market_id=p.get("conditionId", ""),
                         token_id=p.get("asset", ""),
-                        outcome=p.get("outcome", ""),
+                        outcome=outcome,
                         question=p.get("title", ""),
                         size=float(p.get("size", 0)),
                         avg_price=float(p.get("avgPrice") or p.get("curPrice", 0)),
-                        current_price=float(p.get("curPrice", 0)),
+                        current_price=token_price,
                         unrealized_pnl=float(p.get("cashPnl", 0)),
                     )
                 )
