@@ -604,6 +604,10 @@ class TradingEngine:
                         cached_total=len(crypto_markets),
                     )
 
+                # Check exits for open crypto positions every 10s
+                # (main loop runs every 60s — too slow for 5-min markets)
+                await self._check_crypto_exits(crypto_strategy)
+
                 if not crypto_markets:
                     await asyncio.sleep(10)
                     continue
@@ -634,6 +638,57 @@ class TradingEngine:
                 logger.error("crypto_fast_loop_error", error=str(e))
 
             await asyncio.sleep(10)
+
+    async def _check_crypto_exits(self, strategy) -> None:
+        """Check exits for open crypto_short_term positions every 10s.
+
+        The main exit loop runs every 60s which is too slow for 5-min markets.
+        This runs in the fast loop (10s) to catch take-profit, swing exit,
+        and stop-loss before the market resolves.
+        """
+        crypto_positions = [
+            p for p in self.portfolio.positions
+            if p.strategy == "crypto_short_term" and p.is_open
+        ]
+        if not crypto_positions:
+            return
+
+        for position in crypto_positions:
+            try:
+                exit_reason = await strategy.should_exit(
+                    position.market_id,
+                    position.current_price,
+                    avg_price=position.avg_price,
+                    created_at=position.created_at,
+                    question=getattr(position, "question", ""),
+                )
+                if not exit_reason:
+                    continue
+
+                logger.info(
+                    "crypto_fast_exit_triggered",
+                    market_id=position.market_id[:20],
+                    reason=exit_reason,
+                    avg_price=position.avg_price,
+                    current_price=position.current_price,
+                )
+
+                # Execute sell via position closer (same as main loop)
+                await self.closer.close_position(
+                    position,
+                    exit_reason=exit_reason,
+                )
+                logger.info(
+                    "crypto_fast_exit_executed",
+                    market_id=position.market_id[:20],
+                    reason=exit_reason,
+                )
+            except Exception as e:
+                logger.error(
+                    "crypto_fast_exit_error",
+                    market_id=position.market_id[:20],
+                    error=str(e),
+                )
 
     async def _execute_crypto_signals(self, signals) -> None:
         """Execute crypto short-term signals with risk checks.
