@@ -1545,12 +1545,23 @@ class TradingEngine:
                     edge_multiplier *= 0.85  # 15% more permissive
                     signal.metadata["volume_anomaly_boost"] = True
 
-                # Twitter sentiment metadata
+                # Twitter sentiment as direct edge multiplier
                 twitter_sent = getattr(research, "twitter_sentiment", 0.0)
                 tw_count = getattr(research, "tweet_count", 0)
                 if tw_count > 0:
                     signal.metadata["twitter_sentiment"] = twitter_sent
                     signal.metadata["tweet_count"] = tw_count
+                if tw_count >= 2 and abs(twitter_sent) > 0.2:
+                    tw_mult = max(0.7, min(1.4, 1.0 + twitter_sent * 0.4))
+                    edge_multiplier *= tw_mult
+                    signal.metadata["twitter_edge_mult"] = round(tw_mult, 3)
+
+                # Whale activity as confirming signal
+                whale_active = getattr(research, "whale_activity", False)
+                if whale_active and research.sentiment_score != 0:
+                    signal.metadata["whale_active"] = True
+                    edge_multiplier *= 0.90  # 10% more permissive
+                    signal.metadata["whale_edge_boost"] = True
 
                 # Research direction validation: check if sentiment agrees
                 # with the trade direction (buying YES vs NO)
