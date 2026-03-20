@@ -399,7 +399,10 @@ class PositionRepository:
         )
         existing_pos = existing.scalar_one_or_none()
         if existing_pos:
-            for key in ("size", "avg_price", "current_price", "cost_basis", "unrealized_pnl", "token_id", "outcome"):
+            for key in (
+                "size", "avg_price", "current_price", "cost_basis",
+                "unrealized_pnl", "token_id", "outcome",
+            ):
                 setattr(existing_pos, key, getattr(position, key))
             # Reopen if position reappears on Polymarket after being closed
             if position.is_open and not existing_pos.is_open:
