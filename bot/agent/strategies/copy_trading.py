@@ -108,20 +108,45 @@ class CopyTradingStrategy(BaseStrategy):
         if not token_ids:
             return None
 
-        # Determine token based on outcome
-        outcome = trade.outcome
-        if outcome.lower() in ("yes", ""):
-            token_id = token_ids[0]
-            price = market.yes_price or trade.price
-            outcome = "Yes"
-        elif outcome.lower() == "no":
-            if len(token_ids) < 2:
+        # Determine token_id by matching outcome name against market.outcomes list.
+        # Polymarket does NOT guarantee token_ids[0]=YES, token_ids[1]=No — the order
+        # follows the market's outcomes array. Using positional lookup avoids buying
+        # the wrong token when the outcomes are ordered ["No", "Yes"].
+        outcome_name = (trade.outcome.strip() or "Yes")
+        token_id: str | None = None
+        price: float | None = None
+        outcome: str = outcome_name
+
+        outcomes = market.outcomes  # e.g. ["Yes", "No"] or ["No", "Yes"]
+        prices = market.outcome_price_list
+
+        if outcomes and token_ids:
+            for i, moutcome in enumerate(outcomes):
+                if moutcome.lower() == outcome_name.lower():
+                    if i < len(token_ids):
+                        token_id = token_ids[i]
+                    outcome = moutcome  # canonical casing from market
+                    if i < len(prices):
+                        price = prices[i]
+                    break
+
+        # Fallback: assume index 0=Yes, 1=No (old behaviour, keeps backward compat)
+        if token_id is None:
+            if outcome_name.lower() in ("yes",):
+                token_id = token_ids[0]
+                price = market.yes_price
+                outcome = "Yes"
+            elif outcome_name.lower() == "no":
+                if len(token_ids) < 2:
+                    return None
+                token_id = token_ids[1]
+                price = market.no_price
+                outcome = "No"
+            else:
                 return None
-            token_id = token_ids[1]
-            price = market.no_price or (1.0 - (market.yes_price or 0.5))
-            outcome = "No"
-        else:
-            return None
+
+        if price is None or price <= 0:
+            price = trade.price
 
         if price <= 0 or price >= 1.0:
             return None

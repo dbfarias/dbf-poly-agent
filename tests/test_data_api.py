@@ -306,12 +306,11 @@ async def test_get_positions_parse_error_skips_bad_item(mock_settings):
 # ------------------------------------------------------------------
 
 @patch("bot.polymarket.data_api.settings")
-async def test_get_positions_no_outcome_inverts_cur_price(mock_settings):
-    """For No outcome positions, current_price must be 1 - curPrice.
+async def test_get_positions_no_outcome_cur_price_used_directly(mock_settings):
+    """For No outcome positions, current_price is curPrice as-is.
 
-    The Polymarket Data API `curPrice` field is always the YES-token price
-    regardless of which outcome is held.  A No position with curPrice=0.21
-    (YES price ~21¢) should have current_price=0.79 (No token ~79¢).
+    The Polymarket Data API `curPrice` field is the price of the token held,
+    not always the YES-token price.  Use it directly regardless of outcome.
     """
     mock_settings.is_paper = False
     mock_settings.poly_private_key = None
@@ -324,7 +323,7 @@ async def test_get_positions_no_outcome_inverts_cur_price(mock_settings):
             "title": "US forces enter Iran by March 31?",
             "size": "5.0",
             "avgPrice": "0.27",
-            "curPrice": "0.205",   # YES price reported by API
+            "curPrice": "0.205",
             "cashPnl": "-0.33",
         },
     ]
@@ -340,8 +339,8 @@ async def test_get_positions_no_outcome_inverts_cur_price(mock_settings):
     assert len(result) == 1
     pos = result[0]
     assert pos.outcome == "No"
-    # current_price should be the No token price: 1 - 0.205 = 0.795
-    assert pos.current_price == pytest.approx(0.795)
+    # current_price equals curPrice directly — no inversion
+    assert pos.current_price == pytest.approx(0.205)
     # avg_price unchanged (avgPrice field is the actual cost basis)
     assert pos.avg_price == pytest.approx(0.27)
 
@@ -381,8 +380,8 @@ async def test_get_positions_yes_outcome_price_unchanged(mock_settings):
 
 
 @patch("bot.polymarket.data_api.settings")
-async def test_get_positions_no_outcome_case_insensitive(mock_settings):
-    """No-outcome inversion applies regardless of outcome string casing."""
+async def test_get_positions_no_outcome_lowercase(mock_settings):
+    """No-outcome position uses curPrice directly regardless of casing."""
     mock_settings.is_paper = False
     mock_settings.poly_private_key = None
 
@@ -408,5 +407,5 @@ async def test_get_positions_no_outcome_case_insensitive(mock_settings):
     result = await client.get_positions.__wrapped__(client, address="0xWALLET")
 
     assert len(result) == 1
-    # 1 - 0.30 = 0.70
-    assert result[0].current_price == pytest.approx(0.70)
+    # curPrice used directly — no inversion
+    assert result[0].current_price == pytest.approx(0.30)

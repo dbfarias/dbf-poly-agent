@@ -44,6 +44,17 @@ def _make_market(market_id="m1", question="Will X happen?"):
     )
 
 
+def _make_market_inverted(market_id="m2", question="Will X happen?"):
+    """Market where outcomes array is ['No', 'Yes'] (inverted ordering)."""
+    return GammaMarket(
+        id=market_id,
+        question=question,
+        outcomes='["No", "Yes"]',
+        outcomePrices='[0.73, 0.27]',   # No=0.73, Yes=0.27
+        clobTokenIds='["tok_no_first", "tok_yes_second"]',
+    )
+
+
 def _make_whale_trade(
     market_id="m1", side="BUY", outcome="Yes", win_rate=0.70,
     size=100.0, price=0.6,
@@ -144,6 +155,26 @@ class TestWhaleTradeToSignal:
         assert signal is not None
         assert "toptrader" in signal.reasoning
         assert "70%" in signal.reasoning
+
+    def test_inverted_outcomes_yes(self, strategy):
+        """When outcomes=['No','Yes'], Yes trade maps to token_ids[1]."""
+        market = _make_market_inverted()
+        trade = _make_whale_trade(market_id="m2", outcome="Yes", price=0.27)
+        signal = strategy._whale_trade_to_signal(trade, market)
+
+        assert signal is not None
+        assert signal.outcome == "Yes"
+        assert signal.token_id == "tok_yes_second"  # index 1 in inverted market
+
+    def test_inverted_outcomes_no(self, strategy):
+        """When outcomes=['No','Yes'], No trade maps to token_ids[0]."""
+        market = _make_market_inverted()
+        trade = _make_whale_trade(market_id="m2", outcome="No", price=0.73)
+        signal = strategy._whale_trade_to_signal(trade, market)
+
+        assert signal is not None
+        assert signal.outcome == "No"
+        assert signal.token_id == "tok_no_first"  # index 0 in inverted market
 
 
 class TestScan:
