@@ -5,6 +5,7 @@ import time
 import structlog
 
 from bot.config import settings
+from bot.research.llm_debate import cost_tracker
 
 logger = structlog.get_logger()
 
@@ -20,13 +21,39 @@ _MODEL = "claude-haiku-4-5-20251001"
 _TIMEOUT = 10.0
 _MAX_TOKENS = 16
 
+# Hybrid mode: VADER threshold below which LLM is consulted
+_VADER_UNCERTAIN_THRESHOLD = 0.15
+
+
+def should_use_llm(
+    vader_score: float,
+    article_count: int,
+) -> bool:
+    """Decide whether to upgrade VADER to LLM for this market.
+
+    Uses LLM only when VADER is uncertain (score near zero) and there
+    are enough articles to justify the cost. This keeps daily LLM
+    sentiment cost under ~$0.30/day instead of $1.40+/day.
+    """
+    if not settings.use_llm_sentiment:
+        return False
+    if article_count < 2:
+        return False  # Not enough data to justify LLM
+    # VADER uncertain: score too close to zero
+    return abs(vader_score) < _VADER_UNCERTAIN_THRESHOLD
+
 
 async def analyze_sentiment_llm(question: str, headlines: list[str]) -> float:
     """Analyze sentiment via Claude Haiku.
 
     Returns a score in [-1, 1]. Falls back to 0.0 on any error.
+    Tracks cost in shared cost_tracker.
     """
     if not headlines:
+        return 0.0
+
+    if not cost_tracker.can_spend():
+        logger.debug("llm_sentiment_budget_exhausted")
         return 0.0
 
     try:
@@ -64,6 +91,7 @@ async def analyze_sentiment_llm(question: str, headlines: list[str]) -> float:
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
         cost = (input_tokens * 0.80 + output_tokens * 4.00) / 1_000_000
+        cost_tracker.add(cost)
 
         logger.debug(
             "llm_sentiment_call",

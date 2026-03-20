@@ -13,7 +13,7 @@ from bot.research.category_classifier import CategoryClassifier
 from bot.research.correlation_detector import CorrelationDetector
 from bot.research.crypto_fetcher import CryptoFetcher
 from bot.research.keyword_extractor import extract_keywords, extract_keywords_llm
-from bot.research.llm_sentiment import analyze_sentiment_llm
+from bot.research.llm_sentiment import analyze_sentiment_llm, should_use_llm
 from bot.research.news_fetcher import NewsFetcher
 from bot.research.pattern_analyzer import PatternAnalyzer
 from bot.research.reddit_fetcher import RedditFetcher
@@ -288,12 +288,14 @@ class ResearchEngine:
                 merged_items.append(item)
 
         # Compute headline sentiment (news + reddit only, without twitter)
+        # Hybrid mode: always VADER first, upgrade to LLM when uncertain
         news_headlines = [item.title for item in merged_items if item.source != "Twitter/X"]
         all_headlines = [item.title for item in merged_items]
-        if settings.use_llm_sentiment and all_headlines:
+        vader_score = analyze_sentiment(news_headlines) if news_headlines else 0.0
+        if should_use_llm(vader_score, len(all_headlines)) and all_headlines:
             sentiment_score = await analyze_sentiment_llm(question, all_headlines)
         else:
-            sentiment_score = analyze_sentiment(news_headlines) if news_headlines else 0.0
+            sentiment_score = vader_score
 
         # Separate Twitter sentiment
         tweet_headlines = [item.title for item in twitter_items]

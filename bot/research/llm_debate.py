@@ -363,6 +363,10 @@ class LlmCostTracker:
     def is_over_budget(self) -> bool:
         return self.today_cost >= self.daily_budget
 
+    def can_spend(self, amount: float = 0.001) -> bool:
+        """Check if there's budget remaining for at least `amount`."""
+        return self.budget_remaining >= amount
+
 
 def _today_key() -> str:
     from datetime import datetime, timezone
