@@ -108,8 +108,10 @@ class WebSocketManager:
             except Exception as e:
                 logger.error("ws_message_error", error=str(e))
 
-    async def _handle_message(self, data: dict) -> None:
+    async def _handle_message(self, data) -> None:
         """Handle a WebSocket message."""
+        if not isinstance(data, dict):
+            return
         msg_type = data.get("type", "")
 
         if msg_type == "book":
