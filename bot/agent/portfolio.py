@@ -90,6 +90,16 @@ class Portfolio:
     def peak_equity(self) -> float:
         return self._peak_equity
 
+    @property
+    def realized_equity(self) -> float:
+        """Equity based only on realized PnL (for peak tracking).
+
+        Unrealized gains from open positions are excluded to prevent
+        temporary spikes (e.g. crypto 5-min markets) from inflating
+        peak equity and triggering false drawdown blocks.
+        """
+        return self._day_start_equity + self._realized_pnl_today
+
     def reset_daily_state(self, equity: float) -> None:
         """Reset daily PnL counters and peak equity to current equity.
 
@@ -215,10 +225,9 @@ class Portfolio:
             except Exception as e:
                 logger.error("peak_equity_restore_failed", error=str(e))
 
-        # Update peak equity (adjusted for flows so deposits don't inflate peak)
-        equity = self.total_equity
-        trading_pnl = self._realized_pnl_today + self.unrealized_pnl
-        adjusted_peak = self._day_start_equity + trading_pnl
+        # Update peak equity using realized PnL only (unrealized excluded to
+        # prevent crypto 5-min positions from inflating peak temporarily)
+        adjusted_peak = self.realized_equity
         if adjusted_peak > self._peak_equity:
             self._peak_equity = adjusted_peak
             # Persist so it survives restarts
@@ -245,7 +254,7 @@ class Portfolio:
             cash=self._cash,
             polymarket_balance=self._polymarket_balance,
             positions=self.open_position_count,
-            equity=equity,
+            equity=self.total_equity,
         )
 
     async def _sync_from_polymarket(self) -> None:

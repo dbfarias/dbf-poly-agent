@@ -136,6 +136,19 @@ class TestProperties:
         # cash=5 + positions_value=6 = 11
         assert portfolio.total_equity == pytest.approx(11.0)
 
+    def test_realized_equity_excludes_unrealized(self, portfolio):
+        """realized_equity uses only realized PnL, not unrealized."""
+        portfolio._day_start_equity = 100.0
+        portfolio._realized_pnl_today = 5.0
+        portfolio._cash = 50.0
+        portfolio._positions = [
+            make_position(size=50.0, current_price=1.50, is_open=True),
+        ]
+        # total_equity = 50 + 75 = 125 (includes unrealized)
+        assert portfolio.total_equity == pytest.approx(125.0)
+        # realized_equity = 100 + 5 = 105 (excludes unrealized)
+        assert portfolio.realized_equity == pytest.approx(105.0)
+
 
 # ---------------------------------------------------------------------------
 # Sync
@@ -163,10 +176,12 @@ class TestSync:
         assert len(portfolio._positions) == 1
 
     @pytest.mark.asyncio
-    async def test_sync_updates_peak_equity(self, portfolio):
-        """Peak equity should increase when equity grows."""
+    async def test_sync_updates_peak_equity_from_realized(self, portfolio):
+        """Peak equity should increase only from realized PnL, not unrealized."""
         portfolio._peak_equity = 10.0
-        portfolio._cash = 15.0  # equity = 15
+        portfolio._day_start_equity = 10.0
+        portfolio._realized_pnl_today = 5.0  # realized equity = 15
+        portfolio._pnl_date = trading_day()  # prevent daily reset
 
         mock_repo = AsyncMock()
         mock_repo.get_open = AsyncMock(return_value=[])
@@ -180,6 +195,33 @@ class TestSync:
             await portfolio.sync()
 
         assert portfolio._peak_equity == 15.0
+
+    @pytest.mark.asyncio
+    async def test_sync_peak_equity_ignores_unrealized(self, portfolio):
+        """Unrealized PnL must NOT inflate peak equity."""
+        portfolio._peak_equity = 10.0
+        portfolio._day_start_equity = 10.0
+        portfolio._realized_pnl_today = 0.0
+        portfolio._pnl_date = trading_day()  # prevent daily reset
+        portfolio._cash = 5.0  # cash is low because positions are open
+
+        # Position with large unrealized gain (total_equity = 5 + 50 = 55)
+        pos = make_position(size=50.0, avg_price=0.10, current_price=1.0)
+        mock_repo = AsyncMock()
+        mock_repo.get_open = AsyncMock(return_value=[pos])
+
+        with (
+            patch("bot.agent.portfolio.async_session") as mock_as,
+            patch("bot.agent.portfolio.PositionRepository", return_value=mock_repo),
+        ):
+            mock_as.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
+            mock_as.return_value.__aexit__ = AsyncMock(return_value=False)
+            await portfolio.sync()
+
+        # Peak should stay at 10.0 (realized_equity = 10 + 0 = 10), NOT 55
+        assert portfolio._peak_equity == 10.0
+        # But total_equity includes unrealized
+        assert portfolio.total_equity == 55.0
 
     @pytest.mark.asyncio
     async def test_sync_resets_daily_pnl_on_new_day(self, portfolio):

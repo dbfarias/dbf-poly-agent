@@ -838,7 +838,7 @@ class TradingEngine:
 
         # 1. Sync portfolio state
         await self.portfolio.sync()
-        self.risk_manager.update_peak_equity(self.portfolio.total_equity)
+        self.risk_manager.update_peak_equity(self.portfolio.realized_equity)
         self.risk_manager.set_day_start_equity(self.portfolio.day_start_equity)
 
         # 1c. Auto-reset daily state on first cycle (deploy or crash recovery).
