@@ -58,9 +58,9 @@ class CryptoShortTermStrategy(BaseStrategy):
     IMBALANCE_WEIGHT = 0.40
     SPOT_MOMENTUM_WEIGHT = 0.40
     VOLUME_ANOMALY_WEIGHT = 0.20
-    TAKE_PROFIT_PCT = 0.02
+    TAKE_PROFIT_PCT = 0.30  # 30% gain → sell (was 2%, way too low for binary)
     STOP_LOSS_PCT = 0.03
-    SWING_EXIT_PRICE = 0.80  # Sell when price reaches this (lock in gains)
+    SWING_EXIT_PRICE = 0.65  # Sell when price reaches this (lock in gains)
     MAX_CONCURRENT = 3
     MAX_MARKET_MINUTES = 20
     MIN_BOOK_VOLUME = 100.0

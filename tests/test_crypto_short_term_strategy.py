@@ -180,8 +180,15 @@ class TestCryptoShortTermExit:
 
     @pytest.mark.asyncio()
     async def test_take_profit(self, strategy):
-        result = await strategy.should_exit("cm1", 0.55, avg_price=0.50)
+        # 30%+ gain: $0.40 → $0.55 = 37.5% (below SWING_EXIT_PRICE $0.65)
+        result = await strategy.should_exit("cm1", 0.55, avg_price=0.40)
         assert result == "take_profit"
+
+    @pytest.mark.asyncio()
+    async def test_swing_exit(self, strategy):
+        # Price reaches SWING_EXIT_PRICE ($0.65+) with profit
+        result = await strategy.should_exit("cm1", 0.70, avg_price=0.50)
+        assert result == "swing_exit"
 
     @pytest.mark.asyncio()
     async def test_time_expiry(self, strategy):

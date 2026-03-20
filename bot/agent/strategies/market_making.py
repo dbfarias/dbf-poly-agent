@@ -29,6 +29,9 @@ class MarketMakingStrategy(BaseStrategy):
         "MIN_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
         "MAX_SPREAD": {"type": float, "min": 0.0, "max": 0.5},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
+        "TAKE_PROFIT_PCT": {"type": float, "min": 0.01, "max": 0.50},
+        "STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.30},
+        "SWING_EXIT_PRICE": {"type": float, "min": 0.50, "max": 0.95},
     }
 
     def __init__(self, *args, **kwargs):
@@ -103,7 +106,45 @@ class MarketMakingStrategy(BaseStrategy):
             },
         )
 
-    async def should_exit(self, market_id: str, current_price: float, **kwargs) -> bool:
-        """Market making positions should be exited if spread collapses."""
-        # Exit if the price moves significantly from our entry
+    # Exit parameters
+    TAKE_PROFIT_PCT = 0.30  # 30% gain → sell
+    STOP_LOSS_PCT = 0.15  # 15% loss → cut
+    SWING_EXIT_PRICE = 0.65  # Absolute price threshold for locking gains
+
+    async def should_exit(self, market_id: str, current_price: float, **kwargs) -> str | bool:
+        """Exit on take-profit, swing exit, or stop-loss."""
+        avg_price = kwargs.get("avg_price", 0.0)
+        if avg_price <= 0:
+            return False
+
+        profit_pct = (current_price - avg_price) / avg_price
+
+        # Stop-loss
+        if profit_pct <= -self.STOP_LOSS_PCT:
+            logger.warning(
+                "mm_exit_stop_loss",
+                market_id=market_id,
+                loss_pct=f"{profit_pct:.1%}",
+            )
+            return "stop_loss"
+
+        # Swing exit: lock in gains at high absolute price
+        if current_price >= self.SWING_EXIT_PRICE and profit_pct > 0:
+            logger.info(
+                "mm_exit_swing",
+                market_id=market_id,
+                current_price=current_price,
+                profit_pct=f"{profit_pct:.1%}",
+            )
+            return "swing_exit"
+
+        # Take-profit on % gain
+        if profit_pct >= self.TAKE_PROFIT_PCT:
+            logger.info(
+                "mm_exit_take_profit",
+                market_id=market_id,
+                profit_pct=f"{profit_pct:.1%}",
+            )
+            return "take_profit"
+
         return False
