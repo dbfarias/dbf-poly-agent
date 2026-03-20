@@ -60,6 +60,7 @@ class CryptoShortTermStrategy(BaseStrategy):
     VOLUME_ANOMALY_WEIGHT = 0.20
     TAKE_PROFIT_PCT = 0.02
     STOP_LOSS_PCT = 0.03
+    SWING_EXIT_PRICE = 0.80  # Sell when price reaches this (lock in gains)
     MAX_CONCURRENT = 3
     MAX_MARKET_MINUTES = 20
     MIN_BOOK_VOLUME = 100.0
@@ -69,8 +70,9 @@ class CryptoShortTermStrategy(BaseStrategy):
         "IMBALANCE_WEIGHT": {"type": float, "min": 0.0, "max": 1.0},
         "SPOT_MOMENTUM_WEIGHT": {"type": float, "min": 0.0, "max": 1.0},
         "VOLUME_ANOMALY_WEIGHT": {"type": float, "min": 0.0, "max": 1.0},
-        "TAKE_PROFIT_PCT": {"type": float, "min": 0.005, "max": 0.10},
+        "TAKE_PROFIT_PCT": {"type": float, "min": 0.005, "max": 0.50},
         "STOP_LOSS_PCT": {"type": float, "min": 0.005, "max": 0.10},
+        "SWING_EXIT_PRICE": {"type": float, "min": 0.60, "max": 0.95},
         "MAX_CONCURRENT": {"type": int, "min": 1, "max": 10},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 600},
         "MAX_MARKET_MINUTES": {"type": int, "min": 1, "max": 60},
@@ -268,7 +270,7 @@ class CryptoShortTermStrategy(BaseStrategy):
     async def should_exit(
         self, market_id: str, current_price: float, **kwargs
     ) -> str | bool:
-        """Exit on stop-loss, take-profit, or time expiry."""
+        """Exit on stop-loss, swing exit, take-profit, or time expiry."""
         avg_price = kwargs.get("avg_price", 0.0)
         created_at = kwargs.get("created_at")
 
@@ -283,7 +285,23 @@ class CryptoShortTermStrategy(BaseStrategy):
                 )
                 return "stop_loss"
 
-        # Take-profit
+        # Swing exit: sell when price is high enough to lock in gains
+        # instead of waiting for resolution where we might lose everything.
+        # E.g. bought at $0.50, price now $0.80+ → sell for ~60% gain
+        # rather than risk $0 if the market resolves against us.
+        if current_price >= self.SWING_EXIT_PRICE and avg_price > 0:
+            profit_pct = (current_price - avg_price) / avg_price
+            if profit_pct > 0:
+                self.logger.info(
+                    "crypto_short_exit_swing",
+                    market_id=market_id,
+                    current_price=current_price,
+                    avg_price=avg_price,
+                    profit_pct=f"{profit_pct:.1%}",
+                )
+                return "swing_exit"
+
+        # Take-profit (percentage-based, for smaller gains)
         if avg_price > 0:
             profit_pct = (current_price - avg_price) / avg_price
             if profit_pct >= self.TAKE_PROFIT_PCT:
