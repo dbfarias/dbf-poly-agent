@@ -15,7 +15,7 @@ def _make_crypto_market(
     question: str = "Will BTC go up in the next 5 minutes?",
     slug: str = "btc-5min-up",
     yes_price: float = 0.50,
-    minutes_to_resolve: float = 4.0,
+    minutes_to_resolve: float = 10.0,
     market_id: str = "cm1",
 ) -> GammaMarket:
     end_date = datetime.now(timezone.utc) + timedelta(minutes=minutes_to_resolve)
@@ -47,7 +47,7 @@ class MockSpotWS:
     def get_price(self, symbol):
         return self._prices.get(symbol)
 
-    def get_momentum(self, symbol, window_seconds=300):
+    def get_momentum(self, symbol, window_seconds=900):
         return self._momentum.get(symbol)
 
 
@@ -96,6 +96,11 @@ class TestIsCryptoShortTerm:
         m = _make_crypto_market(minutes_to_resolve=-1.0)
         assert _strat._is_crypto_short_term(m) is False
 
+    def test_too_close_to_resolution(self, _strat):
+        """Markets with <5 min to resolve should be rejected."""
+        m = _make_crypto_market(minutes_to_resolve=3.0)
+        assert _strat._is_crypto_short_term(m) is False
+
     def test_bitcoin_up_or_down_format(self, _strat):
         """Polymarket's actual format for 5-min crypto markets."""
         m = _make_crypto_market(
@@ -124,12 +129,14 @@ def strategy():
     clob = AsyncMock()
     gamma = AsyncMock()
     cache = MarketCache(default_ttl=60)
+    # High volume orderbook with clear bid-heavy imbalance (agreement with momentum)
     book = OrderBook(
         asset_id="tok_yes",
-        bids=[OrderBookEntry(price=0.50, size=200.0)],
+        bids=[OrderBookEntry(price=0.50, size=400.0)],
         asks=[OrderBookEntry(price=0.52, size=100.0)],
     )
     cache.set_order_book("tok_yes", book, ttl=60)
+    # Strong momentum (3% = well above MIN_MOMENTUM 0.5%) + positive imbalance = agreement
     spot_ws = MockSpotWS(
         prices={"BTC-USD": 95000.0},
         momentum={"BTC-USD": 0.03},
@@ -171,23 +178,88 @@ class TestCryptoShortTermScan:
         signals = await strategy.scan([market])
         assert len(signals) == 0
 
+    @pytest.mark.asyncio()
+    async def test_weak_momentum_filtered(self):
+        """Momentum below MIN_MOMENTUM (0.5%) should be filtered."""
+        clob = AsyncMock()
+        gamma = AsyncMock()
+        cache = MarketCache(default_ttl=60)
+        book = OrderBook(
+            asset_id="tok_yes",
+            bids=[OrderBookEntry(price=0.50, size=400.0)],
+            asks=[OrderBookEntry(price=0.52, size=100.0)],
+        )
+        cache.set_order_book("tok_yes", book, ttl=60)
+        spot_ws = MockSpotWS(
+            prices={"BTC-USD": 95000.0},
+            momentum={"BTC-USD": 0.002},  # 0.2% — below MIN_MOMENTUM
+        )
+        s = CryptoShortTermStrategy(clob, gamma, cache, spot_ws=spot_ws)
+        market = _make_crypto_market()
+        signals = await s.scan([market])
+        assert len(signals) == 0
+
+    @pytest.mark.asyncio()
+    async def test_disagreeing_signals_filtered(self):
+        """When momentum and imbalance disagree, signal should be rejected."""
+        clob = AsyncMock()
+        gamma = AsyncMock()
+        cache = MarketCache(default_ttl=60)
+        # Ask-heavy book (negative imbalance) but positive momentum
+        book = OrderBook(
+            asset_id="tok_yes",
+            bids=[OrderBookEntry(price=0.50, size=100.0)],
+            asks=[OrderBookEntry(price=0.52, size=400.0)],
+        )
+        cache.set_order_book("tok_yes", book, ttl=60)
+        spot_ws = MockSpotWS(
+            prices={"BTC-USD": 95000.0},
+            momentum={"BTC-USD": 0.03},  # Positive momentum
+        )
+        s = CryptoShortTermStrategy(clob, gamma, cache, spot_ws=spot_ws)
+        market = _make_crypto_market()
+        signals = await s.scan([market])
+        assert len(signals) == 0
+
+    @pytest.mark.asyncio()
+    async def test_low_volume_filtered(self):
+        """Books with <300 total volume should be filtered."""
+        clob = AsyncMock()
+        gamma = AsyncMock()
+        cache = MarketCache(default_ttl=60)
+        book = OrderBook(
+            asset_id="tok_yes",
+            bids=[OrderBookEntry(price=0.50, size=100.0)],
+            asks=[OrderBookEntry(price=0.52, size=50.0)],
+        )
+        cache.set_order_book("tok_yes", book, ttl=60)
+        spot_ws = MockSpotWS(
+            prices={"BTC-USD": 95000.0},
+            momentum={"BTC-USD": 0.03},
+        )
+        s = CryptoShortTermStrategy(clob, gamma, cache, spot_ws=spot_ws)
+        market = _make_crypto_market()
+        signals = await s.scan([market])
+        assert len(signals) == 0
+
 
 class TestCryptoShortTermExit:
     @pytest.mark.asyncio()
     async def test_stop_loss(self, strategy):
-        result = await strategy.should_exit("cm1", 0.45, avg_price=0.50)
+        # 15% loss: $0.50 → $0.425
+        result = await strategy.should_exit("cm1", 0.425, avg_price=0.50)
         assert result == "stop_loss"
 
     @pytest.mark.asyncio()
     async def test_take_profit(self, strategy):
-        # 30%+ gain: $0.40 → $0.55 = 37.5% (below SWING_EXIT_PRICE $0.65)
-        result = await strategy.should_exit("cm1", 0.55, avg_price=0.40)
+        # 25% gain: $0.40 → $0.50 (below SWING_EXIT_PRICE $0.70)
+        result = await strategy.should_exit("cm1", 0.50, avg_price=0.40)
         assert result == "take_profit"
 
     @pytest.mark.asyncio()
     async def test_swing_exit(self, strategy):
-        # Price reaches SWING_EXIT_PRICE ($0.65+) with profit
-        result = await strategy.should_exit("cm1", 0.70, avg_price=0.50)
+        # Price reaches SWING_EXIT_PRICE ($0.70+) with profit
+        result = await strategy.should_exit("cm1", 0.75, avg_price=0.50)
         assert result == "swing_exit"
 
     @pytest.mark.asyncio()

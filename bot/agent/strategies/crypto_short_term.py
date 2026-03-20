@@ -2,7 +2,8 @@
 
 Uses real-time spot price momentum from Coinbase WebSocket combined with
 Polymarket orderbook imbalance to predict short-term crypto price direction.
-Inspired by high-frequency Polymarket bots (Gabagool et al).
+
+v2 redesign: longer momentum window, stricter filters, symmetric exits.
 """
 
 import re
@@ -54,25 +55,38 @@ class CryptoShortTermStrategy(BaseStrategy):
     name = "crypto_short_term"
     MIN_HOLD_SECONDS = 30
 
-    MIN_EDGE = 0.02
-    IMBALANCE_WEIGHT = 0.40
-    SPOT_MOMENTUM_WEIGHT = 0.40
+    # --- Signal filters (v2: much stricter) ---
+    MIN_EDGE = 0.08  # 8% min edge (was 2% — too many false signals)
+    IMBALANCE_WEIGHT = 0.30  # Reduced (orderbook is ephemeral)
+    SPOT_MOMENTUM_WEIGHT = 0.50  # Primary signal
     VOLUME_ANOMALY_WEIGHT = 0.20
-    TAKE_PROFIT_PCT = 0.30  # 30% gain → sell (was 2%, way too low for binary)
-    STOP_LOSS_PCT = 0.03
-    SWING_EXIT_PRICE = 0.65  # Sell when price reaches this (lock in gains)
-    MAX_CONCURRENT = 3
+    MOMENTUM_WINDOW = 900  # 15-min momentum (was 300s / 5-min — too noisy)
+    MIN_MOMENTUM = 0.005  # Require at least 0.5% spot move (filter noise)
+    REQUIRE_SIGNAL_AGREEMENT = True  # Both signals must agree on direction
+    MIN_MINUTES_TO_RESOLUTION = 5  # Don't enter with <5 min left
+
+    # --- Exit params (v2: symmetric) ---
+    TAKE_PROFIT_PCT = 0.20  # 20% gain → sell
+    STOP_LOSS_PCT = 0.15  # 15% loss → cut (symmetric-ish, slight edge)
+    SWING_EXIT_PRICE = 0.70  # Absolute price → sell to lock gains
+
+    # --- Position limits ---
+    MAX_CONCURRENT = 2
     MAX_MARKET_MINUTES = 20
-    MIN_BOOK_VOLUME = 100.0
+    MIN_BOOK_VOLUME = 300.0  # 3x higher (was 100 — too illiquid)
 
     _MUTABLE_PARAMS = {
-        "MIN_EDGE": {"type": float, "min": 0.0, "max": 0.3},
+        "MIN_EDGE": {"type": float, "min": 0.02, "max": 0.30},
         "IMBALANCE_WEIGHT": {"type": float, "min": 0.0, "max": 1.0},
         "SPOT_MOMENTUM_WEIGHT": {"type": float, "min": 0.0, "max": 1.0},
         "VOLUME_ANOMALY_WEIGHT": {"type": float, "min": 0.0, "max": 1.0},
-        "TAKE_PROFIT_PCT": {"type": float, "min": 0.005, "max": 0.50},
-        "STOP_LOSS_PCT": {"type": float, "min": 0.005, "max": 0.10},
-        "SWING_EXIT_PRICE": {"type": float, "min": 0.60, "max": 0.95},
+        "MOMENTUM_WINDOW": {"type": int, "min": 60, "max": 1800},
+        "MIN_MOMENTUM": {"type": float, "min": 0.0, "max": 0.05},
+        "REQUIRE_SIGNAL_AGREEMENT": {"type": bool},
+        "MIN_MINUTES_TO_RESOLUTION": {"type": int, "min": 0, "max": 30},
+        "TAKE_PROFIT_PCT": {"type": float, "min": 0.01, "max": 0.50},
+        "STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.30},
+        "SWING_EXIT_PRICE": {"type": float, "min": 0.50, "max": 0.95},
         "MAX_CONCURRENT": {"type": int, "min": 1, "max": 10},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 600},
         "MAX_MARKET_MINUTES": {"type": int, "min": 1, "max": 60},
@@ -122,7 +136,9 @@ class CryptoShortTermStrategy(BaseStrategy):
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
         minutes_left = (end - datetime.now(timezone.utc)).total_seconds() / 60
-        return 0 < minutes_left <= self.MAX_MARKET_MINUTES
+        if minutes_left < self.MIN_MINUTES_TO_RESOLUTION:
+            return False
+        return minutes_left <= self.MAX_MARKET_MINUTES
 
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan for crypto short-term trading opportunities."""
@@ -160,8 +176,12 @@ class CryptoShortTermStrategy(BaseStrategy):
 
         # Get spot price data from WebSocket
         spot_price = self._spot_ws.get_price(symbol)
-        momentum = self._spot_ws.get_momentum(symbol)
+        momentum = self._spot_ws.get_momentum(symbol, self.MOMENTUM_WINDOW)
         if spot_price is None or momentum is None:
+            return None
+
+        # Filter: require minimum spot momentum (reject noise)
+        if abs(momentum) < self.MIN_MOMENTUM:
             return None
 
         # Get orderbook
@@ -190,6 +210,13 @@ class CryptoShortTermStrategy(BaseStrategy):
         # Normalize momentum: cap at +/-5%, scale to +/-1
         capped_momentum = max(-0.05, min(0.05, momentum))
         normalized_momentum = capped_momentum / 0.05
+
+        # Signal agreement filter: both must point same direction
+        if self.REQUIRE_SIGNAL_AGREEMENT:
+            momentum_up = normalized_momentum > 0
+            book_up = imbalance > 0
+            if momentum_up != book_up:
+                return None
 
         # Compute weighted components
         spot_component = normalized_momentum * self.SPOT_MOMENTUM_WEIGHT
@@ -221,13 +248,13 @@ class CryptoShortTermStrategy(BaseStrategy):
         edge = abs(combined)
         estimated_prob = min(0.95, price + edge)
 
-        # Confidence: base 0.5, boosted by signal agreement
+        # Confidence: base 0.5, boosted by signal strength
         confidence = 0.5
-        # Bonus if momentum and imbalance agree in direction
-        if (normalized_momentum > 0 and imbalance > 0) or (
-            normalized_momentum < 0 and imbalance < 0
-        ):
-            confidence += 0.20
+        # Strong agreement bonus (already filtered for agreement if required)
+        if abs(normalized_momentum) > 0.3 and abs(imbalance) > 0.15:
+            confidence += 0.25  # Strong signals on both sides
+        elif abs(normalized_momentum) > 0.2 or abs(imbalance) > 0.2:
+            confidence += 0.15  # At least one strong signal
         confidence = min(0.95, confidence)
 
         end = market.end_date
@@ -251,7 +278,7 @@ class CryptoShortTermStrategy(BaseStrategy):
             confidence=confidence,
             reasoning=(
                 f"Crypto short-term: {outcome} at ${price:.3f}. "
-                f"Spot momentum: {momentum:+.4f} ({symbol}), "
+                f"Spot momentum: {momentum:+.4f} ({symbol}, {self.MOMENTUM_WINDOW}s), "
                 f"book imbalance: {imbalance:+.1%}. "
                 f"Combined: {combined:+.3f}, {minutes_left:.0f}min to resolve"
             ),
@@ -274,43 +301,39 @@ class CryptoShortTermStrategy(BaseStrategy):
         avg_price = kwargs.get("avg_price", 0.0)
         created_at = kwargs.get("created_at")
 
-        # Stop-loss
-        if avg_price > 0:
-            loss_pct = (avg_price - current_price) / avg_price
-            if loss_pct >= self.STOP_LOSS_PCT:
-                self.logger.warning(
-                    "crypto_short_exit_stop_loss",
-                    market_id=market_id,
-                    loss_pct=f"{loss_pct:.1%}",
-                )
-                return "stop_loss"
+        if avg_price <= 0:
+            return False
+
+        profit_pct = (current_price - avg_price) / avg_price
+
+        # Stop-loss (symmetric with take-profit)
+        if profit_pct <= -self.STOP_LOSS_PCT:
+            self.logger.warning(
+                "crypto_short_exit_stop_loss",
+                market_id=market_id,
+                loss_pct=f"{profit_pct:.1%}",
+            )
+            return "stop_loss"
 
         # Swing exit: sell when price is high enough to lock in gains
-        # instead of waiting for resolution where we might lose everything.
-        # E.g. bought at $0.50, price now $0.80+ → sell for ~60% gain
-        # rather than risk $0 if the market resolves against us.
-        if current_price >= self.SWING_EXIT_PRICE and avg_price > 0:
-            profit_pct = (current_price - avg_price) / avg_price
-            if profit_pct > 0:
-                self.logger.info(
-                    "crypto_short_exit_swing",
-                    market_id=market_id,
-                    current_price=current_price,
-                    avg_price=avg_price,
-                    profit_pct=f"{profit_pct:.1%}",
-                )
-                return "swing_exit"
+        if current_price >= self.SWING_EXIT_PRICE and profit_pct > 0:
+            self.logger.info(
+                "crypto_short_exit_swing",
+                market_id=market_id,
+                current_price=current_price,
+                avg_price=avg_price,
+                profit_pct=f"{profit_pct:.1%}",
+            )
+            return "swing_exit"
 
-        # Take-profit (percentage-based, for smaller gains)
-        if avg_price > 0:
-            profit_pct = (current_price - avg_price) / avg_price
-            if profit_pct >= self.TAKE_PROFIT_PCT:
-                self.logger.info(
-                    "crypto_short_exit_take_profit",
-                    market_id=market_id,
-                    profit_pct=f"{profit_pct:.1%}",
-                )
-                return "take_profit"
+        # Take-profit (percentage-based)
+        if profit_pct >= self.TAKE_PROFIT_PCT:
+            self.logger.info(
+                "crypto_short_exit_take_profit",
+                market_id=market_id,
+                profit_pct=f"{profit_pct:.1%}",
+            )
+            return "take_profit"
 
         # Time expiry: held longer than MAX_MARKET_MINUTES
         if created_at is not None:

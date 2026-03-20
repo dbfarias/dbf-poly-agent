@@ -15,7 +15,7 @@ class SpotPriceWS:
 
     COINBASE_WS = "wss://ws-feed.exchange.coinbase.com"
     SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD"]
-    ROLLING_WINDOW = 300  # 5-min rolling window for momentum
+    ROLLING_WINDOW = 1800  # 30-min rolling window for momentum (supports 15-min lookback)
 
     def __init__(self):
         self._prices: dict[str, float] = {}
