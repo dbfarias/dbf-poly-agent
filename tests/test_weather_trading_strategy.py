@@ -202,7 +202,10 @@ def strategy():
     gamma.get_event_by_slug = AsyncMock(return_value=None)
     cache = MarketCache(default_ttl=60)
     fetcher = AsyncMock()
-    return WeatherTradingStrategy(clob, gamma, cache, weather_fetcher=fetcher)
+    # Disable ensemble for unit tests (Open-Meteo not available)
+    strat = WeatherTradingStrategy(clob, gamma, cache, weather_fetcher=fetcher)
+    strat.ENSEMBLE_REQUIRED = False
+    return strat
 
 
 # ── Slug-based scan ──────────────────────────────────────────────────────────
@@ -232,7 +235,7 @@ class TestSlugBasedScan:
         assert signal.outcome == "Yes"
         assert signal.market_id == "bucket_46_50"
         assert signal.edge > 0.03
-        assert signal.metadata["source"] == "slug_lookup"
+        assert signal.metadata["source"] == "slug_lookup_v2"
 
     @pytest.mark.asyncio()
     async def test_slug_no_signal_expensive_bucket(self, strategy):
@@ -344,18 +347,19 @@ class TestLegacyFallbackScan:
     @pytest.mark.asyncio()
     async def test_legacy_bucket_match(self, strategy):
         """Fallback scan: weather market with bucket-parseable question."""
+        # Use 35°F forecast → "40°F or below" open-ended bucket → high Gaussian prob
         strategy._weather_fetcher.get_forecast.return_value = [
-            _period(city="chicago", temp_f=48.0),
+            _period(city="chicago", temp_f=35.0),
         ]
         strategy.gamma.get_event_by_slug.return_value = None
 
         market = _make_market(
-            "Will the highest temperature in Chicago be between 46-50°F on March 15?",
+            "Will the highest temperature in Chicago be 40°F or below on March 15?",
             yes_price=0.10,
         )
         signals = await strategy.scan([market])
         assert len(signals) >= 1
-        assert signals[0].metadata["source"] == "legacy_scan"
+        assert signals[0].metadata["source"] == "legacy_scan_v2"
 
     @pytest.mark.asyncio()
     async def test_legacy_non_weather_skipped(self, strategy):
@@ -401,38 +405,42 @@ class TestLegacyFallbackScan:
 class TestMatchBucket:
     def test_match_correct_bucket(self, strategy):
         event = _make_event()
-        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 48.0, 0.90)
+        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 48.0, 0.90, sigma=2.5, hours_ahead=24)
         assert signal is not None
         assert signal.market_id == "bucket_46_50"
 
     def test_match_or_below(self, strategy):
         event = _make_event()
-        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 35.0, 0.90)
+        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 35.0, 0.90, sigma=2.5, hours_ahead=24)
         assert signal is not None
         assert signal.market_id == "bucket_low"
 
     def test_match_or_higher(self, strategy):
         event = _make_event()
-        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 55.0, 0.90)
+        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 55.0, 0.90, sigma=2.5, hours_ahead=24)
         assert signal is not None
         assert signal.market_id == "bucket_high"
 
-    def test_no_match_at_boundary(self, strategy):
-        """41°F falls in bucket_41_45 (between 41-45°F)."""
+    def test_boundary_proximity_filters(self, strategy):
+        """43°F is within 1.5°F of bucket boundary 41 → filtered by v2."""
         event = _make_event()
-        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 41.0, 0.90)
-        assert signal is not None
-        assert signal.market_id == "bucket_41_45"
+        # 43°F is center of 41-45 bucket but within 1.5°F of low boundary (41+1.5=42.5)
+        # Actually 43 is 2 away from 41, so it passes. Test 42°F instead.
+        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 42.0, 0.90, sigma=2.5, hours_ahead=24)
+        # 42°F is 1°F from boundary 41 → filtered (< 1.5°F)
+        assert signal is None
 
     def test_signal_has_metadata(self, strategy):
         event = _make_event()
-        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 48.0, 0.90)
+        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 48.0, 0.90, sigma=2.5, hours_ahead=24)
         assert signal is not None
         assert signal.metadata["city"] == "nyc"
         assert signal.metadata["forecast_temp"] == 48.0
         assert signal.metadata["bucket_low"] == 46.0
         assert signal.metadata["bucket_high"] == 50.0
-        assert signal.metadata["source"] == "slug_lookup"
+        assert signal.metadata["source"] == "slug_lookup_v2"
+        assert "bucket_prob" in signal.metadata
+        assert "sigma" in signal.metadata
 
     def test_no_signal_expensive(self, strategy):
         """All buckets priced above ENTRY_THRESHOLD."""
@@ -446,7 +454,7 @@ class TestMatchBucket:
             },
         ]
         event = _make_event(markets=markets)
-        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 48.0, 0.90)
+        signal = strategy._match_bucket(event, "nyc", "2026-03-15", 48.0, 0.90, sigma=2.5, hours_ahead=24)
         assert signal is None
 
 
