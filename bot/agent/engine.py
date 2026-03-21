@@ -248,7 +248,7 @@ class TradingEngine:
         }
         self.debate_cooldown_hours: float = 6.0  # skip re-debating rejected markets
         self.min_balance_for_trades: float = settings.min_balance_for_trades
-        self.min_edge_for_debate: float = 0.015
+        self.min_edge_for_debate: float = 0.01
 
         # Edge adjustment params (configurable via admin)
         self.spread_penalty_factor: float = self.SPREAD_PENALTY_FACTOR
