@@ -1100,8 +1100,8 @@ class TestGetFillPriceExcessiveSlippage:
             edge=0.06,
         )
 
-        # Ask at 0.90 = 4 cents slippage > 3 cents max
-        book = make_order_book(best_ask=0.90)
+        # Ask at 0.92 = 6 cents slippage > 5 cents max
+        book = make_order_book(best_ask=0.92)
         clob.get_order_book.return_value = book
 
         with (
@@ -1122,8 +1122,8 @@ class TestGetFillPriceExcessiveSlippage:
             edge=0.06,
         )
 
-        # Bid at 0.82 = 4 cents slippage > 3 cents max
-        book = make_order_book(best_bid=0.82)
+        # Bid at 0.80 = 6 cents slippage > 5 cents max
+        book = make_order_book(best_bid=0.80)
         clob.get_order_book.return_value = book
 
         price = await manager._get_fill_price(signal)
@@ -1153,9 +1153,9 @@ class TestGetFillPriceExcessiveSlippage:
 
     @pytest.mark.asyncio
     async def test_buy_at_boundary_slippage_rejected_due_to_float_precision(self):
-        """BUY with ask at exactly 3 cents is rejected due to float precision.
+        """BUY with ask at exactly 5 cents is rejected due to float precision.
 
-        0.89 - 0.86 = 0.030000000000000027 > 0.03 (strict comparison).
+        0.91 - 0.86 = 0.050000000000000044 > 0.05 (strict comparison).
         """
         manager, clob, _ = _build_manager(is_paper=False)
         signal = make_signal(
@@ -1165,7 +1165,7 @@ class TestGetFillPriceExcessiveSlippage:
             edge=0.06,
         )
 
-        book = make_order_book(best_ask=0.89)
+        book = make_order_book(best_ask=0.91)
         clob.get_order_book.return_value = book
 
         with (

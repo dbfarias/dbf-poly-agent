@@ -529,7 +529,7 @@ class OrderManager:
         if self.clob.is_paper:
             return signal.market_price
 
-        max_slippage = 0.03  # 3 cents max slippage from signal price
+        max_slippage = 0.05  # 5 cents max slippage from signal price
         min_edge_after_slippage = 0.005  # 0.5% minimum edge at real price
 
         try:
