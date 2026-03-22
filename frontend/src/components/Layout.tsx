@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { usePullToRefresh } from "../hooks/usePullToRefresh";
 import { onWsMessage, useWebSocket, type WSMessage } from "../hooks/useWebSocket";
 import PushBanner from "./PushBanner";
 import { createToast, ToastContainer, useToasts } from "./Toast";
@@ -80,10 +81,15 @@ export default function Layout({ onLogout }: LayoutProps) {
     });
   }, [addToast, queryClient]);
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    window.location.reload();
-  }, []);
+    await queryClient.invalidateQueries();
+    setIsRefreshing(false);
+  }, [queryClient]);
+
+  const { pullDistance, isRefreshing: isPulling, containerRef } = usePullToRefresh({
+    onRefresh: handleRefresh,
+  });
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
@@ -204,7 +210,25 @@ export default function Layout({ onLogout }: LayoutProps) {
           </div>
         </header>
         <PushBanner />
-        <main className="flex-1 overflow-auto p-3 md:p-6" data-testid="main-content">
+        <main
+          ref={containerRef}
+          className="flex-1 overflow-auto p-3 md:p-6"
+          data-testid="main-content"
+          style={{
+            transform: pullDistance > 0 ? `translateY(${pullDistance}px)` : undefined,
+            transition: pullDistance === 0 ? "transform 0.2s ease" : undefined,
+            overscrollBehaviorY: "contain",
+          }}
+        >
+          {(pullDistance > 0 || isPulling) && (
+            <div className="flex justify-center -mt-6 mb-2">
+              <RefreshCw
+                size={18}
+                className={`transition-all ${pullDistance > 60 ? "text-indigo-400" : "text-zinc-500"} ${isPulling ? "animate-spin" : ""}`}
+                style={{ transform: `rotate(${pullDistance * 3}deg)` }}
+              />
+            </div>
+          )}
           <Outlet />
         </main>
       </div>
