@@ -149,7 +149,16 @@ class PositionCloser:
                 # Paper mode: safe to auto-remove (no on-chain tokens)
                 # Live mode: auto-remove only near-worthless positions after many failures
                 # (tokens exist on-chain but are essentially worthless)
-                if settings.is_paper:
+                from bot.research.sports_fetcher import is_sports_market
+                question = getattr(pos, "question", "")
+                if is_sports_market(question):
+                    # Sports: never auto-remove, wait for game resolution
+                    logger.info(
+                        "sports_position_kept",
+                        market_id=pos.market_id,
+                        fail_count=count,
+                    )
+                elif settings.is_paper:
                     await self._auto_remove_stuck(pos)
                 elif count >= 5 and pos.current_price < 0.10:
                     await self._auto_remove_stuck(pos)
