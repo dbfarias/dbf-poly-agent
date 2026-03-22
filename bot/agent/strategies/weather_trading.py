@@ -199,11 +199,16 @@ class WeatherTradingStrategy(BaseStrategy):
     def __init__(self, *args, weather_fetcher=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._weather_fetcher = weather_fetcher
+        # Per-scan cache for Open-Meteo results (avoid rate limiting)
+        self._om_cache: dict[str, list | None] = {}
 
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan weather markets using slug-based direct lookup."""
         if self._weather_fetcher is None:
             return []
+
+        # Clear per-scan Open-Meteo cache
+        self._om_cache.clear()
 
         signals: list[TradeSignal] = []
 
@@ -237,6 +242,7 @@ class WeatherTradingStrategy(BaseStrategy):
         """Get forecast from both NOAA and Open-Meteo for ensemble check.
 
         Returns (noaa_temp, open_meteo_temp) — either can be None.
+        Uses per-scan cache for Open-Meteo to avoid rate limiting.
         """
         noaa_temp = None
         om_temp = None
@@ -249,20 +255,24 @@ class WeatherTradingStrategy(BaseStrategy):
                     noaa_temp = period.temp_f
                     break
 
-        # Open-Meteo forecast (secondary) — fetch for US cities too
-        coords = self._weather_fetcher.CITIES.get(city.strip().lower())
-        if coords:
-            try:
-                om_periods = await self._weather_fetcher._fetch_open_meteo(
-                    city.strip().lower(), coords,
-                )
-                if om_periods:
-                    for period in om_periods:
-                        if period.period == "day" and period.date == date_str:
-                            om_temp = period.temp_f
-                            break
-            except Exception:
-                pass  # Open-Meteo failure is non-fatal
+        # Open-Meteo forecast (secondary) — cached per city per scan
+        city_key = city.strip().lower()
+        if city_key not in self._om_cache:
+            coords = self._weather_fetcher.CITIES.get(city_key)
+            if coords:
+                try:
+                    self._om_cache[city_key] = await self._weather_fetcher._fetch_open_meteo(
+                        city_key, coords,
+                    )
+                except Exception:
+                    self._om_cache[city_key] = None
+
+        om_periods = self._om_cache.get(city_key)
+        if om_periods:
+            for period in om_periods:
+                if period.period == "day" and period.date == date_str:
+                    om_temp = period.temp_f
+                    break
 
         return noaa_temp, om_temp
 
