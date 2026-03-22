@@ -1618,6 +1618,31 @@ class TradingEngine:
                     edge_multiplier *= 0.90  # 10% more permissive
                     signal.metadata["whale_edge_boost"] = True
 
+                # Sports odds: if sportsbooks have data, use as strong signal
+                try:
+                    sports_prob = float(getattr(research, "sports_odds_prob", 0.0) or 0.0)
+                    sports_books = int(getattr(research, "sports_bookmaker_count", 0) or 0)
+                except (TypeError, ValueError):
+                    sports_prob = 0.0
+                    sports_books = 0
+                if sports_prob > 0 and sports_books >= 2:
+                    # Edge from odds = difference between sportsbook prob and market price
+                    odds_edge = abs(sports_prob - signal.market_price)
+                    if odds_edge > 0.05:  # 5%+ edge from sportsbooks
+                        sports_mult = max(0.8, min(1.5, 1.0 + odds_edge))
+                        edge_multiplier *= sports_mult
+                        signal.metadata["sports_odds_prob"] = sports_prob
+                        signal.metadata["sports_bookmakers"] = sports_books
+                        signal.metadata["sports_edge_mult"] = round(sports_mult, 3)
+                        logger.info(
+                            "sports_odds_boost",
+                            market_id=signal.market_id[:20],
+                            odds_prob=sports_prob,
+                            market_price=signal.market_price,
+                            odds_edge=round(odds_edge, 3),
+                            multiplier=round(sports_mult, 3),
+                        )
+
                 # Research direction validation: check if sentiment agrees
                 # with the trade direction (buying YES vs NO)
                 if research.confidence >= 0.3:

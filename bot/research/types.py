@@ -37,3 +37,5 @@ class ResearchResult:
     historical_base_rate: float = 0.0  # Win rate for similar past trades (0 = no data)
     twitter_sentiment: float = 0.0  # Separate Twitter/X sentiment [-1, 1]
     tweet_count: int = 0  # Number of tweets found
+    sports_odds_prob: float = 0.0  # Sportsbook consensus probability (0 = no data)
+    sports_bookmaker_count: int = 0  # Number of bookmakers agreeing

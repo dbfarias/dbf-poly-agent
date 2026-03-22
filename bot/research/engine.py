@@ -19,6 +19,7 @@ from bot.research.pattern_analyzer import PatternAnalyzer
 from bot.research.reddit_fetcher import RedditFetcher
 from bot.research.resolution_parser import parse_resolution_criteria
 from bot.research.sentiment import analyze_sentiment, compute_enhanced_multiplier
+from bot.research.sports_fetcher import SportsFetcher, is_sports_market
 from bot.research.twitter_fetcher import TwitterFetcher
 from bot.research.types import NewsItem, ResearchResult
 from bot.research.volume_detector import VolumeAnomalyDetector
@@ -54,6 +55,7 @@ class ResearchEngine:
         self.category_classifier = CategoryClassifier()
         self.pattern_analyzer = PatternAnalyzer()
         self.whale_detector: WhaleDetector | None = None
+        self.sports_fetcher = SportsFetcher()
         self.weather_fetcher: object | None = None  # Set by TradingEngine
         self._running = False
         self._priority_market_ids: set[str] = set()
@@ -99,6 +101,7 @@ class ResearchEngine:
         await self.crypto_fetcher.close()
         await self.reddit_fetcher.close()
         await self.twitter_fetcher.close()
+        await self.sports_fetcher.close()
         logger.info("research_engine_stopped")
 
     async def trigger_scan(self) -> int:
@@ -342,6 +345,20 @@ class ResearchEngine:
                     whale_activity = True
                     break
 
+        # Sports odds lookup — compare sportsbook consensus vs Polymarket price
+        sports_odds_prob = 0.0
+        sports_bookmaker_count = 0
+        if is_sports_market(question):
+            try:
+                all_odds = await self.sports_fetcher.get_all_odds()
+                match = self.sports_fetcher.match_polymarket_to_game(
+                    question, all_odds,
+                )
+                if match:
+                    sports_odds_prob, sports_bookmaker_count, _ = match
+            except Exception as e:
+                logger.debug("sports_odds_lookup_error", error=str(e))
+
         return ResearchResult(
             market_id=market_id,
             keywords=tuple(keywords),
@@ -361,4 +378,6 @@ class ResearchEngine:
             historical_base_rate=historical_base_rate,
             twitter_sentiment=twitter_sentiment,
             tweet_count=tweet_count,
+            sports_odds_prob=sports_odds_prob,
+            sports_bookmaker_count=sports_bookmaker_count,
         )
