@@ -5,7 +5,7 @@
 # Prerequisites:
 #   1. Go to https://www.duckdns.org and log in with GitHub
 #   2. Create a subdomain (e.g. "polybot") → polybot.duckdns.org
-#   3. Set it to point to your server IP (15.207.1.92)
+#   3. Set it to point to your server IP (<your-server-ip>)
 #   4. Copy your DuckDNS token
 #
 # Usage:

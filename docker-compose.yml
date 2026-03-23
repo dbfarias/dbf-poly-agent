@@ -1,3 +1,6 @@
+# Local development stack -- builds images from source.
+# Usage: docker compose up --build
+# For production (pre-built images from GHCR), use docker-compose.prod.yml
 services:
   app:
     build:

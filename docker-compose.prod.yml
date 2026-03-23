@@ -1,6 +1,10 @@
+# Set GITHUB_OWNER env var to your GitHub username before running:
+#   export GITHUB_OWNER=yourusername
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
 services:
   app:
-    image: ghcr.io/dbfarias/polybot-app:latest
+    image: ghcr.io/${GITHUB_OWNER:-yourusername}/polybot-app:latest
     container_name: polybot-app
     restart: unless-stopped
     env_file: .env
@@ -16,7 +20,7 @@ services:
       start_period: 15s
 
   frontend:
-    image: ghcr.io/dbfarias/polybot-frontend:latest
+    image: ghcr.io/${GITHUB_OWNER:-yourusername}/polybot-frontend:latest
     container_name: polybot-frontend
     restart: unless-stopped
     expose:

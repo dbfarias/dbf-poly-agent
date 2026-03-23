@@ -97,8 +97,8 @@ jobs:
           file: Dockerfile.bot
           push: true
           tags: |
-            ${{ env.REGISTRY }}/dbfarias/polybot-app:latest
-            ${{ env.REGISTRY }}/dbfarias/polybot-app:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-app:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-app:${{ github.sha }}
           cache-from: type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
 
@@ -123,8 +123,8 @@ jobs:
           file: Dockerfile.frontend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/dbfarias/polybot-frontend:latest
-            ${{ env.REGISTRY }}/dbfarias/polybot-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-frontend:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-frontend:${{ github.sha }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
           secrets: |
@@ -180,13 +180,14 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           timeout: 60s
           command_timeout: 10m
-          envs: GHCR_TOKEN
+          envs: GHCR_TOKEN,GITHUB_OWNER
           script: |
             set -e
             cd ~/polybot
@@ -196,7 +197,7 @@ jobs:
             PREV_FE=$(docker inspect --format='{{.Image}}' polybot-frontend 2>/dev/null || echo "")
 
             # Login and pull
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u dbfarias --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u $GITHUB_OWNER --password-stdin
             docker compose -f docker-compose.prod.yml pull
 
             # Recreate
@@ -220,8 +221,8 @@ jobs:
             else
               echo "::error::Healthcheck failed — rolling back"
               if [ -n "$PREV_APP" ]; then
-                docker tag "$PREV_APP" ghcr.io/dbfarias/polybot-app:latest 2>/dev/null || true
-                docker tag "$PREV_FE" ghcr.io/dbfarias/polybot-frontend:latest 2>/dev/null || true
+                docker tag "$PREV_APP" ghcr.io/$GITHUB_OWNER/polybot-app:latest 2>/dev/null || true
+                docker tag "$PREV_FE" ghcr.io/$GITHUB_OWNER/polybot-frontend:latest 2>/dev/null || true
                 docker compose -f docker-compose.prod.yml up -d --force-recreate
                 sleep 10
                 echo "Rolled back"

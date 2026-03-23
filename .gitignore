@@ -20,6 +20,15 @@ frontend/blob-report/
 
 # Security — never commit secrets or keys
 .ssh/
+.claude/
 .claude/settings.local.json
 *.pem
 *.key
+
+# OS files
+.DS_Store
+
+# Local data
+db.sqlite
+scripts/
+img/
