@@ -1134,7 +1134,8 @@ class TradingEngine:
                 # Close the position — research says we're wrong
                 try:
                     await self.closer.close_position(
-                        pos, exit_reason=f"bayesian_update (sentiment={sentiment:.2f}, pnl={pnl_pct:.1%})",
+                        pos,
+                        exit_reason=f"bayesian_update (sent={sentiment:.2f})",
                     )
                     already_exiting.add(pos.market_id)
                 except Exception as e:
