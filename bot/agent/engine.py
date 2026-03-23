@@ -1643,6 +1643,45 @@ class TradingEngine:
                             multiplier=round(sports_mult, 3),
                         )
 
+                # Fear & Greed Index — adjust crypto market trades
+                try:
+                    fg = int(getattr(research, "fear_greed_index", 50) or 50)
+                    if not isinstance(fg, int):
+                        fg = 50
+                except (TypeError, ValueError):
+                    fg = 50
+                is_crypto = research.market_category == "crypto" or any(
+                    w in signal.question.lower()
+                    for w in ["bitcoin", "btc", "ethereum", "eth", "solana", "crypto"]
+                )
+                if is_crypto and fg != 50:
+                    fg_mult = self.research_engine.fear_greed.get_edge_multiplier()
+                    if fg_mult != 1.0:
+                        edge_multiplier *= fg_mult
+                        signal.metadata["fear_greed"] = fg
+                        signal.metadata["fear_greed_mult"] = round(fg_mult, 3)
+
+                # Manifold cross-platform — boost if Manifold agrees
+                try:
+                    _mp = getattr(research, "manifold_prob", 0.0)
+                    manifold_prob = float(_mp) if isinstance(_mp, (int, float)) else 0.0
+                except (TypeError, ValueError):
+                    manifold_prob = 0.0
+                if manifold_prob > 0:
+                    manifold_edge = abs(manifold_prob - signal.market_price)
+                    if manifold_edge > 0.05:
+                        m_mult = max(0.8, min(1.3, 1.0 + manifold_edge * 0.5))
+                        edge_multiplier *= m_mult
+                        signal.metadata["manifold_prob"] = round(manifold_prob, 3)
+                        signal.metadata["manifold_edge"] = round(manifold_edge, 3)
+                        logger.info(
+                            "manifold_edge_boost",
+                            market_id=signal.market_id[:20],
+                            manifold_prob=round(manifold_prob, 3),
+                            market_price=signal.market_price,
+                            edge=round(manifold_edge, 3),
+                        )
+
                 # Research direction validation: check if sentiment agrees
                 # with the trade direction (buying YES vs NO)
                 if research.confidence >= 0.3:

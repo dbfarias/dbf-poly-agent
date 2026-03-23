@@ -39,3 +39,7 @@ class ResearchResult:
     tweet_count: int = 0  # Number of tweets found
     sports_odds_prob: float = 0.0  # Sportsbook consensus probability (0 = no data)
     sports_bookmaker_count: int = 0  # Number of bookmakers agreeing
+    fear_greed_index: int = 50  # Crypto Fear & Greed (0=fear, 100=greed)
+    manifold_prob: float = 0.0  # Cross-platform probability from Manifold
+    fred_value: float = 0.0  # Relevant FRED economic indicator value
+    fred_series: str = ""  # Which FRED series matched

@@ -12,8 +12,11 @@ from bot.research.cache import ResearchCache
 from bot.research.category_classifier import CategoryClassifier
 from bot.research.correlation_detector import CorrelationDetector
 from bot.research.crypto_fetcher import CryptoFetcher
+from bot.research.fear_greed_fetcher import FearGreedFetcher
+from bot.research.fred_fetcher import FredFetcher
 from bot.research.keyword_extractor import extract_keywords, extract_keywords_llm
 from bot.research.llm_sentiment import analyze_sentiment_llm, should_use_llm
+from bot.research.manifold_fetcher import ManifoldFetcher
 from bot.research.news_fetcher import NewsFetcher
 from bot.research.pattern_analyzer import PatternAnalyzer
 from bot.research.reddit_fetcher import RedditFetcher
@@ -56,6 +59,9 @@ class ResearchEngine:
         self.pattern_analyzer = PatternAnalyzer()
         self.whale_detector: WhaleDetector | None = None
         self.sports_fetcher = SportsFetcher()
+        self.fear_greed = FearGreedFetcher()
+        self.manifold = ManifoldFetcher()
+        self.fred = FredFetcher()
         self.weather_fetcher: object | None = None  # Set by TradingEngine
         self._running = False
         self._priority_market_ids: set[str] = set()
@@ -181,9 +187,11 @@ class ResearchEngine:
             non_anomaly = [m for m in scan_markets if m.id not in anomaly_set]
             scan_markets = anomaly_markets + non_anomaly
 
-        # Fetch crypto sentiment and prices once per scan (shared across all markets)
+        # Fetch shared data once per scan
         crypto_sentiment = await self.crypto_fetcher.get_market_sentiment()
         crypto_prices = await self.crypto_fetcher.get_prices()
+        fear_greed_val, _ = await self.fear_greed.get_index()
+        await self.manifold.refresh_markets()
         scanned = 0
 
         for market in scan_markets:
@@ -196,6 +204,7 @@ class ResearchEngine:
                     crypto_prices=crypto_prices,
                     is_volume_anomaly=self.volume_detector.is_anomaly(market.id),
                     token_ids=getattr(market, "token_ids", []),
+                    fear_greed_val=fear_greed_val,
                 )
                 if result is not None:
                     self.research_cache.set(market.id, result)
@@ -223,6 +232,7 @@ class ResearchEngine:
         crypto_prices: dict[str, float] | None = None,
         is_volume_anomaly: bool = False,
         token_ids: list[str] | None = None,
+        fear_greed_val: int = 50,
     ) -> ResearchResult | None:
         """Research a single market: keywords -> news + reddit -> sentiment -> multiplier."""
         if crypto_sentiment is None:
@@ -345,6 +355,28 @@ class ResearchEngine:
                     whale_activity = True
                     break
 
+        # Cross-platform: Manifold probability
+        manifold_prob = 0.0
+        try:
+            mp = self.manifold.find_matching_probability(question)
+            if mp is not None:
+                manifold_prob = mp
+        except Exception:
+            pass
+
+        # Economic data: FRED
+        fred_value = 0.0
+        fred_series = ""
+        try:
+            series_name = self.fred.is_relevant_to_market(question)
+            if series_name:
+                val = await self.fred.get_latest(series_name)
+                if val is not None:
+                    fred_value = val
+                    fred_series = series_name
+        except Exception:
+            pass
+
         # Sports odds lookup — compare sportsbook consensus vs Polymarket price
         sports_odds_prob = 0.0
         sports_bookmaker_count = 0
@@ -380,4 +412,8 @@ class ResearchEngine:
             tweet_count=tweet_count,
             sports_odds_prob=sports_odds_prob,
             sports_bookmaker_count=sports_bookmaker_count,
+            fear_greed_index=fear_greed_val,
+            manifold_prob=manifold_prob,
+            fred_value=fred_value,
+            fred_series=fred_series,
         )
