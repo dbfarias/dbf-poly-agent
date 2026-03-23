@@ -24,6 +24,7 @@ dependencies = [
     "anthropic>=0.42.0",
     "web3>=7.0.0",
     "pywebpush>=2.0.0",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]

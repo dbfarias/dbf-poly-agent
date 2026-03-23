@@ -29,6 +29,7 @@ frontend/blob-report/
 .DS_Store
 
 # Local data
+*.sqlite
 db.sqlite
 scripts/
 img/

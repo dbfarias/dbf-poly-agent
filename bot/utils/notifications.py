@@ -14,6 +14,7 @@ TELEGRAM_API = "https://api.telegram.org"
 # Error message sanitization
 _MAX_ERROR_LEN = 200
 _REDACT_RE = re.compile(r"0x[0-9a-fA-F]{20,}")
+_TOKEN_RE = re.compile(r"/bot[0-9]+:[A-Za-z0-9_-]+/")
 
 # Connection pooling — reuse a single httpx client for all Telegram requests
 _client: httpx.AsyncClient | None = None
@@ -60,7 +61,9 @@ async def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
         resp.raise_for_status()
         return True
     except Exception as e:
-        logger.error("telegram_send_failed", error=str(e))
+        # Redact bot token from error messages to prevent leaking it in logs
+        safe_error = _TOKEN_RE.sub("/bot***:***/", str(e))
+        logger.error("telegram_send_failed", error=safe_error)
         return False
 
 

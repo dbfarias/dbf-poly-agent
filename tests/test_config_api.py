@@ -63,7 +63,7 @@ class TestTradingModeToggle:
             patch("api.routers.config.get_engine", side_effect=RuntimeError),
             patch("api.routers.config.SettingsStore.save_from_update", new_callable=AsyncMock),
         ):
-            result = await update_config(update, _="fake-api-key")
+            result = await update_config(request=MagicMock(), update=update, _="fake-api-key")
 
         assert settings.trading_mode == TradingMode.LIVE
         assert "trading_mode=live" in result["changes"]
@@ -88,7 +88,7 @@ class TestTradingModeToggle:
                     new_callable=AsyncMock,
                 ),
             ):
-                await update_config(update, _="fake-api-key")
+                await update_config(request=MagicMock(), update=update, _="fake-api-key")
 
         assert exc_info.value.status_code == 400
         assert "POLY_PRIVATE_KEY" in exc_info.value.detail
@@ -109,7 +109,7 @@ class TestTradingModeToggle:
             patch("api.routers.config.get_engine", side_effect=RuntimeError),
             patch("api.routers.config.SettingsStore.save_from_update", new_callable=AsyncMock),
         ):
-            result = await update_config(update, _="fake-api-key")
+            result = await update_config(request=MagicMock(), update=update, _="fake-api-key")
 
         assert settings.trading_mode == TradingMode.PAPER
         assert "trading_mode=paper" in result["changes"]
@@ -132,7 +132,7 @@ class TestTradingModeToggle:
                     new_callable=AsyncMock,
                 ),
             ):
-                await update_config(update, _="fake-api-key")
+                await update_config(request=MagicMock(), update=update, _="fake-api-key")
 
         assert exc_info.value.status_code == 400
         assert "Invalid trading_mode" in exc_info.value.detail

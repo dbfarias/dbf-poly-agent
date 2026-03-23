@@ -56,6 +56,14 @@ class PositionRedeemer:
                 logger.warning("redeemer_rpc_not_connected", url=settings.polygon_rpc_url)
                 return False
 
+            # Verify we are on Polygon mainnet — hardcoded addresses are chain-specific
+            actual_chain = self._w3.eth.chain_id
+            if actual_chain != CHAIN_ID:
+                raise RuntimeError(
+                    f"Chain ID mismatch: expected {CHAIN_ID} (Polygon), got {actual_chain}. "
+                    "Hardcoded contract addresses are only valid on Polygon mainnet."
+                )
+
             checksum = Web3.to_checksum_address
             self._ctf = self._w3.eth.contract(address=checksum(CTF_ADDRESS), abi=CTF_ABI)
             self._neg_risk = self._w3.eth.contract(

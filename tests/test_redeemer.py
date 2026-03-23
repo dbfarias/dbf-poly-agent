@@ -21,6 +21,7 @@ def mock_w3():
     """Create a mock Web3 instance with connected RPC."""
     w3 = MagicMock()
     w3.is_connected.return_value = True
+    w3.eth.chain_id = 137
     w3.eth.gas_price = 50 * 10**9  # 50 gwei
     w3.eth.get_transaction_count.return_value = 42
     w3.eth.send_raw_transaction.return_value = b"\xab" * 32

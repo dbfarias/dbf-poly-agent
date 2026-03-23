@@ -1,7 +1,9 @@
 """Push notification subscription endpoints."""
 
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.middleware import verify_api_key
 from bot.config import settings
@@ -24,6 +26,16 @@ async def get_vapid_key():
 class SubscribeRequest(BaseModel):
     endpoint: str
     keys: dict
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint_url(cls, v: str) -> str:
+        parsed = urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError("Push subscription endpoint must use HTTPS")
+        if not parsed.netloc:
+            raise ValueError("Push subscription endpoint must be a valid URL")
+        return v
 
 
 @router.post("/subscribe")

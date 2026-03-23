@@ -1,10 +1,11 @@
 """Configuration API endpoints."""
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.dependencies import get_engine
 from api.middleware import verify_api_key
+from api.rate_limit import limiter
 from api.schemas import BotConfig, BotConfigUpdate
 from bot.config import RiskConfig, TradingMode, settings
 from bot.data.settings_store import SettingsStore
@@ -139,7 +140,10 @@ async def get_config(_: str = Depends(verify_api_key)):
 
 
 @router.put("/")
-async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key)):
+@limiter.limit("10/minute")
+async def update_config(
+    request: Request, update: BotConfigUpdate, _: str = Depends(verify_api_key),
+):
     changes: list[str] = []
 
     # Trading mode toggle
@@ -385,7 +389,8 @@ async def update_config(update: BotConfigUpdate, _: str = Depends(verify_api_key
 
 
 @router.post("/trading/pause")
-async def pause_trading(_: str = Depends(verify_api_key)):
+@limiter.limit("10/minute")
+async def pause_trading(request: Request, _: str = Depends(verify_api_key)):
     engine = get_engine()
     engine.risk_manager.pause()
     # Persist so pause survives container restart
@@ -395,7 +400,8 @@ async def pause_trading(_: str = Depends(verify_api_key)):
 
 
 @router.post("/trading/resume")
-async def resume_trading(_: str = Depends(verify_api_key)):
+@limiter.limit("10/minute")
+async def resume_trading(request: Request, _: str = Depends(verify_api_key)):
     engine = get_engine()
     # Reset peak equity to current equity so drawdown gate starts fresh
     equity = engine.portfolio.total_equity
@@ -408,7 +414,8 @@ async def resume_trading(_: str = Depends(verify_api_key)):
 
 
 @router.post("/risk/reset")
-async def reset_risk_state(_: str = Depends(verify_api_key)):
+@limiter.limit("10/minute")
+async def reset_risk_state(request: Request, _: str = Depends(verify_api_key)):
     """Reset corrupted risk manager and portfolio PnL state.
 
     Use after bugs that cause phantom PnL accumulation.

@@ -34,6 +34,7 @@ def _mock_web3():
 
     mock_w3 = MagicMock()
     mock_w3.is_connected.return_value = True
+    mock_w3.eth.chain_id = 137
     mock_w3.eth.get_transaction_count.return_value = 42
     mock_w3.eth.gas_price = 30_000_000_000
     mock_w3.eth.send_raw_transaction.return_value = b"\xaa" * 32

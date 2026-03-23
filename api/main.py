@@ -5,11 +5,14 @@ import time
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from api.auth import router as auth_router
 from api.middleware import verify_api_key
+from api.rate_limit import limiter
 from api.routers import (
     activity,
     config,
@@ -24,7 +27,6 @@ from api.routers import (
     trades,
     websocket,
 )
-from api.schemas import HealthCheck
 from bot.config import settings
 from bot.data.database import init_db
 from bot.main import create_engine
@@ -92,6 +94,18 @@ app = FastAPI(
     openapi_url=None,
 )
 
+app.state.limiter = limiter
+
+
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.allowed_origins.split(",") if o.strip()],
@@ -116,22 +130,10 @@ app.include_router(push.router)
 app.include_router(websocket.router)
 
 
-@app.get("/api/health", response_model=HealthCheck)
+@app.get("/api/health")
 async def health_check():
-    from bot.main import engine
-
-    engine_running = False
-    cycle_count = 0
-    if engine is not None:
-        engine_running = engine.is_running
-        cycle_count = engine.cycle_count
-
-    return HealthCheck(
-        status="ok",
-        uptime_seconds=time.time() - _start_time,
-        engine_running=engine_running,
-        cycle_count=cycle_count,
-    )
+    """Minimal health probe — no sensitive info for unauthenticated callers."""
+    return {"status": "ok"}
 
 
 @app.get("/api/status")

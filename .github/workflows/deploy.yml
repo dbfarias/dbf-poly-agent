@@ -127,8 +127,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/polybot-frontend:${{ github.sha }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
-          secrets: |
-            VITE_API_KEY=${{ secrets.API_SECRET_KEY }}
 
   deploy:
     needs: [build-app, build-frontend, changes]

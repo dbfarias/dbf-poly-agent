@@ -4,6 +4,8 @@ import os
 
 # Set API_SECRET_KEY before any bot.config import so the validator passes
 os.environ.setdefault("API_SECRET_KEY", "test-key-32chars-long-enough-xx")
+# Disable slowapi rate limiting during tests
+os.environ.setdefault("TESTING", "1")
 
 from unittest.mock import MagicMock, patch
 

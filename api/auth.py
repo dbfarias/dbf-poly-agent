@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from api.rate_limit import limiter
 from bot.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -27,11 +28,15 @@ class LoginResponse(BaseModel):
     expires_at: str
 
 
-_cached_hash: bytes | None = None
+# Pre-compute at module load to avoid lazy-init invalidation issues.
+# Tests may set _cached_hash = None to force re-computation with a patched password.
+_cached_hash: bytes | None = bcrypt.hashpw(
+    settings.dashboard_password.encode(), bcrypt.gensalt()
+)
 
 
 def _get_hash() -> bytes:
-    """Get or compute the bcrypt hash of the configured password."""
+    """Return the bcrypt hash, recomputing only if explicitly invalidated (tests)."""
     global _cached_hash
     if _cached_hash is None:
         _cached_hash = bcrypt.hashpw(
@@ -71,6 +76,7 @@ def decode_jwt(token: str) -> dict | None:
 
 
 @router.post("/login")
+@limiter.limit("5/minute")
 async def login(req: LoginRequest, request: Request):
     if not settings.dashboard_password:
         raise HTTPException(
@@ -101,7 +107,7 @@ async def login(req: LoginRequest, request: Request):
         value=token,
         httponly=True,
         secure=is_https,
-        samesite="lax",
+        samesite="strict",
         max_age=JWT_EXPIRY_HOURS * 3600,
         path="/",
     )
@@ -137,6 +143,6 @@ async def logout(request: Request):
     response = JSONResponse(content={"ok": True})
     response.delete_cookie(
         key=COOKIE_NAME, path="/", httponly=True,
-        samesite="lax", secure=is_https,
+        samesite="strict", secure=is_https,
     )
     return response

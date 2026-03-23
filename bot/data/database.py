@@ -20,6 +20,13 @@ ALLOWED_TABLES = frozenset({
 })
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
+# Allowlist for column type definitions — prevents SQL injection via col_type.
+_COL_TYPE_ALLOWLIST = frozenset({
+    "TEXT NOT NULL DEFAULT ''",
+    "REAL NOT NULL DEFAULT 0.0",
+    "INTEGER NOT NULL DEFAULT 0",
+})
+
 
 def _sanitize_url(url: str) -> str:
     """Strip credentials from a database URL for safe logging."""
@@ -79,6 +86,8 @@ async def _migrate(eng) -> None:
                 raise ValueError(f"Migration blocked: table '{table}' not in allowlist")
             if not _COLUMN_NAME_RE.match(column):
                 raise ValueError(f"Migration blocked: invalid column name '{column}'")
+            if col_type not in _COL_TYPE_ALLOWLIST:
+                raise ValueError(f"Migration blocked: col_type '{col_type}' not in allowlist")
 
             # Check if column already exists
             result = await conn.execute(text(f"PRAGMA table_info({table})"))
