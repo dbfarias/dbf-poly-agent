@@ -351,16 +351,16 @@ class MarketAnalyzer:
         Returns list of (market_id, exit_reason) tuples so callers can
         propagate the reason through to the trade DB and learner.
         """
-        from bot.research.sports_fetcher import is_sports_market
+        from bot.research.sports_fetcher import is_event_market
 
         exits: list[tuple[str, str]] = []
         exited_ids: set[str] = set()
         now = datetime.now(timezone.utc)
         for position in positions:
-            # Sports positions should wait for game resolution — don't exit early.
-            # Games resolve on-chain when the event completes.
+            # Event markets (sports, eSports, soccer) resolve when the event
+            # completes — never exit early, wait for on-chain resolution.
             question = getattr(position, "question", "")
-            if is_sports_market(question):
+            if is_event_market(question):
                 continue
             # 1. Strategy-specific exit check
             strategy_matched = False

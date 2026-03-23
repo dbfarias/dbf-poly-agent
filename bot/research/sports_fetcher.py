@@ -54,9 +54,50 @@ _SPORT_PATTERNS = [
 ]
 
 
+# eSports patterns — Counter-Strike, Valorant, LoL, Dota, etc.
+_ESPORTS_PATTERNS = [
+    re.compile(
+        r"\b(counter-?strike|cs2?|valorant|league of legends|lol|dota|"
+        r"overwatch|rocket league|fortnite|pubg|apex legends|"
+        r"call of duty|cod|rainbow six|r6|starcraft|halo)\b", re.I,
+    ),
+    re.compile(
+        r"\b(blast|esl|iem|vct|lcs|lec|lck|lpl|worlds|"
+        r"major|bo[135]|map \d|round of|bracket|"
+        r"furia|navi|g2|fnatic|cloud9|c9|team liquid|"
+        r"t1|gen\.?g|sentinels|100 thieves|vitality|"
+        r"falcons|heroic|mouz|faze|nip|astralis)\b", re.I,
+    ),
+]
+
+# Soccer/football specific
+_SOCCER_PATTERNS = [
+    re.compile(
+        r"\b(fc|sc|cf|afc|sfc|united|city|rovers|wanderers|"
+        r"athletic|atletico|real madrid|barcelona|bayern|"
+        r"liverpool|manchester|arsenal|chelsea|tottenham|"
+        r"juventus|inter|milan|psg|dortmund|"
+        r"liga|serie a|bundesliga|ligue 1|eredivisie)\b", re.I,
+    ),
+]
+
+
 def is_sports_market(question: str) -> bool:
-    """Check if a Polymarket question is about sports."""
+    """Check if a Polymarket question is about traditional sports."""
     return any(p.search(question) for p in _SPORT_PATTERNS)
+
+
+def is_event_market(question: str) -> bool:
+    """Check if a market is an event that should wait for resolution.
+
+    Covers: sports, eSports, soccer, and any competitive event.
+    These markets resolve when the event completes — never exit early.
+    """
+    return (
+        any(p.search(question) for p in _SPORT_PATTERNS)
+        or any(p.search(question) for p in _ESPORTS_PATTERNS)
+        or any(p.search(question) for p in _SOCCER_PATTERNS)
+    )
 
 
 def _extract_teams(question: str) -> list[str]:

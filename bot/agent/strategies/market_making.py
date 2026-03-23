@@ -67,10 +67,10 @@ class MarketMakingStrategy(BaseStrategy):
         if self._CRYPTO_SHORT_REJECT.search(market.question):
             return None
 
-        # Skip sports markets — MM has no sports knowledge, only sees spread.
-        # Sports should be traded by strategies that use odds data.
-        from bot.research.sports_fetcher import is_sports_market
-        if is_sports_market(market.question):
+        # Skip event markets (sports, eSports, soccer) — MM has no domain
+        # knowledge, only sees spread. Events should use odds-aware strategies.
+        from bot.research.sports_fetcher import is_event_market
+        if is_event_market(market.question):
             return None
 
         token_ids = market.token_ids

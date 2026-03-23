@@ -149,12 +149,12 @@ class PositionCloser:
                 # Paper mode: safe to auto-remove (no on-chain tokens)
                 # Live mode: auto-remove only near-worthless positions after many failures
                 # (tokens exist on-chain but are essentially worthless)
-                from bot.research.sports_fetcher import is_sports_market
+                from bot.research.sports_fetcher import is_event_market
                 question = getattr(pos, "question", "")
-                if is_sports_market(question):
-                    # Sports: never auto-remove, wait for game resolution
+                if is_event_market(question):
+                    # Events (sports/eSports/soccer): never auto-remove
                     logger.info(
-                        "sports_position_kept",
+                        "event_position_kept",
                         market_id=pos.market_id,
                         fail_count=count,
                     )
