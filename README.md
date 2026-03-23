@@ -24,9 +24,9 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 ## Key Features
 
 - **10 trading strategies** -- time decay, arbitrage, value betting, price divergence, swing trading, market making, weather trading, crypto short-term, news sniping, and copy trading
-- **14-stage risk pipeline** -- every signal passes through VaR (95%), Z-Score, VPIN toxic flow detection, AI debate, drawdown checks, and more
+- **14-stage risk pipeline** -- VaR (95%), VPIN toxic flow, AI debate, drawdown checks, event-aware exit protection (sports, eSports, soccer), rate limiting, and more
 - **AI-powered trade filtering** -- two Claude Haiku agents debate every trade (Proposer vs Challenger) before execution
-- **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports), NOAA + Open-Meteo (weather), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
+- **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo (weather), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
 - **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
 - **Cross-platform convergence scoring** -- aggregates signals across sources, boosts edge when multiple signals agree
 - **Deep research mode** -- high-edge trades (>10%) get enriched context with all available data for better LLM analysis
