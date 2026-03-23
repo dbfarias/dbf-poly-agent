@@ -23,12 +23,81 @@ from bot.research.reddit_fetcher import RedditFetcher
 from bot.research.resolution_parser import parse_resolution_criteria
 from bot.research.sentiment import analyze_sentiment, compute_enhanced_multiplier
 from bot.research.sports_fetcher import SportsFetcher, is_sports_market
+from bot.research.tavily_news_fetcher import TavilyNewsFetcher
 from bot.research.twitter_fetcher import TwitterFetcher
 from bot.research.types import NewsItem, ResearchResult
 from bot.research.volume_detector import VolumeAnomalyDetector
 from bot.research.whale_detector import WhaleDetector
 
 logger = structlog.get_logger()
+
+
+def _compute_convergence(
+    sentiment_score: float,
+    twitter_sentiment: float,
+    manifold_prob: float,
+    sports_odds_prob: float,
+    fear_greed_val: int,
+    is_crypto: bool,
+) -> float:
+    """Compute cross-platform signal convergence score (0.0 - 1.0).
+
+    Counts how many independent signals agree on direction (bullish/bearish).
+    Score = agreeing_signals / total_signals_available.
+    Returns 0.0 if no signals are available.
+
+    A "bullish" direction means the signal suggests YES / price up.
+    """
+    bullish_count = 0
+    bearish_count = 0
+    total_signals = 0
+
+    # News sentiment (threshold: |score| > 0.1 to count)
+    if abs(sentiment_score) > 0.1:
+        total_signals += 1
+        if sentiment_score > 0.1:
+            bullish_count += 1
+        else:
+            bearish_count += 1
+
+    # Twitter sentiment
+    if abs(twitter_sentiment) > 0.1:
+        total_signals += 1
+        if twitter_sentiment > 0.1:
+            bullish_count += 1
+        else:
+            bearish_count += 1
+
+    # Manifold probability vs 0.5 (above = bullish for YES outcome)
+    if manifold_prob > 0:
+        total_signals += 1
+        if manifold_prob > 0.5:
+            bullish_count += 1
+        else:
+            bearish_count += 1
+
+    # Sports odds (same logic as Manifold)
+    if sports_odds_prob > 0:
+        total_signals += 1
+        if sports_odds_prob > 0.5:
+            bullish_count += 1
+        else:
+            bearish_count += 1
+
+    # Fear & Greed (only for crypto markets)
+    if is_crypto and fear_greed_val != 50:
+        total_signals += 1
+        if fear_greed_val > 50:
+            bullish_count += 1  # Greed = bullish
+        else:
+            bearish_count += 1  # Fear = bearish
+
+    if total_signals == 0:
+        return 0.0
+
+    # Agreement = max side / total
+    agreeing = max(bullish_count, bearish_count)
+    return agreeing / total_signals
 
 
 class ResearchEngine:
@@ -53,6 +122,7 @@ class ResearchEngine:
         self.crypto_fetcher = CryptoFetcher()
         self.reddit_fetcher = RedditFetcher()
         self.twitter_fetcher = TwitterFetcher()
+        self.tavily_news = TavilyNewsFetcher()
         self.volume_detector = VolumeAnomalyDetector()
         self.correlation_detector = CorrelationDetector()
         self.category_classifier = CategoryClassifier()
@@ -107,6 +177,7 @@ class ResearchEngine:
         await self.crypto_fetcher.close()
         await self.reddit_fetcher.close()
         await self.twitter_fetcher.close()
+        await self.tavily_news.close()
         await self.sports_fetcher.close()
         logger.info("research_engine_stopped")
 
@@ -282,8 +353,17 @@ class ResearchEngine:
                 keywords, category=category, max_results=5,
             )
 
+        # Tavily general news (broader than Twitter-only domain restriction)
+        tavily_items: list[NewsItem] = []
+        if settings.tavily_api_key:
+            tavily_items = await self.tavily_news.search_news(
+                keywords, max_results=5,
+            )
+
         # Merge and deduplicate (Jaccard > 0.6 on titles = duplicate)
-        supplementary_items = list(reddit_items) + list(twitter_items)
+        supplementary_items = (
+            list(reddit_items) + list(twitter_items) + list(tavily_items)
+        )
         merged_items = list(news_items)
         for item in supplementary_items:
             item_words = set(item.title.lower().split())
@@ -391,6 +471,27 @@ class ResearchEngine:
             except Exception as e:
                 logger.debug("sports_odds_lookup_error", error=str(e))
 
+        # --- Cross-platform convergence scoring ---
+        # Count how many independent signals agree on a direction (bullish/bearish)
+        convergence_score = _compute_convergence(
+            sentiment_score=sentiment_score,
+            twitter_sentiment=twitter_sentiment,
+            manifold_prob=manifold_prob,
+            sports_odds_prob=sports_odds_prob,
+            fear_greed_val=fear_greed_val,
+            is_crypto=market_category == "crypto" or crypto_score != 0.0,
+        )
+
+        # TODO: Future — YouTube transcript analysis (Feature 4)
+        # Would add YouTube video sentiment as an additional convergence signal.
+        # Requires YouTube Data API key; deferred for now.
+
+        # TODO: Future — Firecrawl integration (Feature 5)
+        # Firecrawl ($19/mo) could replace our Google News + Reddit scraping
+        # with more reliable, structured web data extraction.
+        # Current web scraping is handled by Reddit (with circuit breaker for 403s)
+        # and Google News RSS (no scraping needed).
+
         return ResearchResult(
             market_id=market_id,
             keywords=tuple(keywords),
@@ -416,4 +517,5 @@ class ResearchEngine:
             manifold_prob=manifold_prob,
             fred_value=fred_value,
             fred_series=fred_series,
+            convergence_score=convergence_score,
         )

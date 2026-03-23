@@ -1517,6 +1517,19 @@ class TradingEngine:
                     signal, research,
                 )
 
+                # Deep research for high-edge trades (>= 10% edge, >= $5 size)
+                deep_context = ""
+                if signal.edge >= 0.10 and research is not None:
+                    est_size = min(
+                        self.portfolio.total_equity * 0.15,
+                        signal.edge * self.portfolio.total_equity * 0.25,
+                    )
+                    if est_size >= 5.0:
+                        deep_context = self._build_deep_research_context(
+                            signal, research,
+                        )
+                        signal.metadata["deep_research"] = True
+
                 debate_result = await debate_signal(
                     question=signal.question,
                     strategy=signal.strategy,
@@ -1532,6 +1545,7 @@ class TradingEngine:
                     whale_activity=whale_flag,
                     whale_summary=whale_summary_text,
                     context=debate_ctx,
+                    extra_context=deep_context,
                 )
                 if debate_result is not None:
                     debate_meta = {
@@ -1786,6 +1800,17 @@ class TradingEngine:
                     elif br_raw < 0.35:
                         edge_multiplier *= 1.25  # More cautious
                     signal.metadata["historical_base_rate"] = br_raw
+
+                # Cross-platform convergence boost/penalty
+                convergence = getattr(research, "convergence_score", 0.0)
+                if isinstance(convergence, (int, float)) and convergence > 0:
+                    signal.metadata["convergence_score"] = round(convergence, 2)
+                    if convergence >= 0.7:
+                        edge_multiplier *= 1.15  # Strong agreement
+                        signal.metadata["convergence_boost"] = True
+                    elif convergence <= 0.3:
+                        edge_multiplier *= 0.85  # Disagreement penalty
+                        signal.metadata["convergence_penalty"] = True
 
             # Calibrate estimated probability using historical accuracy
             if self.learner.calibrator.is_trained:
@@ -2126,6 +2151,98 @@ class TradingEngine:
             news_article_count=article_cnt,
             research_sentiment_strength=sentiment_strength,
         )
+
+    def _build_deep_research_context(self, signal, research) -> str:
+        """Build comprehensive research context for high-edge trade debate.
+
+        Aggregates all available research data into a formatted string
+        that gives the LLM proposer maximum context for high-value decisions.
+        """
+        parts: list[str] = []
+
+        # News items with full titles and sentiment
+        if research.news_items:
+            news_lines = []
+            for item in research.news_items[:10]:
+                sent_label = (
+                    "positive" if item.sentiment > 0.1
+                    else "negative" if item.sentiment < -0.1
+                    else "neutral"
+                )
+                news_lines.append(
+                    f"  - [{sent_label}] {item.title} ({item.source})"
+                )
+            parts.append("NEWS ARTICLES:\n" + "\n".join(news_lines))
+
+        # Sentiment summary
+        parts.append(
+            f"SENTIMENT: overall={research.sentiment_score:+.2f}, "
+            f"twitter={research.twitter_sentiment:+.2f} "
+            f"({research.tweet_count} tweets), "
+            f"confidence={research.confidence:.2f}"
+        )
+
+        # Cross-platform data
+        if research.manifold_prob > 0:
+            parts.append(
+                f"MANIFOLD: probability={research.manifold_prob:.1%} "
+                f"(vs Polymarket price ${signal.market_price:.3f})"
+            )
+
+        if research.sports_odds_prob > 0:
+            parts.append(
+                f"SPORTS ODDS: consensus={research.sports_odds_prob:.1%} "
+                f"from {research.sports_bookmaker_count} bookmakers"
+            )
+
+        if research.fred_value > 0:
+            parts.append(
+                f"ECONOMIC DATA: {research.fred_series}={research.fred_value:.2f}"
+            )
+
+        # Crypto data
+        if research.crypto_prices:
+            prices_str = ", ".join(
+                f"{name}: ${price:,.0f}"
+                for name, price in research.crypto_prices[:5]
+            )
+            parts.append(f"CRYPTO PRICES: {prices_str}")
+
+        if research.fear_greed_index != 50:
+            label = (
+                "Extreme Fear" if research.fear_greed_index < 25
+                else "Fear" if research.fear_greed_index < 45
+                else "Greed" if research.fear_greed_index > 55
+                else "Extreme Greed" if research.fear_greed_index > 75
+                else "Neutral"
+            )
+            parts.append(
+                f"FEAR & GREED: {research.fear_greed_index} ({label})"
+            )
+
+        # Resolution details
+        if research.resolution_condition:
+            parts.append(f"RESOLUTION: {research.resolution_condition}")
+            if research.resolution_source:
+                parts.append(f"SOURCE: {research.resolution_source}")
+
+        # Convergence
+        convergence = getattr(research, "convergence_score", 0.0)
+        if convergence > 0:
+            parts.append(f"CONVERGENCE SCORE: {convergence:.0%}")
+
+        # Signals
+        flags = []
+        if research.is_volume_anomaly:
+            flags.append("volume_anomaly")
+        if research.whale_activity:
+            flags.append("whale_activity")
+        if research.historical_base_rate > 0:
+            flags.append(f"base_rate={research.historical_base_rate:.0%}")
+        if flags:
+            parts.append(f"SIGNALS: {', '.join(flags)}")
+
+        return "\n".join(parts)
 
     async def _maybe_notify_risk_limit(self, reason: str) -> None:
         """Send a one-time daily notification when a risk limit is breached."""

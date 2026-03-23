@@ -7,6 +7,8 @@ import time
 import structlog
 import websockets
 
+from bot.research.technical_indicators import compute_macd, compute_rsi
+
 logger = structlog.get_logger()
 
 
@@ -72,6 +74,64 @@ class SpotPriceWS:
     def get_prices(self) -> dict[str, float]:
         """Get all tracked prices."""
         return dict(self._prices)
+
+    def get_price_history(self, symbol: str, window: int = 100) -> list[float]:
+        """Return last N prices from the rolling history.
+
+        Extracts price values only (no timestamps) from the internal history.
+        Returns empty list if no data for the symbol.
+        """
+        history = self._history.get(symbol)
+        if not history:
+            return []
+        # Extract only price values from (timestamp, price) tuples
+        prices = [price for _, price in history]
+        return prices[-window:]
+
+    def get_rsi(self, symbol: str, period: int = 14) -> float | None:
+        """Compute RSI from price history for a given symbol.
+
+        Returns RSI (0-100) or None if insufficient data.
+        """
+        prices = self.get_price_history(symbol, window=period * 3)
+        return compute_rsi(prices, period=period)
+
+    def get_technical_summary(self, symbol: str) -> dict:
+        """Return all available technical indicators for a symbol.
+
+        Returns dict with keys: rsi, macd, macd_signal, macd_histogram,
+        momentum_5m, momentum_15m, price. Values are None when insufficient data.
+        """
+        prices = self.get_price_history(symbol, window=100)
+        current_price = self._prices.get(symbol)
+
+        rsi = compute_rsi(prices) if len(prices) >= 15 else None
+        macd_result = compute_macd(prices) if len(prices) >= 35 else None
+        momentum_5m = self.get_momentum(symbol, window_seconds=300)
+        momentum_15m = self.get_momentum(symbol, window_seconds=900)
+
+        summary: dict = {
+            "symbol": symbol,
+            "price": current_price,
+            "rsi": round(rsi, 2) if rsi is not None else None,
+            "macd": None,
+            "macd_signal": None,
+            "macd_histogram": None,
+            "momentum_5m": (
+                round(momentum_5m, 6) if momentum_5m is not None else None
+            ),
+            "momentum_15m": (
+                round(momentum_15m, 6) if momentum_15m is not None else None
+            ),
+        }
+
+        if macd_result is not None:
+            macd_line, signal_line, histogram = macd_result
+            summary["macd"] = round(macd_line, 4)
+            summary["macd_signal"] = round(signal_line, 4)
+            summary["macd_histogram"] = round(histogram, 4)
+
+        return summary
 
     def get_momentum(self, symbol: str, window_seconds: int = 300) -> float | None:
         """Calculate price change % over the given window.

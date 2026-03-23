@@ -122,3 +122,77 @@ def test_handle_ticker_handles_invalid_price(ws):
         "product_id": "ETH-USD",
     })
     assert ws.get_price("ETH-USD") is None
+
+
+# --- Tests for new technical indicator methods ---
+
+
+def test_get_price_history_empty(ws):
+    """No data returns empty list."""
+    assert ws.get_price_history("BTC-USD") == []
+
+
+def test_get_price_history_returns_prices(ws):
+    """Returns prices from history (without timestamps)."""
+    now = time.monotonic()
+    ws._history["BTC-USD"] = [
+        (now - 3, 100.0),
+        (now - 2, 101.0),
+        (now - 1, 102.0),
+    ]
+    prices = ws.get_price_history("BTC-USD")
+    assert prices == [100.0, 101.0, 102.0]
+
+
+def test_get_price_history_respects_window(ws):
+    """Window limits the number of returned prices."""
+    now = time.monotonic()
+    ws._history["BTC-USD"] = [
+        (now - i, float(100 + i)) for i in range(50, 0, -1)
+    ]
+    prices = ws.get_price_history("BTC-USD", window=10)
+    assert len(prices) == 10
+
+
+def test_get_rsi_no_data(ws):
+    """No history returns None."""
+    assert ws.get_rsi("BTC-USD") is None
+
+
+def test_get_rsi_with_data(ws):
+    """RSI computed from enough price history."""
+    now = time.monotonic()
+    # 20 prices trending up
+    ws._history["BTC-USD"] = [
+        (now - 20 + i, 100.0 + i * 0.5) for i in range(20)
+    ]
+    rsi = ws.get_rsi("BTC-USD")
+    assert rsi is not None
+    assert 0 <= rsi <= 100
+    assert rsi > 50  # Uptrend should have RSI > 50
+
+
+def test_get_technical_summary_empty(ws):
+    """No data returns dict with None values."""
+    summary = ws.get_technical_summary("BTC-USD")
+    assert summary["symbol"] == "BTC-USD"
+    assert summary["price"] is None
+    assert summary["rsi"] is None
+    assert summary["macd"] is None
+
+
+def test_get_technical_summary_with_data(ws):
+    """Summary returns populated dict with enough history."""
+    now = time.monotonic()
+    # 50 prices trending up
+    ws._history["BTC-USD"] = [
+        (now - 50 + i, 100.0 + i * 0.3) for i in range(50)
+    ]
+    ws._prices["BTC-USD"] = 100.0 + 49 * 0.3
+
+    summary = ws.get_technical_summary("BTC-USD")
+    assert summary["symbol"] == "BTC-USD"
+    assert summary["price"] is not None
+    assert summary["rsi"] is not None
+    assert isinstance(summary["rsi"], float)
+    assert summary["macd"] is not None

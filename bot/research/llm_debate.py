@@ -638,6 +638,7 @@ async def debate_signal(
     whale_activity: bool = False,
     whale_summary: str = "",
     context: DebateContext | None = None,
+    extra_context: str = "",
 ) -> DebateResult | None:
     """Run a Proposer vs Challenger debate on a trade signal.
 
@@ -757,6 +758,10 @@ async def debate_signal(
         # Inject whale summary context
         if whale_summary:
             proposer_msg += f"\n\nWHALE ACTIVITY:\n{whale_summary}"
+
+        # Inject deep research extra context (for high-edge trades)
+        if extra_context:
+            proposer_msg += f"\n\nDEEP RESEARCH DATA:\n{extra_context}"
 
         try:
             prop_resp = await client.messages.create(

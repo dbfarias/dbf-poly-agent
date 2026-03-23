@@ -4,7 +4,7 @@
 
 ### Autonomous Polymarket Trading Agent
 
-[![Tests](https://img.shields.io/badge/Tests-2257%2B_passing-brightgreen?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/Tests-2300%2B_passing-brightgreen?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
@@ -26,7 +26,11 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 - **10 trading strategies** -- time decay, arbitrage, value betting, price divergence, swing trading, market making, weather trading, crypto short-term, news sniping, and copy trading
 - **14-stage risk pipeline** -- every signal passes through VaR (95%), Z-Score, VPIN toxic flow detection, AI debate, drawdown checks, and more
 - **AI-powered trade filtering** -- two Claude Haiku agents debate every trade (Proposer vs Challenger) before execution
-- **Multi-source research engine** -- Google News, Twitter/X (Tavily), Reddit, CoinGecko, order book whale detection, volume anomaly tracking
+- **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports), NOAA + Open-Meteo (weather), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
+- **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
+- **Cross-platform convergence scoring** -- aggregates signals across sources, boosts edge when multiple signals agree
+- **Deep research mode** -- high-edge trades (>10%) get enriched context with all available data for better LLM analysis
+- **Bayesian position updating** -- re-evaluates open positions with fresh research every cycle, exits when fundamentals shift
 - **Adaptive learning** -- PerformanceLearner adjusts edge multipliers, category confidence, and urgency every 5 minutes
 - **Real-time dashboard** -- 12-page React UI with equity curves, trade history, strategy performance, risk metrics, and AI debate logs
 - **Paper trading mode** -- test everything risk-free before going live
@@ -275,7 +279,7 @@ bash deploy/setup-https.sh <duckdns-subdomain> <duckdns-token> <your-email>
 
 The included GitHub Actions workflow (`.github/workflows/deploy.yml`) runs a 3-job pipeline on push to `main`:
 
-1. **Test** -- pytest (2257+ tests) + ruff lint + frontend build
+1. **Test** -- pytest (2300+ tests) + ruff lint + frontend build
 2. **Build** -- Docker images pushed to GitHub Container Registry
 3. **Deploy** -- SSH to server, pull images, restart with healthcheck + auto-rollback
 
@@ -285,7 +289,7 @@ Configure these GitHub secrets for CI/CD: `SERVER_HOST`, `SERVER_USER`, `SERVER_
 
 ## Testing
 
-**2257+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
+**2300+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests

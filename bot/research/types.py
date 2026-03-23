@@ -43,3 +43,4 @@ class ResearchResult:
     manifold_prob: float = 0.0  # Cross-platform probability from Manifold
     fred_value: float = 0.0  # Relevant FRED economic indicator value
     fred_series: str = ""  # Which FRED series matched
+    convergence_score: float = 0.0  # Cross-signal agreement (0=disagree, 1=full agreement)
