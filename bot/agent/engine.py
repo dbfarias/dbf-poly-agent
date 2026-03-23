@@ -1102,7 +1102,11 @@ class TradingEngine:
 
             # Policy check: only SHORT_TERM markets allow Bayesian exits
             question = getattr(pos, "question", "")
-            policy = get_policy(classify_market(question))
+            end_date = None
+            cached_m = self.cache.get_market(pos.market_id)
+            if cached_m and hasattr(cached_m, "end_date"):
+                end_date = cached_m.end_date
+            policy = get_policy(classify_market(question, end_date=end_date))
             if not policy.allow_bayesian_exit:
                 continue
 

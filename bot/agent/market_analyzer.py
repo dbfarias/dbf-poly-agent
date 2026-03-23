@@ -359,7 +359,12 @@ class MarketAnalyzer:
         for position in positions:
             # Policy-based exit control: market type determines what exits are allowed
             question = getattr(position, "question", "")
-            policy = get_policy(classify_market(question))
+            # Try to get end_date from cache for better classification
+            end_date = None
+            cached_market = self.cache.get(position.market_id) if hasattr(self, "cache") else None
+            if cached_market and hasattr(cached_market, "end_date"):
+                end_date = cached_market.end_date
+            policy = get_policy(classify_market(question, end_date=end_date))
             if not policy.allow_early_exit:
                 continue
             # 1. Strategy-specific exit check
