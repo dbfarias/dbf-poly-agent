@@ -117,6 +117,8 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # No build secrets needed — the dashboard authenticates via JWT cookie.
+      # The API key is server-side only and never baked into the frontend bundle.
       - uses: docker/build-push-action@v6
         with:
           context: .

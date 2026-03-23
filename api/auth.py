@@ -29,9 +29,11 @@ class LoginResponse(BaseModel):
 
 
 # Pre-compute at module load to avoid lazy-init invalidation issues.
-# Tests may set _cached_hash = None to force re-computation with a patched password.
-_cached_hash: bytes | None = bcrypt.hashpw(
-    settings.dashboard_password.encode(), bcrypt.gensalt()
+# Guard: empty password → None (blocked at request time in login handler).
+_cached_hash: bytes | None = (
+    bcrypt.hashpw(settings.dashboard_password.encode(), bcrypt.gensalt())
+    if settings.dashboard_password
+    else None
 )
 
 
@@ -91,7 +93,7 @@ async def login(req: LoginRequest, request: Request):
     if not (username_ok and password_ok):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token, expires = create_jwt(req.username)
+    token, expires = create_jwt(settings.dashboard_user)  # canonical, not client-supplied
 
     # Auto-detect HTTPS via X-Forwarded-Proto (set by nginx) or config
     is_https = (
