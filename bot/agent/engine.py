@@ -1090,13 +1090,34 @@ class TradingEngine:
     async def _bayesian_update_positions(self, already_exiting: set[str]) -> None:
         """Re-evaluate open positions using fresh research data — no LLM cost.
 
-        Checks if sentiment/news has shifted against our position.
-        If research strongly contradicts the trade direction, flag for exit.
-        This is the "Bayesian updating" concept from the LunarResearcher article.
+        Only exits SHORT-TERM positions (resolving within 3 days) where
+        sentiment has shifted strongly against the trade direction.
+        Long-term markets have volatile sentiment — never exit on sentiment alone.
         """
+        from bot.research.sports_fetcher import is_event_market
+
+        now = datetime.now(timezone.utc)
         for pos in self.portfolio.positions:
             if pos.market_id in already_exiting:
                 continue
+
+            # Skip event markets — they resolve on completion
+            question = getattr(pos, "question", "")
+            if is_event_market(question):
+                continue
+
+            # Skip long-term markets (>3 days to resolution)
+            try:
+                market = self.cache.get_market(pos.market_id)
+                if market and market.end_date:
+                    end = market.end_date
+                    if hasattr(end, "tzinfo") and end.tzinfo is None:
+                        end = end.replace(tzinfo=timezone.utc)
+                    days_left = (end - now).total_seconds() / 86400
+                    if days_left > 3:
+                        continue  # Too far out — sentiment is noisy
+            except (TypeError, AttributeError):
+                continue  # Can't determine resolution — skip to be safe
 
             research = self.research_cache.get(pos.market_id)
             if research is None:
@@ -1106,10 +1127,10 @@ class TradingEngine:
             buying_yes = getattr(pos, "outcome", "") == "Yes"
             sentiment = research.sentiment_score
 
-            # Strong contradiction: we bought YES but sentiment is very negative (or vice versa)
+            # Strong contradiction: bought YES but sentiment very negative
             contradiction = (
-                (buying_yes and sentiment < -0.4)
-                or (not buying_yes and sentiment > 0.4)
+                (buying_yes and sentiment < -0.5)
+                or (not buying_yes and sentiment > 0.5)
             )
 
             if not contradiction:
@@ -1121,8 +1142,8 @@ class TradingEngine:
             else:
                 continue
 
-            # Only act if contradicted AND losing > 10%
-            if contradiction and pnl_pct < -0.10:
+            # Only act if contradicted AND losing > 15%
+            if contradiction and pnl_pct < -0.15:
                 logger.warning(
                     "bayesian_exit_signal",
                     market_id=pos.market_id[:20],
