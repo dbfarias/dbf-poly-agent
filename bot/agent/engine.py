@@ -1080,9 +1080,65 @@ class TradingEngine:
                 await self.closer.close_position(pos, exit_reason=exit_reason)
                 exited_ids.add(market_id)
 
+        # Bayesian position updater — re-evaluate open positions with fresh research
+        await self._bayesian_update_positions(exited_ids)
+
         # LLM position reviewer (runs on positions not already exiting)
         if settings.use_llm_reviewer:
             await self._llm_review_positions(exited_ids)
+
+    async def _bayesian_update_positions(self, already_exiting: set[str]) -> None:
+        """Re-evaluate open positions using fresh research data — no LLM cost.
+
+        Checks if sentiment/news has shifted against our position.
+        If research strongly contradicts the trade direction, flag for exit.
+        This is the "Bayesian updating" concept from the LunarResearcher article.
+        """
+        for pos in self.portfolio.positions:
+            if pos.market_id in already_exiting:
+                continue
+
+            research = self.research_cache.get(pos.market_id)
+            if research is None:
+                continue
+
+            # Check: does fresh sentiment contradict our position?
+            buying_yes = getattr(pos, "outcome", "") == "Yes"
+            sentiment = research.sentiment_score
+
+            # Strong contradiction: we bought YES but sentiment is very negative (or vice versa)
+            contradiction = (
+                (buying_yes and sentiment < -0.4)
+                or (not buying_yes and sentiment > 0.4)
+            )
+
+            if not contradiction:
+                continue
+
+            # Check if position is already losing
+            if pos.avg_price > 0:
+                pnl_pct = (pos.current_price - pos.avg_price) / pos.avg_price
+            else:
+                continue
+
+            # Only act if contradicted AND losing > 10%
+            if contradiction and pnl_pct < -0.10:
+                logger.warning(
+                    "bayesian_exit_signal",
+                    market_id=pos.market_id[:20],
+                    sentiment=round(sentiment, 2),
+                    buying_yes=buying_yes,
+                    pnl_pct=f"{pnl_pct:.1%}",
+                    question=getattr(pos, "question", "")[:50],
+                )
+                # Close the position — research says we're wrong
+                try:
+                    await self.closer.close_position(
+                        pos, exit_reason=f"bayesian_update (sentiment={sentiment:.2f}, pnl={pnl_pct:.1%})",
+                    )
+                    already_exiting.add(pos.market_id)
+                except Exception as e:
+                    logger.error("bayesian_exit_failed", error=str(e))
 
     async def _llm_review_positions(self, already_exiting: set[str]) -> None:
         """Ask LLM to review open positions and recommend exits."""
