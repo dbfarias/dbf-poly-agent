@@ -18,7 +18,7 @@ _TIMEOUT = 10.0
 _REQUEST_DELAY = 1.5  # Slightly slower than Twitter fetcher
 _MAX_FAILURES = 3
 _CIRCUIT_BREAK_SECONDS = 300  # 5 min cooldown
-_DAILY_BUDGET = 30  # Max 30 searches/day (free tier = 1000/month ≈ 33/day)
+_DAILY_BUDGET = 15  # Max 15 searches/day (shares Tavily budget: 15 news + 15 twitter = 30/day)
 
 
 class TavilyNewsFetcher:

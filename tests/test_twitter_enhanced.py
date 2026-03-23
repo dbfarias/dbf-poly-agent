@@ -112,7 +112,7 @@ class TestConfigDefaults:
             api_secret_key="test_key_at_least_16_chars",
             trading_mode="paper",
         )
-        assert s.twitter_daily_budget == 100
+        assert s.twitter_daily_budget == 15  # Optimized: shares Tavily budget
 
 
 # ---------------------------------------------------------------------------
