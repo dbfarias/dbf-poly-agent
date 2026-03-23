@@ -44,12 +44,15 @@ def _make_signal(
     market_price: float = 0.86,
     confidence: float = 0.85,
     metadata: dict | None = None,
+    question: str | None = None,
 ) -> TradeSignal:
+    # Default question classifies as SHORT_TERM (allows all strategies)
+    q = question or f"Will Bitcoin go up or down for {market_id}?"
     return TradeSignal(
         strategy=strategy,
         market_id=market_id,
         token_id=f"token_{market_id}",
-        question=f"Will {market_id} happen?",
+        question=q,
         outcome="Yes",
         side=OrderSide.BUY,
         estimated_prob=estimated_prob,
@@ -69,12 +72,15 @@ def _make_position(
     current_price: float = 0.55,
     created_at: datetime | None = None,
     category: str = "crypto",
+    question: str | None = None,
 ) -> Position:
+    # Default question classifies as SHORT_TERM (allows all exits/rebalance)
+    q = question or f"Will Bitcoin go up or down for {market_id}?"
     pnl = (current_price - avg_price) * size
     pos = Position(
         market_id=market_id,
         token_id=f"token_{market_id}",
-        question=f"Will {market_id}?",
+        question=q,
         outcome="Yes",
         category=category,
         strategy=strategy,

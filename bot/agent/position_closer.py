@@ -149,14 +149,16 @@ class PositionCloser:
                 # Paper mode: safe to auto-remove (no on-chain tokens)
                 # Live mode: auto-remove only near-worthless positions after many failures
                 # (tokens exist on-chain but are essentially worthless)
-                from bot.research.sports_fetcher import is_event_market
+                from bot.research.market_classifier import classify_market, get_policy
                 question = getattr(pos, "question", "")
-                if is_event_market(question):
-                    # Events (sports/eSports/soccer): never auto-remove
+                _policy = get_policy(classify_market(question))
+                if not _policy.allow_early_exit:
+                    # Policy disallows early exits (events, economic): never auto-remove
                     logger.info(
-                        "event_position_kept",
+                        "policy_position_kept",
                         market_id=pos.market_id,
                         fail_count=count,
+                        market_type=classify_market(question).value,
                     )
                 elif settings.is_paper:
                     await self._auto_remove_stuck(pos)
@@ -355,11 +357,15 @@ class PositionCloser:
         if signal.edge < effective_min_edge * 0.5:
             return None
 
+        from bot.research.market_classifier import classify_market, get_policy
+
         candidates = []
         now = datetime.now(timezone.utc)
         for pos in positions:
-            # Never rebalance crypto 5-min positions — they auto-resolve
-            if pos.strategy == "crypto_short_term":
+            # Policy check: skip positions where rebalance is not allowed
+            _pos_question = getattr(pos, "question", "")
+            _pos_policy = get_policy(classify_market(_pos_question))
+            if not _pos_policy.allow_rebalance:
                 continue
             # Skip ghost positions (3+ consecutive sell failures)
             if self._sell_fail_count.get(pos.market_id, 0) >= 3:

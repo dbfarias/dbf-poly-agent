@@ -32,7 +32,7 @@ def make_signal(
         strategy=strategy,
         market_id=market_id,
         token_id="token1",
-        question="Will X happen?",
+        question=f"Will Bitcoin go up or down for {market_id}?",
         outcome="Yes",
         side=OrderSide.BUY,
         estimated_prob=estimated_prob,
@@ -58,7 +58,7 @@ def make_position(
     pos = Position(
         market_id=market_id,
         token_id=token_id,
-        question="Will X?",
+        question="Will Bitcoin go up or down?",
         outcome="Yes",
         category="crypto",
         strategy=strategy,

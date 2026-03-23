@@ -74,7 +74,7 @@ def make_position(
     return Position(
         market_id=market_id,
         token_id=token_id,
-        question="Will old thing happen?",
+        question="Will Bitcoin go up or down?",
         outcome="Yes",
         category="crypto",
         strategy=strategy,
@@ -328,7 +328,7 @@ class TestTryRebalance:
                 token_id="tok_b",
                 size=10.0,
                 current_price=0.35,
-                question="Will old thing happen?",
+                question="Will Bitcoin go up or down?",
                 outcome="Yes",
                 category="crypto",
                 strategy="time_decay",

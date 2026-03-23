@@ -22,7 +22,7 @@ def _make_position(
     size=10.0,
     current_price=0.50,
     avg_price=0.55,
-    question="Will X?",
+    question="Will Bitcoin go up or down?",
     outcome="Yes",
     category="crypto",
     strategy="time_decay",
@@ -296,7 +296,7 @@ async def test_handle_sell_fill_success():
                 trade_id=99,
                 shares=10.0,
                 strategy="time_decay",
-                question="Will X?",
+                question="Will Bitcoin go up or down?",
             )
 
         pf.record_trade_close.assert_awaited_once_with("mkt1", 0.70)

@@ -74,7 +74,7 @@ def _make_position(
     size=10.0,
     current_price=0.50,
     avg_price=0.55,
-    question="Will X?",
+    question="Will Bitcoin go up or down?",
     outcome="Yes",
     category="crypto",
     strategy="time_decay",

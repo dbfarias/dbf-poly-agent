@@ -351,16 +351,16 @@ class MarketAnalyzer:
         Returns list of (market_id, exit_reason) tuples so callers can
         propagate the reason through to the trade DB and learner.
         """
-        from bot.research.sports_fetcher import is_event_market
+        from bot.research.market_classifier import classify_market, get_policy
 
         exits: list[tuple[str, str]] = []
         exited_ids: set[str] = set()
         now = datetime.now(timezone.utc)
         for position in positions:
-            # Event markets (sports, eSports, soccer) resolve when the event
-            # completes — never exit early, wait for on-chain resolution.
+            # Policy-based exit control: market type determines what exits are allowed
             question = getattr(position, "question", "")
-            if is_event_market(question):
+            policy = get_policy(classify_market(question))
+            if not policy.allow_early_exit:
                 continue
             # 1. Strategy-specific exit check
             strategy_matched = False
@@ -422,7 +422,9 @@ class MarketAnalyzer:
 
             # 2. Universal stop-loss for ALL positions (including unmatched strategies)
             if position.market_id not in exited_ids:
-                exit_reason = self._check_stop_loss(position, strategy_matched)
+                exit_reason = self._check_stop_loss(
+                    position, strategy_matched, policy=policy,
+                )
                 if exit_reason:
                     exits.append((position.market_id, exit_reason))
                     exited_ids.add(position.market_id)
@@ -436,8 +438,12 @@ class MarketAnalyzer:
                     )
         return exits
 
-    def _check_stop_loss(self, position, strategy_matched: bool) -> str | None:
-        """Universal stop-loss check. Returns exit reason or None."""
+    def _check_stop_loss(self, position, strategy_matched: bool, *, policy=None) -> str | None:
+        """Universal stop-loss check. Returns exit reason or None.
+
+        When a MarketPolicy is provided, respects allow_stop_loss and
+        uses the policy's stop_loss_pct instead of the global default.
+        """
         now = datetime.now(timezone.utc)
 
         # Normalize created_at once for reuse in age/take-profit checks
@@ -461,16 +467,33 @@ class MarketAnalyzer:
             return None
 
         # Loss exceeds stop-loss threshold
-        if position.avg_price > 0:
+        # Policy can disable stop loss entirely (events, economic)
+        # or override the threshold (long-term = 35%, weather = 25%)
+        if policy is not None and not policy.allow_stop_loss:
+            effective_stop_loss = None  # disabled
+        elif policy is not None and policy.stop_loss_pct > 0:
+            effective_stop_loss = policy.stop_loss_pct
+        else:
+            effective_stop_loss = self.STOP_LOSS_PCT
+
+        if effective_stop_loss is not None and position.avg_price > 0:
             loss_pct = (
                 (position.avg_price - position.current_price) / position.avg_price
             )
-            if loss_pct >= self.STOP_LOSS_PCT:
+            if loss_pct >= effective_stop_loss:
                 return f"stop_loss ({loss_pct:.0%} loss)"
 
         # Max position age: free up capital tied in stale positions
-        if age_hours is not None and age_hours > self.MAX_POSITION_AGE_HOURS:
-            return f"max_age ({age_hours:.0f}h > {self.MAX_POSITION_AGE_HOURS:.0f}h)"
+        # Policy can set max_hold_hours = 0 to wait for resolution (no age limit)
+        effective_max_hold = (
+            policy.max_hold_hours
+            if policy is not None and policy.max_hold_hours > 0
+            else self.MAX_POSITION_AGE_HOURS
+            if policy is None or policy.max_hold_hours > 0
+            else 0.0
+        )
+        if effective_max_hold > 0 and age_hours is not None and age_hours > effective_max_hold:
+            return f"max_age ({age_hours:.0f}h > {effective_max_hold:.0f}h)"
 
         # Take profit: lock in gains when price near certainty AND actually profitable.
         # Skip for positions bought at high prices (>= 0.90) — these are resolution

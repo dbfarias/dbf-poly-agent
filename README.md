@@ -127,6 +127,7 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 +---------------------+     |  |  - Portfolio      |   |
                              |  |  - Learner        |   |
                              |  |  - Research Engine|   |
+                             |  |  - Market Classif.|   |
                              |  |  - LLM Debate Gate|   |
                              |  +--------+---------+   |
                              |           |              |
@@ -140,21 +141,37 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 
 ### Trade Pipeline
 
-Every 60 seconds, a signal must pass **all 14 stages** to become a trade:
+Every 60 seconds, a signal must pass **all 15 stages** to become a trade:
 
 ```
 Market Scan (~600 markets) -> Strategy Evaluation (10 strategies)
     -> Signal -> Risk Pipeline:
-       1. Learner pause check        8. Debate cooldown
-       2. Market cooldown (3h)       9. LLM Debate (Proposer + Challenger)
-       3. Duplicate position         10. Z-Score gate (|Z| >= 1.5)
-       4. Correlation check          11. Daily loss limit
-       5. VaR pre-check (95%)        12. Drawdown check
-       6. Debate cooldown            13. Position limits
-       7. VPIN toxic flow filter     14. Category exposure cap
+       1. Market type policy check   9. Debate cooldown
+       2. Learner pause check        10. LLM Debate (Proposer + Challenger)
+       3. Market cooldown (3h)       11. Z-Score gate (|Z| >= 1.5)
+       4. Duplicate position         12. Daily loss limit
+       5. Correlation check          13. Drawdown check
+       6. VaR pre-check (95%)        14. Position limits
+       7. Debate cooldown            15. Category exposure cap
+       8. VPIN toxic flow filter
     -> Position Sizing (Kelly Criterion)
     -> Order Execution (CLOB API)
 ```
+
+### Market Classification
+
+Every market is classified into one of 6 types, and a frozen `MarketPolicy` determines its full lifecycle behavior (entry strategies, exit rules, stop-loss thresholds). This is the single source of truth -- no more scattered `is_event_market()` checks.
+
+| Type | Examples | Allowed Strategies | Stop Loss | Early Exit | Bayesian | Rebalance |
+|:---|:---|:---|:---:|:---:|:---:|:---:|
+| **SHORT_TERM** | Crypto 5-min, daily binary, hourly | All 10 | 15% | Yes | Yes | Yes |
+| **EVENT** | Sports, eSports, soccer, MMA | time_decay, copy_trading | No | No | No | No |
+| **LONG_TERM** | Politics, elections, ceasefire, treaties | time_decay, copy_trading, news_sniping | 35% | Yes | No | No |
+| **ECONOMIC** | Fed rate, CPI, GDP, unemployment | time_decay | No | No | No | No |
+| **WEATHER** | Temperature, precipitation, snowfall | time_decay, weather_trading | 25% | Yes | No | No |
+| **UNKNOWN** | Unclassified (safe fallback) | time_decay, copy_trading, news_sniping | 35% | Yes | No | No |
+
+Classification uses regex keyword matching + end_date heuristics. See `bot/research/market_classifier.py`.
 
 ---
 

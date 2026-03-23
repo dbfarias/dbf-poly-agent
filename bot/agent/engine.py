@@ -1090,23 +1090,23 @@ class TradingEngine:
     async def _bayesian_update_positions(self, already_exiting: set[str]) -> None:
         """Re-evaluate open positions using fresh research data — no LLM cost.
 
-        Only exits SHORT-TERM positions (resolving within 3 days) where
-        sentiment has shifted strongly against the trade direction.
-        Long-term markets have volatile sentiment — never exit on sentiment alone.
+        Only exits SHORT-TERM positions where the policy allows Bayesian exits
+        AND sentiment has shifted strongly against the trade direction.
         """
-        from bot.research.sports_fetcher import is_event_market
+        from bot.research.market_classifier import classify_market, get_policy
 
         now = datetime.now(timezone.utc)
         for pos in self.portfolio.positions:
             if pos.market_id in already_exiting:
                 continue
 
-            # Skip event markets — they resolve on completion
+            # Policy check: only SHORT_TERM markets allow Bayesian exits
             question = getattr(pos, "question", "")
-            if is_event_market(question):
+            policy = get_policy(classify_market(question))
+            if not policy.allow_bayesian_exit:
                 continue
 
-            # Skip long-term markets (>3 days to resolution)
+            # Additional guard: skip if >3 days to resolution (even for short-term)
             try:
                 market = self.cache.get_market(pos.market_id)
                 if market and market.end_date:
@@ -1334,6 +1334,38 @@ class TradingEngine:
                     price=signal.market_price,
                 )
                 continue
+
+            # Policy check: reject if strategy is not allowed for this market type
+            from bot.research.market_classifier import classify_market, get_policy
+            _market_end_date = None
+            _cached_market = self.cache.get_market(signal.market_id)
+            if _cached_market is not None:
+                _market_end_date = getattr(_cached_market, "end_date", None)
+            _mtype = classify_market(signal.question, _market_end_date)
+            _mpolicy = get_policy(_mtype)
+            if signal.strategy not in _mpolicy.allowed_strategies:
+                logger.info(
+                    "signal_skipped_market_type",
+                    strategy=signal.strategy,
+                    market_type=_mtype.value,
+                    market_id=signal.market_id[:20],
+                    question=signal.question[:50],
+                )
+                await log_signal_rejected(
+                    strategy=signal.strategy,
+                    market_id=signal.market_id,
+                    question=signal.question,
+                    reason=(
+                        f"Strategy {signal.strategy} not allowed for "
+                        f"{_mtype.value} markets"
+                    ),
+                    edge=signal.edge,
+                    price=signal.market_price,
+                )
+                continue
+
+            # Store market type in signal metadata for downstream use
+            signal.metadata["market_type"] = _mtype.value
 
             # Skip strategies paused by learner
             if (

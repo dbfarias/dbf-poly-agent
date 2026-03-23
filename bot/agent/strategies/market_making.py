@@ -5,8 +5,6 @@ to capture the spread. Earns maker rebates from Polymarket.
 Caution: competitive market, requires good inventory management.
 """
 
-import re
-
 import structlog
 
 from bot.polymarket.types import GammaMarket, OrderSide, TradeSignal
@@ -53,24 +51,14 @@ class MarketMakingStrategy(BaseStrategy):
         self.logger.info("market_making_scan_complete", signals_found=len(signals))
         return signals
 
-    # Reject short-term crypto markets — they resolve to $0/$1 before
-    # we can capture spread. Market making needs time to exit.
-    _CRYPTO_SHORT_REJECT = re.compile(
-        r"\b(bitcoin|btc|ethereum|eth|solana|sol)\b.*\b(up or down)\b"
-        r"|\b(up or down)\b.*\b(bitcoin|btc|ethereum|eth|solana|sol)\b",
-        re.IGNORECASE,
-    )
-
     async def _evaluate_market(self, market: GammaMarket) -> TradeSignal | None:
         """Evaluate a market for market making opportunity."""
-        # Skip crypto Up/Down short-term markets (resolve in minutes)
-        if self._CRYPTO_SHORT_REJECT.search(market.question):
-            return None
-
-        # Skip event markets (sports, eSports, soccer) — MM has no domain
-        # knowledge, only sees spread. Events should use odds-aware strategies.
-        from bot.research.sports_fetcher import is_event_market
-        if is_event_market(market.question):
+        # Policy check: only trade markets where market_making is allowed
+        from bot.research.market_classifier import classify_market, get_policy
+        policy = get_policy(classify_market(
+            market.question, getattr(market, "end_date", None),
+        ))
+        if "market_making" not in policy.allowed_strategies:
             return None
 
         token_ids = market.token_ids

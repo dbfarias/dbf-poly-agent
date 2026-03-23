@@ -13,7 +13,7 @@ from bot.polymarket.types import GammaMarket, OrderBook, OrderBookEntry, OrderSi
 
 def _signal(
     market_id: str = "mkt1",
-    question: str = "Will X happen?",
+    question: str = "Will Bitcoin go up or down?",
     edge: float = 0.05,
     confidence: float = 0.80,
 ) -> TradeSignal:
@@ -131,7 +131,7 @@ def _position(
     avg_price: float = 0.95,
     current_price: float = 0.93,
     created_at: datetime | None = None,
-    question: str = "Will X happen?",
+    question: str = "Will Bitcoin go up or down?",
 ):
     return SimpleNamespace(
         market_id=market_id,
@@ -274,7 +274,7 @@ class TestNormalizeCategory:
 
 def _make_gamma_market(
     market_id: str = "0xabc",
-    question: str = "Will X happen?",
+    question: str = "Will Bitcoin go up or down?",
     outcomes: list[str] | None = None,
     neg_risk: bool = False,
     best_bid: float | None = None,

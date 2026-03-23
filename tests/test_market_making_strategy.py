@@ -35,7 +35,7 @@ def _make_strategy() -> MarketMakingStrategy:
 
 def _make_market(
     market_id: str = "mkt1",
-    question: str = "Will X happen?",
+    question: str = "Will Bitcoin go up or down in 5 min?",
     clob_token_ids: str = '["token_yes","token_no"]',
     yes_price: float = 0.48,
     no_price: float = 0.52,
