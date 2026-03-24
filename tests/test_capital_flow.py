@@ -223,20 +223,20 @@ class TestDepositDetection:
 
 
 class TestOverviewTradingPnl:
-    def test_overview_uses_trade_based_pnl(self, portfolio, mock_clob):
-        """PnL in overview should be realized + unrealized, not equity delta."""
+    def test_overview_uses_equity_delta_pnl(self, portfolio, mock_clob):
+        """PnL in overview = equity - day_start_equity."""
         mock_clob.get_address = MagicMock(return_value="0xabc")
-        portfolio._cash = 60.0  # 10 start + 50 deposit
-        portfolio._day_start_equity = 60.0  # adjusted by deposit detection
+        portfolio._cash = 60.0
+        portfolio._day_start_equity = 60.0
         portfolio._realized_pnl_today = 2.0
         portfolio._positions = [make_position(
             size=10, avg_price=0.50, current_price=0.55,
         )]
-        # unrealized_pnl = (0.55 - 0.50) * 10 = 0.50
+        # equity = cash(60) + positions(10*0.55=5.5) = 65.5
+        # PnL = 65.5 - 60.0 = 5.5
 
         overview = portfolio.get_overview()
-        # trading PnL should be 2.0 + 0.50 = 2.50
-        assert overview["polymarket_pnl_today"] == 2.50
+        assert overview["polymarket_pnl_today"] == 5.50
 
     def test_overview_pnl_zero_with_no_trades(self, portfolio, mock_clob):
         """With no trades and a deposit, PnL should be 0."""
@@ -249,15 +249,15 @@ class TestOverviewTradingPnl:
         overview = portfolio.get_overview()
         assert overview["polymarket_pnl_today"] == 0.0
 
-    def test_overview_progress_uses_trading_pnl(self, portfolio, mock_clob):
-        """Daily progress should use trading PnL, not equity delta."""
+    def test_overview_progress_uses_equity_delta(self, portfolio, mock_clob):
+        """Daily progress should use equity - day_start."""
         mock_clob.get_address = MagicMock(return_value="0xabc")
-        portfolio._cash = 10.0
+        portfolio._cash = 10.10  # $0.10 profit
         portfolio._day_start_equity = 10.0
-        portfolio._realized_pnl_today = 0.10  # $0.10 profit
         portfolio._positions = []
 
         overview = portfolio.get_overview()
+        # PnL = 10.10 - 10.0 = 0.10
         target_usd = 10.0 * settings.daily_target_pct
         expected_progress = 0.10 / target_usd
         assert abs(overview["daily_progress_pct"] - expected_progress) < 0.001
@@ -271,12 +271,14 @@ class TestOverviewTradingPnl:
 class TestSnapshotTradingPnlPopulated:
     @pytest.mark.asyncio
     async def test_snapshot_records_trading_pnl(self, portfolio):
-        """Snapshot trading_pnl = realized + unrealized."""
-        portfolio._realized_pnl_today = 1.50
+        """Snapshot trading_pnl = equity - day_start_equity."""
+        portfolio._cash = 10.0
+        portfolio._day_start_equity = 8.0
         portfolio._positions = [make_position(
             size=10, avg_price=0.50, current_price=0.53,
         )]
-        # unrealized = (0.53 - 0.50) * 10 = 0.30
+        # equity = cash(10) + positions(10*0.53=5.3) = 15.3
+        # trading_pnl = 15.3 - 8.0 = 7.3
 
         mock_snap_repo = MagicMock()
         mock_snap_repo.create = AsyncMock(side_effect=lambda s: s)
@@ -292,13 +294,13 @@ class TestSnapshotTradingPnlPopulated:
             ):
                 snap = await portfolio.take_snapshot()
 
-        assert abs(snap.trading_pnl - 1.80) < 0.01  # 1.50 + 0.30
+        assert abs(snap.trading_pnl - 7.30) < 0.01
 
     @pytest.mark.asyncio
-    async def test_snapshot_daily_return_from_trading_pnl(self, portfolio):
-        """daily_return_pct should use trading_pnl / day_start_equity."""
+    async def test_snapshot_daily_return_from_equity_delta(self, portfolio):
+        """daily_return_pct = (equity - day_start) / day_start."""
+        portfolio._cash = 102.0  # Started at 100, now 102
         portfolio._day_start_equity = 100.0
-        portfolio._realized_pnl_today = 2.0
         portfolio._positions = []
 
         mock_snap_repo = MagicMock()

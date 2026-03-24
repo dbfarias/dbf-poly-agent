@@ -796,7 +796,8 @@ class Portfolio:
         trading_pnl is deposit-immune (realized + unrealized from trades only).
         daily_return_pct is computed from trading_pnl / day_start_equity.
         """
-        trading_pnl = self._realized_pnl_today + self.unrealized_pnl
+        # Daily PnL: equity change since midnight (always correct)
+        trading_pnl = self.total_equity - self._day_start_equity
         daily_return_pct = (
             trading_pnl / self._day_start_equity
             if self._day_start_equity > 0 else 0.0
@@ -837,8 +838,8 @@ class Portfolio:
         target_pct = settings.daily_target_pct
         target_usd = self._day_start_equity * target_pct
 
-        # Trade-based PnL: immune to deposits/withdrawals
-        trading_pnl = self._realized_pnl_today + self.unrealized_pnl
+        # Daily PnL: equity change since midnight (always correct)
+        trading_pnl = equity - self._day_start_equity
 
         # Use trading_pnl for progress (includes both realized + unrealized)
         progress = (
