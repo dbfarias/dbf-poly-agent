@@ -57,17 +57,25 @@ class RiskManager:
         self._day_start_equity = equity
 
     def reset_daily_state(self, equity: float) -> None:
-        """Reset daily PnL counters, peak equity, and VaR history to current equity.
+        """Reset daily PnL counters and VaR history at midnight.
 
-        Also clears the returns tracker so stale historical VaR from buggy
-        trades doesn't permanently block new trading.
+        Does NOT touch peak equity — drawdown tracking is independent
+        of daily P&L and must be reset explicitly via reset_peak_equity().
         """
         self._daily_pnl = 0.0
         self._day_start_equity = equity
-        self._peak_equity = equity
         if self._returns_tracker is not None:
             self._returns_tracker.reset()
-        logger.info("risk_manager_state_reset", equity=equity)
+        logger.info("risk_manager_daily_reset", equity=equity)
+
+    def reset_peak_equity(self, equity: float) -> None:
+        """Reset peak equity to unblock drawdown gate.
+
+        Call when stale peak permanently blocks trading.
+        Does NOT touch daily P&L.
+        """
+        self._peak_equity = equity
+        logger.info("risk_manager_peak_reset", peak=equity)
 
     def pause(self) -> None:
         self._is_paused = True
@@ -79,15 +87,14 @@ class RiskManager:
         When resuming after losses, stale peak equity causes permanently high
         drawdown. Resetting to current equity lets the bot trade again with
         the same protective limits measured from now, not from past peaks.
+        Only resets peak equity — daily P&L is NOT affected.
         """
         self._is_paused = False
         if current_equity is not None and current_equity > 0:
-            self._peak_equity = current_equity
-            self._day_start_equity = current_equity
+            self.reset_peak_equity(current_equity)
             logger.info(
                 "trading_resumed_with_reset",
                 peak_equity=current_equity,
-                day_start_equity=current_equity,
             )
         else:
             logger.info("trading_resumed")

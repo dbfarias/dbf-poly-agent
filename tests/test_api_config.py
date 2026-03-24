@@ -452,25 +452,16 @@ class TestPauseResume:
 
 
 class TestResetRiskState:
-    @pytest.fixture(autouse=True)
-    def _mock_state_store(self):
-        from unittest.mock import AsyncMock, patch
-        with patch(
-            "bot.data.settings_store.StateStore.save_peak_equity",
-            new_callable=AsyncMock,
-        ):
-            yield
-
     async def test_reset_returns_expected_keys(self, client, mock_engine):
-        """POST /risk/reset returns status, equity, daily_pnl, peak_equity."""
+        """POST /risk/reset returns status, equity, daily_pnl (no peak)."""
         mock_engine.portfolio.total_equity = 12.5
         resp = await client.post("/api/config/risk/reset")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "reset"
+        assert data["status"] == "daily_reset"
         assert data["equity"] == pytest.approx(12.5)
         assert data["daily_pnl"] == pytest.approx(0.0)
-        assert data["peak_equity"] == pytest.approx(12.5)
+        assert "peak_equity" not in data
 
     async def test_reset_calls_risk_manager_reset(self, client, mock_engine):
         """POST /risk/reset calls risk_manager.reset_daily_state(equity)."""
@@ -483,6 +474,42 @@ class TestResetRiskState:
         mock_engine.portfolio.total_equity = 15.0
         await client.post("/api/config/risk/reset")
         mock_engine.portfolio.reset_daily_state.assert_called_once_with(15.0)
+
+
+class TestResetPeakEquity:
+    @pytest.fixture(autouse=True)
+    def _mock_state_store(self):
+        from unittest.mock import AsyncMock, patch
+        with patch(
+            "bot.data.settings_store.StateStore.save_peak_equity",
+            new_callable=AsyncMock,
+        ):
+            yield
+
+    async def test_reset_peak_returns_expected_keys(self, client, mock_engine):
+        """POST /risk/reset-peak returns peak_equity, no daily_pnl."""
+        mock_engine.portfolio.total_equity = 20.0
+        resp = await client.post("/api/config/risk/reset-peak")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "peak_reset"
+        assert data["equity"] == pytest.approx(20.0)
+        assert data["peak_equity"] == pytest.approx(20.0)
+        assert "daily_pnl" not in data
+
+    async def test_reset_peak_calls_both_resets(self, client, mock_engine):
+        """POST /risk/reset-peak calls reset_peak_equity on both."""
+        mock_engine.portfolio.total_equity = 18.0
+        await client.post("/api/config/risk/reset-peak")
+        mock_engine.risk_manager.reset_peak_equity.assert_called_once_with(18.0)
+        mock_engine.portfolio.reset_peak_equity.assert_called_once_with(18.0)
+
+    async def test_reset_peak_does_not_touch_daily(self, client, mock_engine):
+        """POST /risk/reset-peak must NOT call reset_daily_state."""
+        mock_engine.portfolio.total_equity = 15.0
+        await client.post("/api/config/risk/reset-peak")
+        mock_engine.risk_manager.reset_daily_state.assert_not_called()
+        mock_engine.portfolio.reset_daily_state.assert_not_called()
 
     async def test_reset_requires_auth(self):
         """POST /risk/reset without auth header returns 401."""

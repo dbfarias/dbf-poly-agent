@@ -101,15 +101,23 @@ class Portfolio:
         return self._day_start_equity + self._realized_pnl_today
 
     def reset_daily_state(self, equity: float) -> None:
-        """Reset daily PnL counters and peak equity to current equity.
+        """Reset daily PnL counters at midnight (or after mode switch).
 
-        Also sets _skip_next_flow to suppress false capital-flow detection
-        on mode switches (paper cash → live balance creates a phantom flow).
+        Does NOT touch peak equity — drawdown tracking is independent
+        of daily P&L and must be reset explicitly via reset_peak_equity().
         """
         self._realized_pnl_today = 0.0
         self._day_start_equity = equity
-        self._peak_equity = equity
         self._skip_next_flow = True
+
+    def reset_peak_equity(self, equity: float) -> None:
+        """Reset peak equity to unblock drawdown gate.
+
+        Call this when peak is stale (e.g. after sustained losses)
+        and the drawdown limit is permanently blocking trades.
+        Does NOT touch daily P&L — today's numbers stay intact.
+        """
+        self._peak_equity = equity
 
     def restore_realized_pnl(self, pnl: float, date: str) -> None:
         """Restore realized PnL from persisted state after restart.

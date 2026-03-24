@@ -617,7 +617,10 @@ class TestDailyResetBoundary:
     """Verify daily state resets work correctly."""
 
     def test_position_persists_after_midnight_reset(self):
-        """Positions survive daily reset; only PnL counters reset."""
+        """Positions survive daily reset; only PnL counters reset.
+
+        Peak equity is NOT touched by daily reset — it's independent.
+        """
         rm = RiskManager()
         rm._daily_pnl = 5.0
         rm._peak_equity = 60.0
@@ -630,13 +633,26 @@ class TestDailyResetBoundary:
 
         rm.reset_daily_state(55.0)
 
-        # PnL reset, but positions are separate from risk manager
+        # PnL reset, but peak equity unchanged (independent concern)
         assert rm._daily_pnl == 0.0
         assert rm._day_start_equity == 55.0
-        assert rm._peak_equity == 55.0
+        assert rm._peak_equity == 60.0  # NOT reset by daily reset
         # Positions are managed by Portfolio, not RiskManager — they persist
         assert len(positions) == 1
         assert positions[0].is_open
+
+    def test_reset_peak_equity_independent(self):
+        """reset_peak_equity only touches peak, not daily PnL."""
+        rm = RiskManager()
+        rm._daily_pnl = 3.0
+        rm._peak_equity = 80.0
+        rm._day_start_equity = 50.0
+
+        rm.reset_peak_equity(55.0)
+
+        assert rm._peak_equity == 55.0
+        assert rm._daily_pnl == 3.0  # Untouched
+        assert rm._day_start_equity == 50.0  # Untouched
 
     def test_daily_pnl_separates_across_days(self):
         """PnL updates after reset reflect only the new day's trades."""
@@ -650,16 +666,25 @@ class TestDailyResetBoundary:
         rm.update_daily_pnl(0.5)
         assert rm._daily_pnl == 0.5
 
-    def test_peak_equity_resets_at_daily_boundary(self):
-        """Peak equity resets to current equity on daily reset."""
+    def test_peak_equity_unchanged_by_daily_reset(self):
+        """Peak equity is NOT reset by daily reset — independent concern."""
         rm = RiskManager()
         rm._peak_equity = 60.0
         rm._day_start_equity = 50.0
 
         rm.reset_daily_state(50.0)
 
-        assert rm._peak_equity == 50.0
+        assert rm._peak_equity == 60.0  # Unchanged
         assert rm._day_start_equity == 50.0
+
+    def test_peak_equity_resets_via_dedicated_method(self):
+        """Peak equity resets only via reset_peak_equity()."""
+        rm = RiskManager()
+        rm._peak_equity = 60.0
+
+        rm.reset_peak_equity(50.0)
+
+        assert rm._peak_equity == 50.0
 
 
 # ---------------------------------------------------------------------------

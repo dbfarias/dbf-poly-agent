@@ -403,12 +403,12 @@ async def pause_trading(request: Request, _: str = Depends(verify_api_key)):
 @limiter.limit("10/minute")
 async def resume_trading(request: Request, _: str = Depends(verify_api_key)):
     engine = get_engine()
-    # Reset peak equity to current equity so drawdown gate starts fresh
     equity = engine.portfolio.total_equity
+    # Resume resets peak equity only (unblocks drawdown), not daily PnL
     engine.risk_manager.resume(current_equity=equity)
+    engine.portfolio.reset_peak_equity(equity)
     from bot.data.settings_store import StateStore
     await StateStore.save_trading_paused(False)
-    # Persist new peak equity so sync() doesn't restore the old value
     await StateStore.save_peak_equity(equity)
     return {"status": "resumed", "peak_equity_reset_to": round(equity, 2)}
 
@@ -416,31 +416,49 @@ async def resume_trading(request: Request, _: str = Depends(verify_api_key)):
 @router.post("/risk/reset")
 @limiter.limit("10/minute")
 async def reset_risk_state(request: Request, _: str = Depends(verify_api_key)):
-    """Reset corrupted risk manager and portfolio PnL state.
+    """Reset daily PnL counters only.
 
     Use after bugs that cause phantom PnL accumulation.
-    Resets daily PnL counters to zero and peak equity to current.
+    Resets daily PnL to zero and day-start equity to current.
+    Does NOT touch peak equity / drawdown — use /risk/reset-peak for that.
     """
     engine = get_engine()
     equity = engine.portfolio.total_equity
 
-    # Reset via encapsulated methods (no direct private attribute access)
     engine.risk_manager.reset_daily_state(equity)
     engine.portfolio.reset_daily_state(equity)
 
-    # Persist new peak equity to StateStore so the next sync() cycle
-    # doesn't restore the old (higher) value from DB
+    logger.info("daily_pnl_reset_manual", equity=equity)
+    return {
+        "status": "daily_reset",
+        "equity": equity,
+        "daily_pnl": 0.0,
+        "message": "Daily PnL reset. Peak equity unchanged.",
+    }
+
+
+@router.post("/risk/reset-peak")
+@limiter.limit("10/minute")
+async def reset_peak_equity(request: Request, _: str = Depends(verify_api_key)):
+    """Reset peak equity to current equity to unblock drawdown gate.
+
+    Use when stale peak equity from past highs permanently blocks trading.
+    Does NOT touch daily PnL — today's profit/loss stays intact.
+    """
+    engine = get_engine()
+    equity = engine.portfolio.total_equity
+
+    engine.risk_manager.reset_peak_equity(equity)
+    engine.portfolio.reset_peak_equity(equity)
+
     from bot.data.settings_store import StateStore
 
     await StateStore.save_peak_equity(equity)
 
-    logger.info(
-        "risk_state_reset",
-        equity=equity,
-    )
+    logger.info("peak_equity_reset_manual", equity=equity)
     return {
-        "status": "reset",
+        "status": "peak_reset",
         "equity": equity,
-        "daily_pnl": 0.0,
         "peak_equity": equity,
+        "message": "Peak equity reset. Daily PnL unchanged.",
     }
