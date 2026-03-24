@@ -381,31 +381,27 @@ class TradingEngine:
             self.risk_manager._daily_pnl_date,
         )
 
-        # Restore day_start_equity so daily PnL survives restarts
+        # Restore day_start_equity so daily PnL survives restarts.
+        # Trust the DB value if it's positive and for today — the
+        # plausibility check against current_equity is unreliable here
+        # because portfolio hasn't synced yet (equity is stale/default).
         try:
             from bot.data.settings_store import StateStore
 
             equity, date = await StateStore.load_day_start_equity()
-            current_equity = self.portfolio.total_equity
-            # Sanity check: stored value must be positive and plausible
-            # (within 50% of current equity to catch corrupted values)
-            is_plausible = (
-                equity > 0
-                and current_equity > 0
-                and abs(equity - current_equity) / current_equity <= 0.5
-            )
-            if is_plausible:
+            if equity > 0 and date == trading_day():
                 self.portfolio.restore_day_start_equity(equity, date)
-            else:
-                # Corrupted or first run — use current equity as start
-                logger.warning(
-                    "day_start_equity_reset",
-                    stored=equity,
-                    current=current_equity,
-                    reason="implausible value" if equity != 0 else "first run",
+                logger.info(
+                    "day_start_equity_restored_from_db",
+                    equity=round(equity, 4),
+                    date=date,
                 )
-                await StateStore.save_day_start_equity(
-                    self.portfolio.day_start_equity, trading_day(),
+            elif equity > 0:
+                # Stale date — will be captured fresh after first sync
+                logger.info(
+                    "day_start_equity_stale",
+                    stored_date=date,
+                    today=trading_day(),
                 )
             self.risk_manager.set_day_start_equity(
                 self.portfolio.day_start_equity,
@@ -896,21 +892,19 @@ class TradingEngine:
         self.risk_manager.update_peak_equity(self.portfolio.realized_equity)
         self.risk_manager.set_day_start_equity(self.portfolio.day_start_equity)
 
-        # 1c. Auto-reset daily state on first cycle (deploy or crash recovery).
-        # Runs here — after sync — so portfolio.total_equity reflects the real
-        # Polymarket balance, not the stale settings.initial_bankroll default.
+        # 1c. On first cycle after startup, ensure risk manager has correct
+        # day_start_equity from the portfolio (which restored it from DB).
+        # Do NOT overwrite day_start — sync() already restored the correct
+        # midnight value. Only propagate to risk manager.
         if self._cycle_count == 1:
-            try:
-                from bot.data.settings_store import StateStore
-
-                current_equity = self.portfolio.total_equity
-                self.risk_manager.reset_daily_state(current_equity)
-                self.portfolio.reset_daily_state(current_equity)
-                await StateStore.save_day_start_equity(current_equity, trading_day())
-                await StateStore.save_daily_pnl(0.0, trading_day())
-                logger.info("daily_state_auto_reset_on_startup", equity=current_equity)
-            except Exception as e:
-                logger.error("daily_state_auto_reset_failed", error=str(e))
+            self.risk_manager.set_day_start_equity(
+                self.portfolio.day_start_equity,
+            )
+            logger.info(
+                "startup_day_start_synced",
+                day_start=round(self.portfolio.day_start_equity, 4),
+                equity=round(self.portfolio.total_equity, 4),
+            )
 
         # 1b. Subscribe open position tokens to WebSocket for real-time data
         for pos in self.portfolio.positions:
