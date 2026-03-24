@@ -458,22 +458,24 @@ class TestResetRiskState:
         resp = await client.post("/api/config/risk/reset")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "daily_reset"
+        assert data["status"] == "pnl_reset"
         assert data["equity"] == pytest.approx(12.5)
         assert data["daily_pnl"] == pytest.approx(0.0)
         assert "peak_equity" not in data
 
-    async def test_reset_calls_risk_manager_reset(self, client, mock_engine):
-        """POST /risk/reset calls risk_manager.reset_daily_state(equity)."""
+    async def test_reset_calls_realized_pnl_reset(self, client, mock_engine):
+        """POST /risk/reset calls reset_realized_pnl (not reset_daily_state)."""
         mock_engine.portfolio.total_equity = 9.0
         await client.post("/api/config/risk/reset")
-        mock_engine.risk_manager.reset_daily_state.assert_called_once_with(9.0)
+        mock_engine.risk_manager.reset_realized_pnl.assert_called_once()
+        mock_engine.risk_manager.reset_daily_state.assert_not_called()
 
-    async def test_reset_calls_portfolio_reset(self, client, mock_engine):
-        """POST /risk/reset calls portfolio.reset_daily_state(equity)."""
+    async def test_reset_calls_portfolio_realized_pnl(self, client, mock_engine):
+        """POST /risk/reset calls portfolio.reset_realized_pnl (not reset_daily_state)."""
         mock_engine.portfolio.total_equity = 15.0
         await client.post("/api/config/risk/reset")
-        mock_engine.portfolio.reset_daily_state.assert_called_once_with(15.0)
+        mock_engine.portfolio.reset_realized_pnl.assert_called_once()
+        mock_engine.portfolio.reset_daily_state.assert_not_called()
 
 
 class TestResetPeakEquity:

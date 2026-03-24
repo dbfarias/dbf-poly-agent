@@ -57,16 +57,24 @@ class RiskManager:
         self._day_start_equity = equity
 
     def reset_daily_state(self, equity: float) -> None:
-        """Reset daily PnL counters and VaR history at midnight.
+        """Reset daily PnL counters and VaR history at midnight boundary.
 
-        Does NOT touch peak equity — drawdown tracking is independent
-        of daily P&L and must be reset explicitly via reset_peak_equity().
+        Sets day_start_equity for the new day. Should only be called
+        at day boundary, not mid-day.
+        Does NOT touch peak equity (independent concern).
         """
         self._daily_pnl = 0.0
         self._day_start_equity = equity
         if self._returns_tracker is not None:
             self._returns_tracker.reset()
         logger.info("risk_manager_daily_reset", equity=equity)
+
+    def reset_realized_pnl(self) -> None:
+        """Zero out daily PnL counter without touching day_start_equity.
+
+        Use for mid-day corrections when PnL accumulator is wrong.
+        """
+        self._daily_pnl = 0.0
 
     def reset_peak_equity(self, equity: float) -> None:
         """Reset peak equity to unblock drawdown gate.

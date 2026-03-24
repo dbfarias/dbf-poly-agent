@@ -101,14 +101,24 @@ class Portfolio:
         return self._day_start_equity + self._realized_pnl_today
 
     def reset_daily_state(self, equity: float) -> None:
-        """Reset daily PnL counters at midnight (or after mode switch).
+        """Reset daily PnL counters at midnight boundary.
 
-        Does NOT touch peak equity — drawdown tracking is independent
-        of daily P&L and must be reset explicitly via reset_peak_equity().
+        Sets day_start_equity to the equity at midnight — this anchors
+        the daily return % calculation for the new day.
+        Does NOT touch peak equity (independent concern).
+        Should only be called at day boundary, not mid-day.
         """
         self._realized_pnl_today = 0.0
         self._day_start_equity = equity
         self._skip_next_flow = True
+
+    def reset_realized_pnl(self) -> None:
+        """Zero out realized PnL counter without touching day_start_equity.
+
+        Use for mid-day corrections when PnL accumulator is wrong
+        but day_start_equity is correct (captured at midnight).
+        """
+        self._realized_pnl_today = 0.0
 
     def reset_peak_equity(self, equity: float) -> None:
         """Reset peak equity to unblock drawdown gate.

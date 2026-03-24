@@ -416,24 +416,24 @@ async def resume_trading(request: Request, _: str = Depends(verify_api_key)):
 @router.post("/risk/reset")
 @limiter.limit("10/minute")
 async def reset_risk_state(request: Request, _: str = Depends(verify_api_key)):
-    """Reset daily PnL counters only.
+    """Reset realized PnL counter only.
 
     Use after bugs that cause phantom PnL accumulation.
-    Resets daily PnL to zero and day-start equity to current.
-    Does NOT touch peak equity / drawdown — use /risk/reset-peak for that.
+    Zeros the realized PnL accumulator without touching day_start_equity
+    (which anchors daily return %) or peak equity (drawdown tracking).
     """
     engine = get_engine()
     equity = engine.portfolio.total_equity
 
-    engine.risk_manager.reset_daily_state(equity)
-    engine.portfolio.reset_daily_state(equity)
+    engine.risk_manager.reset_realized_pnl()
+    engine.portfolio.reset_realized_pnl()
 
-    logger.info("daily_pnl_reset_manual", equity=equity)
+    logger.info("realized_pnl_reset_manual", equity=equity)
     return {
-        "status": "daily_reset",
+        "status": "pnl_reset",
         "equity": equity,
         "daily_pnl": 0.0,
-        "message": "Daily PnL reset. Peak equity unchanged.",
+        "message": "Realized PnL zeroed. Day start equity and peak unchanged.",
     }
 
 
