@@ -139,6 +139,7 @@ class TestDepositDetection:
         """When balance increases significantly, day_start_equity should adjust."""
         portfolio._cash = 10.0
         portfolio._day_start_equity = 10.0
+        portfolio._skip_next_flow = False  # Simulate post-first-sync state
 
         mock_repo = MagicMock()
         mock_repo.create = AsyncMock(return_value=CapitalFlow(
@@ -161,6 +162,7 @@ class TestDepositDetection:
         """Changes < $0.50 should not trigger flow detection."""
         portfolio._cash = 10.0
         portfolio._day_start_equity = 10.0
+        portfolio._skip_next_flow = False
 
         await portfolio._detect_capital_flow(10.30)
 
@@ -171,6 +173,7 @@ class TestDepositDetection:
         """Withdrawal should decrease day_start_equity."""
         portfolio._cash = 30.0
         portfolio._day_start_equity = 30.0
+        portfolio._skip_next_flow = False
 
         mock_repo = MagicMock()
         mock_repo.create = AsyncMock(return_value=CapitalFlow(
@@ -195,6 +198,7 @@ class TestDepositDetection:
         portfolio._risk_manager = mock_rm
         portfolio._cash = 10.0
         portfolio._day_start_equity = 10.0
+        portfolio._skip_next_flow = False
 
         mock_repo = MagicMock()
         mock_repo.create = AsyncMock(return_value=CapitalFlow(

@@ -47,7 +47,7 @@ class Portfolio:
         self._peak_equity: float = settings.initial_bankroll
         self._realized_pnl_today: float = 0.0
         self._pnl_date: str = ""  # Track which UTC day the PnL belongs to
-        self._skip_next_flow: bool = False  # Suppress flow detection after mode switch
+        self._skip_next_flow: bool = True  # Suppress first flow detection (stale cash vs real balance)
         self._auto_removed_ids: set[str] = set()  # Markets auto-removed from stuck; skip in sync
         self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
