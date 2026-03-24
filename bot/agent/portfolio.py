@@ -352,14 +352,19 @@ class Portfolio:
 
                 if lp.strategy == "external":
                     # External positions: close immediately (no longer on chain)
-                    # Update cash so _detect_capital_flow doesn't see a false deposit
+                    # Calculate PnL and update realized tracking
                     settlement = lp.current_price * lp.size
+                    pnl = (lp.current_price - lp.avg_price) * lp.size
                     self._cash += settlement
+                    self._realized_pnl_today += pnl
+                    if self._risk_manager and pnl != 0:
+                        self._risk_manager.update_daily_pnl(pnl)
                     await pos_repo.close(lp.market_id)
                     logger.info(
                         "external_position_closed",
                         market_id=lp.market_id,
                         settlement=round(settlement, 4),
+                        pnl=round(pnl, 4),
                     )
                 else:
                     # Bot-opened positions: check if market has resolved
