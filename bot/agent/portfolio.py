@@ -420,9 +420,11 @@ class Portfolio:
             await self.update_position_prices(prices)
 
     async def _detect_capital_flow(self, new_balance: float) -> None:
-        """Detect deposit/withdrawal by comparing new balance to expected cash.
+        """Detect deposit/withdrawal by comparing total equity, not just cash.
 
-        If the difference is significant (>$0.50), record a CapitalFlow and
+        Trading changes cash but not equity (cash↓ + positions↑ = 0).
+        Only real deposits/withdrawals change total equity unexpectedly.
+        If the equity delta is significant (>$0.50), record a CapitalFlow and
         adjust day_start_equity so PnL calculations remain deposit-immune.
         """
         # After mode switch, the first balance read is the real Polymarket
@@ -436,7 +438,13 @@ class Portfolio:
             )
             return
 
-        flow = new_balance - self._cash
+        # Compare equity (cash + positions), not just cash.
+        # When the bot buys shares: cash goes down, position value goes up,
+        # equity stays the same → no flow. Only real deposits/withdrawals
+        # change equity without a corresponding position change.
+        old_equity = self._cash + self.positions_value
+        new_equity = new_balance + self.positions_value
+        flow = new_equity - old_equity
         if abs(flow) < 0.50:
             return
 
