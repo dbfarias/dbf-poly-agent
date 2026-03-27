@@ -338,6 +338,7 @@ class Portfolio:
             # Close local positions no longer on Polymarket
             local_positions = await pos_repo.get_open()
             now = datetime.now(timezone.utc)
+            phantom_count = 0
             for lp in local_positions:
                 if lp.market_id in remote_market_ids:
                     continue
@@ -360,9 +361,20 @@ class Portfolio:
                     )
                     continue
 
+                # Position is past grace period and not on-chain — phantom
+                phantom_count += 1
+                logger.warning(
+                    "phantom_position_detected",
+                    market_id=lp.market_id,
+                    strategy=lp.strategy,
+                    outcome=lp.outcome,
+                    size=lp.size,
+                    avg_price=round(lp.avg_price, 4),
+                    current_price=round(lp.current_price, 4),
+                    age_seconds=round(age_seconds),
+                )
+
                 if lp.strategy == "external":
-                    # External positions: close immediately (no longer on chain)
-                    # Calculate PnL and update realized tracking
                     settlement = lp.current_price * lp.size
                     pnl = (lp.current_price - lp.avg_price) * lp.size
                     self._cash += settlement
@@ -373,12 +385,27 @@ class Portfolio:
                     logger.info(
                         "external_position_closed",
                         market_id=lp.market_id,
+                        exit_reason="phantom_sync",
                         settlement=round(settlement, 4),
                         pnl=round(pnl, 4),
                     )
                 else:
                     # Bot-opened positions: check if market has resolved
                     await self._close_if_resolved(lp, pos_repo, session)
+
+            # Reconciliation: compare local vs remote position counts
+            local_open_count = len([
+                lp for lp in local_positions
+                if lp.market_id in remote_market_ids
+            ])
+            remote_count = len(remote_market_ids)
+            if local_open_count != remote_count:
+                logger.warning(
+                    "position_count_mismatch",
+                    local_count=local_open_count,
+                    remote_count=remote_count,
+                    phantom_count=phantom_count,
+                )
 
         logger.debug(
             "polymarket_positions_synced",

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import structlog
 
+from bot.polymarket.session_mixin import ThreadLocalSessionMixin
 from bot.polymarket.types import GammaMarket
 from bot.utils.retry import async_retry
 
@@ -103,8 +104,13 @@ def _transform_gamma_api_market(raw: dict) -> dict:
     }
 
 
-class GammaClient:
-    """Client for Polymarket market discovery via Gamma API + CLOB fallback."""
+class GammaClient(ThreadLocalSessionMixin):
+    """Client for Polymarket market discovery via Gamma API + CLOB fallback.
+
+    Inherits ThreadLocalSessionMixin for thread-safe synchronous HTTP calls.
+    Use _get_session() for sync calls from worker threads (asyncio.to_thread).
+    Use self._clob_client / self._gamma_client for normal async operations.
+    """
 
     def __init__(self):
         self._clob_client: httpx.AsyncClient | None = None

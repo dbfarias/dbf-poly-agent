@@ -153,5 +153,6 @@ class TestRiskConfigDefaults:
             "max_positions", "max_per_position_pct", "max_deployed_pct",
             "daily_loss_limit_pct", "max_drawdown_pct", "min_edge_pct",
             "min_win_prob", "max_per_category_pct", "kelly_fraction",
+            "spread_cross_offset",
         }
         assert set(config.keys()) == expected_keys

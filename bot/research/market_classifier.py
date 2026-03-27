@@ -45,6 +45,7 @@ _ALL_STRATEGIES = frozenset({
     "time_decay", "arbitrage", "value_betting", "price_divergence",
     "swing_trading", "market_making", "weather_trading",
     "crypto_short_term", "news_sniping", "copy_trading",
+    "flash_crash",
 })
 
 POLICIES: dict[MarketType, MarketPolicy] = {

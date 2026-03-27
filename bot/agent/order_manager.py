@@ -19,6 +19,7 @@ from bot.data.models import Trade
 from bot.data.repositories import TradeRepository
 from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
+from bot.polymarket.orderbook_tracker import OrderbookTracker
 from bot.polymarket.types import OrderSide, TradeSignal
 from bot.utils.notifications import notify_trade
 from bot.utils.risk_metrics import polymarket_fee
@@ -46,9 +47,15 @@ class OrderManager:
     # Cooldown (seconds) before retrying a sell that was rejected as too small.
     SELL_REJECT_COOLDOWN = 1800  # 30 minutes
 
-    def __init__(self, clob_client: PolymarketClient, data_api: DataApiClient):
+    def __init__(
+        self,
+        clob_client: PolymarketClient,
+        data_api: DataApiClient,
+        orderbook_tracker: OrderbookTracker | None = None,
+    ):
         self.clob = clob_client
         self.data_api = data_api
+        self._orderbook_tracker = orderbook_tracker
         self._pending_orders: dict[str, dict] = {}
         self._on_fill_callback: OnFillCallback | None = None
         self._on_sell_fill_callback: OnSellFillCallback | None = None
@@ -533,7 +540,22 @@ class OrderManager:
         min_edge_after_slippage = 0.005  # 0.5% minimum edge at real price
 
         try:
-            book = await self.clob.get_order_book(signal.token_id)
+            # Try WebSocket cached orderbook first (sub-second latency)
+            book = None
+            if self._orderbook_tracker is not None:
+                age = self._orderbook_tracker.book_age_seconds(signal.token_id)
+                if age is not None and age < 30:
+                    cached_book = self._orderbook_tracker.get_book(signal.token_id)
+                    if cached_book is not None:
+                        book = cached_book
+                        logger.info(
+                            "fill_price_from_ws_cache",
+                            age_seconds=round(age, 1),
+                        )
+
+            # Fall back to REST API if WS data is stale or missing
+            if book is None:
+                book = await self.clob.get_order_book(signal.token_id)
 
             if signal.side == OrderSide.BUY and book.best_ask is not None:
                 actual_price = book.best_ask

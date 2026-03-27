@@ -198,8 +198,15 @@ class PolymarketClient:
         side: OrderSide,
         price: float,
         size: float,
+        spread_cross_offset: float = 0.0,
     ) -> dict:
-        """Place a limit order. Returns order info dict."""
+        """Place a limit order. Returns order info dict.
+
+        Args:
+            spread_cross_offset: Aggressive pricing offset to cross the spread
+                for faster fills. BUY prices increase, SELL prices decrease.
+                Capped at [0.01, 0.99] and re-rounded to tick size.
+        """
         # Round price to tick size — direction-aware to ensure fills:
         # BUY: round UP (ceil) to match or beat the ask
         # SELL: round DOWN (floor) to match or beat the bid
@@ -207,6 +214,18 @@ class PolymarketClient:
             price = round(math.ceil(price / TICK_SIZE) * TICK_SIZE, 2)
         else:
             price = round(math.floor(price / TICK_SIZE) * TICK_SIZE, 2)
+
+        # Aggressive pricing: cross the spread for faster fills
+        if spread_cross_offset > 0:
+            if side == OrderSide.BUY:
+                price = min(price + spread_cross_offset, 0.99)
+            else:
+                price = max(price - spread_cross_offset, 0.01)
+            # Re-round to tick size after offset
+            if side == OrderSide.BUY:
+                price = round(math.ceil(price / TICK_SIZE) * TICK_SIZE, 2)
+            else:
+                price = round(math.floor(price / TICK_SIZE) * TICK_SIZE, 2)
 
         if size < MIN_ORDER_SHARES:
             logger.warning("order_below_min_shares", size=size, min_shares=MIN_ORDER_SHARES)

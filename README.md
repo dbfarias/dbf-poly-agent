@@ -4,27 +4,27 @@
 
 ### Autonomous Polymarket Trading Agent
 
-[![Tests](https://img.shields.io/badge/Tests-2300%2B_passing-brightgreen?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/Tests-2600%2B_passing-brightgreen?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
 
 ---
 
-**10 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
+**11 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
 ---
 
-PolyBot is a fully autonomous prediction market trading agent for [Polymarket](https://polymarket.com). It runs 24/7 as a single Python process (FastAPI + asyncio), scanning hundreds of markets every 60 seconds, generating signals across 10 parallel strategies, and filtering each signal through a 14-stage risk pipeline before execution. A React dashboard provides real-time monitoring and configuration. The bot starts in **paper trading mode** by default -- no real funds are needed to get started.
+PolyBot is a fully autonomous prediction market trading agent for [Polymarket](https://polymarket.com). It runs 24/7 as a single Python process (FastAPI + asyncio), scanning hundreds of markets every 60 seconds, generating signals across 11 parallel strategies, and filtering each signal through a 15-stage risk pipeline before execution. A React dashboard provides real-time monitoring and configuration. The bot starts in **paper trading mode** by default -- no real funds are needed to get started.
 
 ---
 
 ## Key Features
 
-- **10 trading strategies** -- time decay, arbitrage, value betting, price divergence, swing trading, market making, weather trading, crypto short-term, news sniping, and copy trading
-- **14-stage risk pipeline** -- VaR (95%), VPIN toxic flow, AI debate, drawdown checks, event-aware exit protection (sports, eSports, soccer), rate limiting, and more
+- **11 trading strategies** -- time decay, arbitrage, value betting, price divergence, swing trading, market making, weather trading, crypto short-term, news sniping, copy trading, and flash crash mean-reversion
+- **15-stage risk pipeline** -- VaR (95%), VPIN toxic flow, AI debate, drawdown checks, event-aware exit protection (sports, eSports, soccer), rate limiting, configurable spread-crossing for aggressive fills, and more
 - **AI-powered trade filtering** -- two Claude Haiku agents debate every trade (Proposer vs Challenger) before execution
 - **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo (weather), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
 - **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
@@ -33,6 +33,11 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 - **Bayesian position updating** -- re-evaluates open positions with fresh research every cycle, exits when fundamentals shift
 - **Adaptive learning** -- PerformanceLearner adjusts edge multipliers, category confidence, and urgency every 5 minutes
 - **Real-time dashboard** -- 12-page React UI with equity curves, trade history, strategy performance, risk metrics, and AI debate logs
+- **Real-time WebSocket orderbook tracking** -- live orderbook snapshots for spread analysis and flash crash detection
+- **Flash crash detection** -- mean-reversion strategy that buys when price drops 30%+ within 30 seconds
+- **On-chain position verification** -- phantom position sync detects and reconciles mismatches between local state and on-chain data
+- **Thread-safe HTTP sessions** -- all external API calls use isolated sessions to prevent concurrency issues
+- **Configurable spread-crossing** -- aggressive limit order pricing with adjustable offset for faster fills
 - **Paper trading mode** -- test everything risk-free before going live
 - **PWA push notifications** -- trade fills, errors, and daily summaries on mobile/desktop
 
@@ -122,13 +127,14 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 |  - Research         |     |  |  Trading Engine   |   |
 |  - Learner          |     |  |  (asyncio task)   |   |
 |  - AI Debates       |     |  |                   |   |
-|  - Activity         |     |  |  - 10 Strategies  |   |
+|  - Activity         |     |  |  - 11 Strategies  |   |
 |  - Settings         |     |  |  - Risk Manager   |   |
 +---------------------+     |  |  - Portfolio      |   |
                              |  |  - Learner        |   |
                              |  |  - Research Engine|   |
                              |  |  - Market Classif.|   |
                              |  |  - LLM Debate Gate|   |
+                             |  |  - OrderbookTracker|  |
                              |  +--------+---------+   |
                              |           |              |
                              |  +--------v---------+   |
@@ -144,7 +150,7 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 Every 60 seconds, a signal must pass **all 15 stages** to become a trade:
 
 ```
-Market Scan (~600 markets) -> Strategy Evaluation (10 strategies)
+Market Scan (~600 markets) -> Strategy Evaluation (11 strategies)
     -> Signal -> Risk Pipeline:
        1. Market type policy check   9. Debate cooldown
        2. Learner pause check        10. LLM Debate (Proposer + Challenger)
@@ -164,7 +170,7 @@ Every market is classified into one of 6 types, and a frozen `MarketPolicy` dete
 
 | Type | Examples | Allowed Strategies | Stop Loss | Early Exit | Bayesian | Rebalance |
 |:---|:---|:---|:---:|:---:|:---:|:---:|
-| **SHORT_TERM** | Crypto 5-min, daily binary, hourly | All 10 | 15% | Yes | Yes | Yes |
+| **SHORT_TERM** | Crypto 5-min, daily binary, hourly | All 11 | 15% | Yes | Yes | Yes |
 | **EVENT** | Sports, eSports, soccer, MMA | time_decay, copy_trading | No | No | No | No |
 | **LONG_TERM** | Politics, elections, ceasefire, treaties | time_decay, copy_trading, news_sniping | 35% | Yes | No | No |
 | **ECONOMIC** | Fed rate, CPI, GDP, unemployment | time_decay | No | No | No | No |
@@ -189,6 +195,7 @@ Classification uses regex keyword matching + end_date heuristics. See `bot/resea
 | 8 | **Crypto Short-Term** | Trade 5-minute crypto markets using real-time spot prices | Medium |
 | 9 | **News Sniping** | Trade on breaking news via RSS polling + sentiment analysis | Medium |
 | 10 | **Copy Trading** | Follow top Polymarket traders via leaderboard + wallet tracking | Medium |
+| 11 | **Flash Crash** | Mean-reversion on sudden probability drops. Buys when price drops 30%+ within 30 seconds | Very High |
 
 Strategies are modular -- each extends `BaseStrategy` and implements `scan()` and `should_exit()`. You can enable/disable any strategy at runtime via the dashboard or API. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add your own.
 
@@ -213,6 +220,12 @@ All configuration is via environment variables (`.env` file). See [`.env.example
 | `POLY_PRIVATE_KEY` | -- | Wallet private key (required for live trading only) |
 | `TAVILY_API_KEY` | -- | Tavily API key for Twitter/X research (optional) |
 | `TELEGRAM_BOT_TOKEN` | -- | Telegram bot token for alerts (optional) |
+
+### Runtime Risk Settings
+
+| Parameter | Default | Range | Description |
+|:---|:---|:---|:---|
+| `spread_cross_offset` | `0.0` | 0.0 -- 0.05 | Aggressive pricing offset to cross the spread for faster limit order fills. 0 = disabled |
 
 ### Runtime Settings
 
@@ -296,7 +309,7 @@ bash deploy/setup-https.sh <duckdns-subdomain> <duckdns-token> <your-email>
 
 The included GitHub Actions workflow (`.github/workflows/deploy.yml`) runs a 3-job pipeline on push to `main`:
 
-1. **Test** -- pytest (2300+ tests) + ruff lint + frontend build
+1. **Test** -- pytest (2600+ tests) + ruff lint + frontend build
 2. **Build** -- Docker images pushed to GitHub Container Registry
 3. **Deploy** -- SSH to server, pull images, restart with healthcheck + auto-rollback
 
@@ -306,7 +319,7 @@ Configure these GitHub secrets for CI/CD: `SERVER_HOST`, `SERVER_USER`, `SERVER_
 
 ## Testing
 
-**2300+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
+**2600+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests

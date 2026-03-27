@@ -8,6 +8,7 @@ import websockets
 
 from bot.data.market_cache import MarketCache
 from bot.data.price_tracker import PriceTracker
+from bot.polymarket.orderbook_tracker import OrderbookTracker
 from bot.polymarket.types import OrderBook, OrderBookEntry
 from bot.research.whale_detector import WhaleDetector
 
@@ -23,6 +24,7 @@ class WebSocketManager:
         self.cache = cache
         self.whale_detector = WhaleDetector()
         self.price_tracker: PriceTracker | None = None
+        self.orderbook_tracker: OrderbookTracker | None = None
         self._ws = None
         self._running = False
         self._subscribed_tokens: set[str] = set()
@@ -127,6 +129,10 @@ class WebSocketManager:
                       for a in data.get("asks", [])],
             )
             self.cache.set_order_book(asset_id, book, ttl=30)
+
+            # Feed orderbook tracker
+            if self.orderbook_tracker:
+                self.orderbook_tracker.update(asset_id, book)
 
             # Feed whale detector
             self.whale_detector.record_book_update(asset_id, book)

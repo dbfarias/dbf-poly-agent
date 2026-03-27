@@ -30,6 +30,7 @@ class RiskConfig:
         "max_per_category_pct": {"type": float, "min": 0.01, "max": 1.0},
         "max_deployed_pct": {"type": float, "min": 0.1, "max": 1.0},
         "min_win_prob": {"type": float, "min": 0.0, "max": 1.0},
+        "spread_cross_offset": {"type": float, "min": 0.0, "max": 0.05},
     }
 
     _DEFAULTS: dict[str, object] = {
@@ -42,6 +43,7 @@ class RiskConfig:
         "min_win_prob": 0.55,
         "max_per_category_pct": 0.35,  # Was 0.40: less concentration per category
         "kelly_fraction": 0.25,        # Quarter-Kelly for conservative sizing
+        "spread_cross_offset": 0.0,    # Aggressive pricing offset (0 = disabled)
     }
 
     _CONFIG: dict[str, object] = dict(_DEFAULTS)

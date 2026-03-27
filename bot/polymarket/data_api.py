@@ -4,6 +4,7 @@ import httpx
 import structlog
 
 from bot.config import settings
+from bot.polymarket.session_mixin import ThreadLocalSessionMixin
 from bot.polymarket.types import PositionInfo
 from bot.utils.retry import async_retry
 
@@ -12,8 +13,13 @@ logger = structlog.get_logger()
 DATA_API_URL = "https://data-api.polymarket.com"
 
 
-class DataApiClient:
-    """Client for Polymarket's Data API (positions, PnL, history)."""
+class DataApiClient(ThreadLocalSessionMixin):
+    """Client for Polymarket's Data API (positions, PnL, history).
+
+    Inherits ThreadLocalSessionMixin for thread-safe synchronous HTTP calls.
+    Use _get_session() for sync calls from worker threads (asyncio.to_thread).
+    Use self._client for normal async operations.
+    """
 
     def __init__(self):
         self._client: httpx.AsyncClient | None = None
