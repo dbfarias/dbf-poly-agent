@@ -915,9 +915,15 @@ class TradingEngine:
             self.risk_manager.set_day_start_equity(
                 self.portfolio.day_start_equity,
             )
+            # Sync peak equity from portfolio to risk manager so drawdown
+            # calculation uses the persisted peak, not initial_bankroll.
+            self.risk_manager.reset_peak_equity(
+                self.portfolio.peak_equity,
+            )
             logger.info(
                 "startup_day_start_synced",
                 day_start=round(self.portfolio.day_start_equity, 4),
+                peak=round(self.portfolio.peak_equity, 4),
                 equity=round(self.portfolio.total_equity, 4),
             )
 
