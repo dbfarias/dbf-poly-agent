@@ -37,6 +37,7 @@ from bot.polymarket.client import PolymarketClient
 from bot.polymarket.data_api import DataApiClient
 from bot.polymarket.gamma import GammaClient
 from bot.polymarket.heartbeat import HeartbeatManager
+from bot.polymarket.orderbook_tracker import OrderbookTracker
 from bot.polymarket.websocket_manager import WebSocketManager
 from bot.research.cache import ResearchCache
 from bot.research.engine import ResearchEngine
@@ -73,6 +74,7 @@ from bot.utils.push_notifications import (
 from .strategies.arbitrage import ArbitrageStrategy
 from .strategies.copy_trading import CopyTradingStrategy
 from .strategies.crypto_short_term import CryptoShortTermStrategy
+from .strategies.flash_crash import FlashCrashStrategy
 from .strategies.market_making import MarketMakingStrategy
 from .strategies.news_sniping import NewsSniperStrategy
 from .strategies.price_divergence import PriceDivergenceStrategy
@@ -123,11 +125,17 @@ class TradingEngine:
 
         # Components
         self.risk_manager = RiskManager(returns_tracker=self.returns_tracker)
+        # Orderbook tracker (real-time mid-price, spread, flash crash detection)
+        self.orderbook_tracker = OrderbookTracker()
+
         self.portfolio = Portfolio(
             self.clob_client, self.data_api, self.gamma_client,
             risk_manager=self.risk_manager,
         )
-        self.order_manager = OrderManager(self.clob_client, self.data_api)
+        self.order_manager = OrderManager(
+            self.clob_client, self.data_api,
+            orderbook_tracker=self.orderbook_tracker,
+        )
         self.learner = PerformanceLearner()
         self.closer = PositionCloser(
             self.order_manager, self.portfolio,
@@ -156,6 +164,9 @@ class TradingEngine:
 
         # Shared price tracker (in-memory, ~6h history per market)
         self.price_tracker = PriceTracker()
+
+        # Wire orderbook tracker into WebSocket
+        self.ws_manager.orderbook_tracker = self.orderbook_tracker
 
         # Wire price tracker and whale detector into WebSocket + research
         self.ws_manager.price_tracker = self.price_tracker
@@ -197,6 +208,10 @@ class TradingEngine:
                 self.clob_client, self.gamma_client, self.cache,
                 whale_tracker=self.whale_tracker,
                 bankroll_fn=lambda: self.portfolio.total_equity,
+            ),
+            FlashCrashStrategy(
+                self.clob_client, self.gamma_client, self.cache,
+                orderbook_tracker=self.orderbook_tracker,
             ),
         ]
         self.analyzer = MarketAnalyzer(
