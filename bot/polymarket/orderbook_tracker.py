@@ -37,8 +37,9 @@ class OrderbookTracker:
 
     def update(self, token_id: str, book: OrderBook) -> None:
         """Update orderbook state for a token. Called on each WS message."""
+        now = time()
         self._books[token_id] = book
-        self._book_timestamps[token_id] = time()
+        self._book_timestamps[token_id] = now
 
         mid = book.mid_price
         if mid is None or mid <= 0:
@@ -47,7 +48,6 @@ class OrderbookTracker:
         if token_id not in self._price_history:
             self._price_history[token_id] = deque(maxlen=self.MAX_HISTORY_POINTS)
 
-        now = time()
         self._price_history[token_id].append(PricePoint(now, mid))
         self._prune_old(token_id, now)
 
@@ -77,8 +77,10 @@ class OrderbookTracker:
         history = self._price_history.get(token_id)
         if not history:
             return []
+        # Snapshot deque to prevent concurrent mutation during iteration
+        snapshot = list(history)
         cutoff = time() - window_seconds
-        return [p for p in history if p.timestamp >= cutoff]
+        return [p for p in snapshot if p.timestamp >= cutoff]
 
     def detect_flash_crash(
         self,

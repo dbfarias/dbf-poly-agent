@@ -102,7 +102,8 @@ class FlashCrashStrategy(BaseStrategy):
         self, market: GammaMarket, token_id: str, token_idx: int
     ) -> TradeSignal | None:
         """Check a single token for flash crash and build signal."""
-        assert self._tracker is not None
+        if self._tracker is None:
+            return None
 
         crashed, drop_magnitude = self._tracker.detect_flash_crash(
             token_id,
@@ -168,11 +169,14 @@ class FlashCrashStrategy(BaseStrategy):
 
     @staticmethod
     def _compute_confidence(drop_magnitude: float) -> float:
-        """Map drop magnitude to confidence (bigger drop = higher confidence)."""
-        # 30% drop -> 0.50, 50% drop -> 0.70, 80%+ drop -> 0.90
+        """Map drop magnitude to confidence (bigger drop = higher confidence).
+
+        Precondition: drop_magnitude >= 0.30 (enforced by detect_flash_crash).
+        Scale: 30% drop → 0.50, 50% → 0.70, 80%+ → 0.90, capped at 0.95.
+        """
         base = 0.50
-        bonus = min(0.40, (drop_magnitude - 0.30) * 1.0)
-        return min(0.95, max(base, base + bonus))
+        bonus = min(0.45, (drop_magnitude - 0.30) * 1.0)
+        return min(0.95, base + bonus)
 
     async def should_exit(
         self, market_id: str, current_price: float, **kwargs

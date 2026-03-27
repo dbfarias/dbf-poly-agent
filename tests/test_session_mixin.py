@@ -71,3 +71,21 @@ def test_close_sessions_clears_all():
     assert new_session is not session, "Should create new session after close"
 
     client._close_sessions()
+
+
+def test_different_instances_get_different_sessions():
+    """Two different mixin instances in the same thread get isolated sessions."""
+    client_a = FakeClient()
+    client_b = FakeClient()
+
+    session_a = client_a._get_session(timeout=5)
+    session_b = client_b._get_session(timeout=5)
+
+    assert session_a is not session_b, "Different instances should get different sessions"
+
+    # Closing one should not affect the other
+    client_a._close_sessions()
+    session_b_again = client_b._get_session(timeout=5)
+    assert session_b_again is session_b, "Other instance session should survive"
+
+    client_b._close_sessions()

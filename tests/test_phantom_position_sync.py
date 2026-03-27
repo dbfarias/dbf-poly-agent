@@ -216,14 +216,8 @@ async def test_reconciliation_log_on_mismatch(
         ):
             await portfolio._sync_from_polymarket()
 
-    # Check position_count_mismatch was logged
-    # local_open_count=1 (only remote_mkt matches), remote_count=1 — these match
-    # But phantom_mkt is extra in local, so the mismatch log depends on
-    # the count of local positions that are in remote_market_ids vs remote count
-    # Actually local_open_count = 1 (remote_mkt is in remote_market_ids)
-    # remote_count = 1 — they match. The phantom is detected separately.
-    # Let's test a real mismatch scenario instead.
-    pass
+    # Phantom was closed — verify
+    mock_repo.close.assert_called_once_with("phantom_mkt")
 
 
 @pytest.mark.asyncio

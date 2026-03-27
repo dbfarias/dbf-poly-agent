@@ -170,6 +170,11 @@ class Portfolio:
             self._realized_pnl_today = 0.0
             self._pnl_date = today
 
+        # Capture equity BEFORE sync to detect real deposits/withdrawals.
+        # Trading changes cash↓ and positions↑ with zero net equity change,
+        # so any equity delta across the sync is a real deposit/withdrawal.
+        pre_sync_equity = self.total_equity
+
         # Sync positions from Polymarket first
         if self.clob.is_connected and not settings.is_paper:
             await self._sync_from_polymarket()
@@ -190,9 +195,13 @@ class Portfolio:
                 real_balance = await self.clob.get_balance()
                 if real_balance is not None:
                     self._polymarket_balance = real_balance
-                    # In live mode, detect deposit/withdrawal before overwriting cash
+                    # In live mode, detect deposit/withdrawal using
+                    # pre-sync equity snapshot vs post-sync equity
                     if not settings.is_paper:
-                        await self._detect_capital_flow(real_balance)
+                        await self._detect_capital_flow(
+                            real_balance,
+                            old_equity_snapshot=pre_sync_equity,
+                        )
                         self._cash = real_balance
             except Exception as e:
                 logger.error("balance_sync_failed", error=str(e))
@@ -446,13 +455,19 @@ class Portfolio:
         if prices:
             await self.update_position_prices(prices)
 
-    async def _detect_capital_flow(self, new_balance: float) -> None:
-        """Detect deposit/withdrawal by comparing total equity, not just cash.
+    async def _detect_capital_flow(
+        self, new_balance: float, old_equity_snapshot: float | None = None,
+    ) -> None:
+        """Detect deposit/withdrawal by comparing total equity snapshots.
 
-        Trading changes cash but not equity (cash↓ + positions↑ = 0).
-        Only real deposits/withdrawals change total equity unexpectedly.
-        If the equity delta is significant (>$0.50), record a CapitalFlow and
-        adjust day_start_equity so PnL calculations remain deposit-immune.
+        Trading changes cash and positions in opposite directions, so equity
+        stays constant. Only real deposits/withdrawals change total equity.
+
+        Args:
+            new_balance: The fresh cash balance from Polymarket.
+            old_equity_snapshot: Total equity captured BEFORE any sync.
+                If provided, compares old snapshot vs new equity to detect
+                real deposits/withdrawals while ignoring trading activity.
         """
         # After mode switch, the first balance read is the real Polymarket
         # balance which differs from paper cash — skip to avoid phantom flow
@@ -465,13 +480,17 @@ class Portfolio:
             )
             return
 
-        # Compare equity (cash + positions), not just cash.
-        # When the bot buys shares: cash goes down, position value goes up,
-        # equity stays the same → no flow. Only real deposits/withdrawals
-        # change equity without a corresponding position change.
-        old_equity = self._cash + self.positions_value
-        new_equity = new_balance + self.positions_value
-        flow = new_equity - old_equity
+        # Compare equity BEFORE sync vs equity AFTER sync.
+        # Before: old_equity_snapshot (captured before positions + balance changed)
+        # After: new_balance + current positions_value (both freshly synced)
+        # Trading doesn't change equity, so any delta is a real deposit/withdrawal.
+        if old_equity_snapshot is not None:
+            new_equity = new_balance + self.positions_value
+            flow = new_equity - old_equity_snapshot
+        else:
+            # Fallback: compare cash only (less accurate but safe for first call)
+            flow = new_balance - self._cash
+
         if abs(flow) < 0.50:
             return
 
@@ -631,12 +650,13 @@ class Portfolio:
             )
 
         pnl = (settlement_price - position.avg_price) * position.size
-        await pos_repo.close(position.market_id)
-        self._realized_pnl_today += pnl
-
-        # Update cash with settlement proceeds so _detect_capital_flow
-        # doesn't see the returning funds as a false deposit
         settlement_proceeds = settlement_price * position.size
+
+        # Close in DB first — only mutate in-memory state after success
+        await pos_repo.close(position.market_id)
+
+        # DB close succeeded — now safe to update in-memory state
+        self._realized_pnl_today += pnl
         self._cash += settlement_proceeds
 
         if self._risk_manager and pnl != 0:
