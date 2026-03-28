@@ -449,84 +449,42 @@ class Portfolio:
             await self.update_position_prices(prices)
 
     async def _detect_capital_flow(self, new_balance: float) -> None:
-        """Detect deposit/withdrawal by comparing fully-synced equity snapshots.
+        """Log equity changes between sync cycles for diagnostics.
 
-        After sync completes, the new equity (new_balance + positions_value)
-        should equal the previous cycle's equity plus any realized P&L from
-        closes this cycle. Any remaining delta is a real deposit/withdrawal.
+        Automatic day_start_equity adjustment is DISABLED because the
+        Polymarket Data API has latency: when a user buys directly, cash
+        drops immediately but the new position appears 1-2 cycles later.
+        This creates transient equity drops that look like withdrawals.
 
-        This approach is immune to trading activity because both cash and
-        positions are fully synced before comparison.
+        Real deposits/withdrawals (USDC transfers) can be handled via
+        the manual PnL reset endpoint on the dashboard.
         """
-        # After mode switch, the first balance read is the real Polymarket
-        # balance which differs from paper cash — skip to avoid phantom flow
         if self._skip_next_flow:
             self._skip_next_flow = False
             self._last_synced_equity = new_balance + self.positions_value
-            logger.info(
-                "capital_flow_skipped_mode_switch",
-                old_cash=round(self._cash, 4),
-                new_balance=round(new_balance, 4),
-            )
             return
 
         new_equity = new_balance + self.positions_value
 
-        # On first sync (no previous snapshot), just record and skip
         if self._last_synced_equity is None:
             self._last_synced_equity = new_equity
             return
 
-        # Flow = equity change minus any realized P&L this cycle.
-        # Realized P&L is already tracked in _realized_pnl_today,
-        # but we only care about the delta SINCE last sync, which
-        # is captured by the equity difference itself.
-        # Trading: cash↓ + positions↑ = 0 net equity change.
-        # Realized close: positions↓ + cash↑ = 0 net equity change.
-        # Only real deposit/withdrawal changes total equity.
         flow = new_equity - self._last_synced_equity
         self._last_synced_equity = new_equity
 
-        if abs(flow) < 0.50:
-            return
-
-        flow_type = "deposit" if flow > 0 else "withdrawal"
-        logger.info(
-            "capital_flow_detected",
-            flow_type=flow_type,
-            amount=round(flow, 4),
-            old_cash=round(self._cash, 4),
-            new_balance=round(new_balance, 4),
-        )
-
-        # Record to DB
-        try:
-            async with async_session() as session:
-                repo = CapitalFlowRepository(session)
-                await repo.create(CapitalFlow(
-                    amount=flow,
-                    flow_type=flow_type,
-                    source="polymarket",
-                    note=f"Auto-detected: ${flow:+.2f}",
-                    is_paper=False,
-                ))
-        except Exception as e:
-            logger.error("capital_flow_record_failed", error=str(e))
-
-        # Adjust day_start_equity so PnL stays immune
-        self._day_start_equity += flow
-        try:
-            from bot.data.settings_store import StateStore
-
-            await StateStore.save_day_start_equity(
-                self._day_start_equity, trading_day(),
+        # Log significant equity changes for diagnostics only.
+        # Do NOT adjust day_start_equity — too many false positives
+        # from Data API latency on external trades.
+        if abs(flow) > 0.50:
+            flow_type = "deposit" if flow > 0 else "withdrawal"
+            logger.info(
+                "equity_change_detected",
+                flow_type=flow_type,
+                amount=round(flow, 4),
+                new_equity=round(new_equity, 4),
+                old_equity=round(new_equity - flow, 4),
             )
-        except Exception as e:
-            logger.error("day_start_equity_adjust_failed", error=str(e))
-
-        # Propagate to risk manager
-        if self._risk_manager:
-            self._risk_manager.set_day_start_equity(self._day_start_equity)
 
     async def _restore_paper_cash(self) -> None:
         """Restore paper cash from persisted state.

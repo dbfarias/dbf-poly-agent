@@ -134,32 +134,25 @@ class TestSnapshotTradingPnl:
 
 class TestDepositDetection:
     @pytest.mark.asyncio
-    async def test_detect_deposit_adjusts_day_start_equity(self, portfolio):
-        """Real deposit (equity jump between cycles) adjusts day_start_equity."""
+    async def test_detect_deposit_logs_but_does_not_adjust(self, portfolio):
+        """Equity change is logged but day_start_equity stays unchanged.
+
+        Automatic adjustment is disabled because Polymarket Data API
+        latency causes false positives on external trades.
+        """
         portfolio._cash = 10.0
         portfolio._positions = []
         portfolio._day_start_equity = 10.0
         portfolio._skip_next_flow = False
-        # Simulate previous cycle equity of 10.0
         portfolio._last_synced_equity = 10.0
 
-        mock_repo = MagicMock()
-        mock_repo.create = AsyncMock(return_value=CapitalFlow(
-            id=1, amount=20.0, flow_type="deposit",
-            source="polymarket", note="", is_paper=False,
-        ))
+        # New balance 30 + positions 0 = equity 30, vs last_synced 10
+        await portfolio._detect_capital_flow(30.0)
 
-        with patch("bot.agent.portfolio.async_session") as mock_session, \
-             patch("bot.agent.portfolio.CapitalFlowRepository", return_value=mock_repo), \
-             patch("bot.data.settings_store.StateStore.save_day_start_equity",
-                   new_callable=AsyncMock):
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            # New balance 30 + positions 0 = equity 30, vs last_synced 10 = flow +20
-            await portfolio._detect_capital_flow(30.0)
-
-        assert portfolio._day_start_equity == 30.0  # 10 + 20
+        # day_start_equity should NOT change (log-only mode)
+        assert portfolio._day_start_equity == 10.0
+        # But last_synced_equity should update
+        assert portfolio._last_synced_equity == 30.0
 
     @pytest.mark.asyncio
     async def test_no_flow_on_small_change(self, portfolio):
@@ -196,34 +189,23 @@ class TestDepositDetection:
         assert portfolio._day_start_equity == 10.0  # no change for <$0.50
 
     @pytest.mark.asyncio
-    async def test_detect_withdrawal(self, portfolio):
-        """Withdrawal should decrease day_start_equity."""
+    async def test_withdrawal_logged_but_no_adjustment(self, portfolio):
+        """Withdrawal logged but day_start_equity stays unchanged."""
         portfolio._cash = 30.0
         portfolio._positions = []
         portfolio._day_start_equity = 30.0
         portfolio._skip_next_flow = False
         portfolio._last_synced_equity = 30.0
 
-        mock_repo = MagicMock()
-        mock_repo.create = AsyncMock(return_value=CapitalFlow(
-            id=1, amount=-10.0, flow_type="withdrawal",
-            source="polymarket", note="", is_paper=False,
-        ))
+        await portfolio._detect_capital_flow(20.0)
 
-        with patch("bot.agent.portfolio.async_session") as mock_session, \
-             patch("bot.agent.portfolio.CapitalFlowRepository", return_value=mock_repo), \
-             patch("bot.data.settings_store.StateStore.save_day_start_equity",
-                   new_callable=AsyncMock):
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            await portfolio._detect_capital_flow(20.0)
-
-        assert portfolio._day_start_equity == 20.0  # 30 - 10
+        # day_start_equity should NOT change
+        assert portfolio._day_start_equity == 30.0
+        assert portfolio._last_synced_equity == 20.0
 
     @pytest.mark.asyncio
-    async def test_flow_propagates_to_risk_manager(self, portfolio):
-        """Deposit should call risk_manager.set_day_start_equity."""
+    async def test_no_risk_manager_propagation(self, portfolio):
+        """Flow detection no longer propagates to risk manager."""
         mock_rm = MagicMock()
         portfolio._risk_manager = mock_rm
         portfolio._cash = 10.0
@@ -232,22 +214,10 @@ class TestDepositDetection:
         portfolio._skip_next_flow = False
         portfolio._last_synced_equity = 10.0
 
-        mock_repo = MagicMock()
-        mock_repo.create = AsyncMock(return_value=CapitalFlow(
-            id=1, amount=5.0, flow_type="deposit",
-            source="polymarket", note="", is_paper=False,
-        ))
+        await portfolio._detect_capital_flow(15.0)
 
-        with patch("bot.agent.portfolio.async_session") as mock_session, \
-             patch("bot.agent.portfolio.CapitalFlowRepository", return_value=mock_repo), \
-             patch("bot.data.settings_store.StateStore.save_day_start_equity",
-                   new_callable=AsyncMock):
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            await portfolio._detect_capital_flow(15.0)
-
-        mock_rm.set_day_start_equity.assert_called_once_with(15.0)
+        # Risk manager should NOT be called (log-only mode)
+        mock_rm.set_day_start_equity.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_first_sync_records_equity_no_flow(self, portfolio):
