@@ -48,6 +48,7 @@ class Portfolio:
         self._realized_pnl_today: float = 0.0
         self._pnl_date: str = ""  # Track which UTC day the PnL belongs to
         self._skip_next_flow: bool = True  # Skip first flow detection on startup
+        self._last_synced_equity: float | None = None  # Equity after last full sync
         self._auto_removed_ids: set[str] = set()  # Markets auto-removed from stuck; skip in sync
         self._day_start_equity: float = settings.initial_bankroll  # Equity at 00:00 UTC
         self._last_snapshot: datetime | None = None
@@ -170,11 +171,6 @@ class Portfolio:
             self._realized_pnl_today = 0.0
             self._pnl_date = today
 
-        # Capture equity BEFORE sync to detect real deposits/withdrawals.
-        # Trading changes cash↓ and positions↑ with zero net equity change,
-        # so any equity delta across the sync is a real deposit/withdrawal.
-        pre_sync_equity = self.total_equity
-
         # Sync positions from Polymarket first
         if self.clob.is_connected and not settings.is_paper:
             await self._sync_from_polymarket()
@@ -198,10 +194,7 @@ class Portfolio:
                     # In live mode, detect deposit/withdrawal using
                     # pre-sync equity snapshot vs post-sync equity
                     if not settings.is_paper:
-                        await self._detect_capital_flow(
-                            real_balance,
-                            old_equity_snapshot=pre_sync_equity,
-                        )
+                        await self._detect_capital_flow(real_balance)
                         self._cash = real_balance
             except Exception as e:
                 logger.error("balance_sync_failed", error=str(e))
@@ -455,24 +448,21 @@ class Portfolio:
         if prices:
             await self.update_position_prices(prices)
 
-    async def _detect_capital_flow(
-        self, new_balance: float, old_equity_snapshot: float | None = None,
-    ) -> None:
-        """Detect deposit/withdrawal by comparing total equity snapshots.
+    async def _detect_capital_flow(self, new_balance: float) -> None:
+        """Detect deposit/withdrawal by comparing fully-synced equity snapshots.
 
-        Trading changes cash and positions in opposite directions, so equity
-        stays constant. Only real deposits/withdrawals change total equity.
+        After sync completes, the new equity (new_balance + positions_value)
+        should equal the previous cycle's equity plus any realized P&L from
+        closes this cycle. Any remaining delta is a real deposit/withdrawal.
 
-        Args:
-            new_balance: The fresh cash balance from Polymarket.
-            old_equity_snapshot: Total equity captured BEFORE any sync.
-                If provided, compares old snapshot vs new equity to detect
-                real deposits/withdrawals while ignoring trading activity.
+        This approach is immune to trading activity because both cash and
+        positions are fully synced before comparison.
         """
         # After mode switch, the first balance read is the real Polymarket
         # balance which differs from paper cash — skip to avoid phantom flow
         if self._skip_next_flow:
             self._skip_next_flow = False
+            self._last_synced_equity = new_balance + self.positions_value
             logger.info(
                 "capital_flow_skipped_mode_switch",
                 old_cash=round(self._cash, 4),
@@ -480,16 +470,22 @@ class Portfolio:
             )
             return
 
-        # Compare equity BEFORE sync vs equity AFTER sync.
-        # Before: old_equity_snapshot (captured before positions + balance changed)
-        # After: new_balance + current positions_value (both freshly synced)
-        # Trading doesn't change equity, so any delta is a real deposit/withdrawal.
-        if old_equity_snapshot is not None:
-            new_equity = new_balance + self.positions_value
-            flow = new_equity - old_equity_snapshot
-        else:
-            # Fallback: compare cash only (less accurate but safe for first call)
-            flow = new_balance - self._cash
+        new_equity = new_balance + self.positions_value
+
+        # On first sync (no previous snapshot), just record and skip
+        if self._last_synced_equity is None:
+            self._last_synced_equity = new_equity
+            return
+
+        # Flow = equity change minus any realized P&L this cycle.
+        # Realized P&L is already tracked in _realized_pnl_today,
+        # but we only care about the delta SINCE last sync, which
+        # is captured by the equity difference itself.
+        # Trading: cash↓ + positions↑ = 0 net equity change.
+        # Realized close: positions↓ + cash↑ = 0 net equity change.
+        # Only real deposit/withdrawal changes total equity.
+        flow = new_equity - self._last_synced_equity
+        self._last_synced_equity = new_equity
 
         if abs(flow) < 0.50:
             return
