@@ -523,3 +523,26 @@ export interface CapitalFlow {
 
 export const fetchCapitalFlows = (limit = 50) =>
   api.get<CapitalFlow[]>("/api/portfolio/capital-flows", { params: { limit } }).then((r) => r.data);
+
+// Trade Assistant types
+export interface AssistantRequest {
+  message: string;
+}
+
+export interface AssistantResponse {
+  success: boolean;
+  log: string[];
+  market_title: string | null;
+  outcome: string | null;
+  side: string | null;
+  price: number | null;
+  shares: number | null;
+  cost: number | null;
+  order_id: string | null;
+  error: string | null;
+}
+
+export const executeTradeAssistant = async (message: string): Promise<AssistantResponse> => {
+  const { data } = await api.post<AssistantResponse>("/api/assistant/execute", { message });
+  return data;
+};

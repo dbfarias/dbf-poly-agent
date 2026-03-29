@@ -251,3 +251,21 @@ class HealthCheck(BaseModel):
     uptime_seconds: float
     engine_running: bool = False
     cycle_count: int = 0
+
+
+# Trade Assistant
+class AssistantRequest(BaseModel):
+    message: str  # Free text, e.g. "Buy Italy win $5 https://polymarket.com/..."
+
+
+class AssistantResponse(BaseModel):
+    success: bool
+    log: list[str]  # Step-by-step log of what happened
+    market_title: str | None = None
+    outcome: str | None = None  # "Yes" or "No"
+    side: str | None = None  # "BUY" or "SELL"
+    price: float | None = None
+    shares: float | None = None
+    cost: float | None = None
+    order_id: str | None = None
+    error: str | None = None

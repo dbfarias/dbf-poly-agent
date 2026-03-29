@@ -7,6 +7,7 @@ import EquityChart from "../components/EquityChart";
 import HelpTooltip from "../components/HelpTooltip";
 import { StatCardSkeleton } from "../components/Skeleton";
 import StatCard from "../components/StatCard";
+import TradeAssistant from "../components/TradeAssistant";
 import TradeTable from "../components/TradeTable";
 import WinLossChart from "../components/WinLossChart";
 
@@ -62,6 +63,9 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Trade Assistant */}
+      <TradeAssistant />
 
       {/* Daily Target */}
       {portfolio && (

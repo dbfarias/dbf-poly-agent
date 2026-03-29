@@ -15,6 +15,7 @@ from api.middleware import verify_api_key
 from api.rate_limit import limiter
 from api.routers import (
     activity,
+    assistant,
     config,
     learner,
     markets,
@@ -116,6 +117,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(auth_router)
+app.include_router(assistant.router)
 app.include_router(portfolio.router)
 app.include_router(trades.router)
 app.include_router(strategies.router)
