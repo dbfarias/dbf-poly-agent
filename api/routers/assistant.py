@@ -28,11 +28,23 @@ _AMOUNT_RE = re.compile(r"\$\s?(\d+(?:\.\d+)?)")
 _AMOUNT_BARE_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*(?:dollars?|usd)\b", re.IGNORECASE)
 
 _NO_KEYWORDS = frozenset({
+    # English
     "no", "not win", "lose", "loss", "against", "not", "won't", "wont",
     "defeat", "fail", "draw",
+    # Portuguese
+    "não ganha", "nao ganha", "não vence", "nao vence", "perde",
+    "perder", "contra", "empate", "não", "nao",
 })
-_YES_KEYWORDS = frozenset({"yes", "win", "wins", "victory", "for"})
-_SELL_KEYWORDS = frozenset({"sell", "exit", "close", "dump"})
+_YES_KEYWORDS = frozenset({
+    # English
+    "yes", "win", "wins", "victory", "for",
+    # Portuguese
+    "ganha", "vence", "ganhar", "vencer", "vitória", "vitoria", "sim",
+})
+_SELL_KEYWORDS = frozenset({
+    "sell", "exit", "close", "dump",
+    "vender", "sair", "fechar",
+})
 
 
 def extract_url(message: str) -> str | None:
