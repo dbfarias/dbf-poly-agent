@@ -78,6 +78,7 @@ from .strategies.flash_crash import FlashCrashStrategy
 from .strategies.market_making import MarketMakingStrategy
 from .strategies.news_sniping import NewsSniperStrategy
 from .strategies.price_divergence import PriceDivergenceStrategy
+from .strategies.sports_favorite import SportsFavoriteStrategy
 from .strategies.swing_trading import SwingTradingStrategy
 from .strategies.time_decay import TimeDecayStrategy
 from .strategies.value_betting import ValueBettingStrategy
@@ -208,6 +209,9 @@ class TradingEngine:
                 self.clob_client, self.gamma_client, self.cache,
                 whale_tracker=self.whale_tracker,
                 bankroll_fn=lambda: self.portfolio.total_equity,
+            ),
+            SportsFavoriteStrategy(
+                self.clob_client, self.gamma_client, self.cache,
             ),
             FlashCrashStrategy(
                 self.clob_client, self.gamma_client, self.cache,

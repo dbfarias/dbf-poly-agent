@@ -45,7 +45,7 @@ _ALL_STRATEGIES = frozenset({
     "time_decay", "arbitrage", "value_betting", "price_divergence",
     "swing_trading", "market_making", "weather_trading",
     "crypto_short_term", "news_sniping", "copy_trading",
-    "flash_crash",
+    "flash_crash", "sports_favorite",
 })
 
 POLICIES: dict[MarketType, MarketPolicy] = {
@@ -60,7 +60,7 @@ POLICIES: dict[MarketType, MarketPolicy] = {
         description="Crypto 5-min, daily binary, hourly markets",
     ),
     MarketType.EVENT: MarketPolicy(
-        allowed_strategies=frozenset({"time_decay", "copy_trading"}),
+        allowed_strategies=frozenset({"time_decay", "copy_trading", "sports_favorite"}),
         allow_early_exit=False,
         allow_bayesian_exit=False,
         allow_stop_loss=False,
