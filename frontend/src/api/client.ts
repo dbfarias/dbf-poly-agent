@@ -546,3 +546,25 @@ export const executeTradeAssistant = async (message: string): Promise<AssistantR
   const { data } = await api.post<AssistantResponse>("/api/assistant/execute", { message });
   return data;
 };
+
+// Sell Position types
+export interface SellPositionRequest {
+  market_id: string;
+  size?: number;
+}
+
+export interface SellPositionResponse {
+  success: boolean;
+  market_id: string;
+  question: string | null;
+  size_sold: number | null;
+  price: number | null;
+  proceeds: number | null;
+  order_id: string | null;
+  error: string | null;
+}
+
+export const sellPosition = async (req: SellPositionRequest): Promise<SellPositionResponse> => {
+  const { data } = await api.post<SellPositionResponse>("/api/portfolio/positions/sell", req);
+  return data;
+};

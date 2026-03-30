@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db, get_engine
 from api.middleware import verify_api_key
-from api.schemas import AllocationItem, EquityPoint, PortfolioOverview, PositionResponse
+from api.schemas import (
+    AllocationItem,
+    EquityPoint,
+    PortfolioOverview,
+    PositionResponse,
+    SellPositionRequest,
+    SellPositionResponse,
+)
 from bot.config import settings
 from bot.data.repositories import PortfolioSnapshotRepository, PositionRepository
 
@@ -264,6 +271,106 @@ async def force_close_position(
         market_id=position.market_id,
         pnl=pnl,
         message=f"Position closed. PnL: ${pnl:.4f}",
+    )
+
+
+@router.post("/positions/sell", response_model=SellPositionResponse)
+async def sell_position(
+    req: SellPositionRequest,
+    _: str = Depends(verify_api_key),
+):
+    """Sell an open position at current best bid price."""
+    engine = get_engine()
+
+    # Find position by market_id
+    position = next(
+        (p for p in engine.portfolio.positions if p.market_id == req.market_id and p.is_open),
+        None,
+    )
+    if not position:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Open position for market {req.market_id} not found",
+        )
+
+    sell_size = req.size if req.size is not None else position.size
+
+    if sell_size <= 0:
+        raise HTTPException(status_code=400, detail="Sell size must be positive")
+    if sell_size > position.size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sell size {sell_size} exceeds position size {position.size}",
+        )
+
+    # Fetch best bid from orderbook
+    try:
+        orderbook = await engine.clob.get_order_book(position.token_id)
+        best_bid = orderbook.bids[0].price if orderbook.bids else position.current_price
+    except Exception:
+        best_bid = position.current_price
+
+    logger.info(
+        "sell_position_requested",
+        market_id=req.market_id,
+        size=sell_size,
+        best_bid=best_bid,
+    )
+
+    # Place sell order via order_manager
+    trade = await engine.order_manager.close_position(
+        market_id=position.market_id,
+        token_id=position.token_id,
+        size=sell_size,
+        current_price=best_bid,
+        question=position.question,
+        outcome=position.outcome,
+        category=position.category,
+        strategy=position.strategy,
+    )
+
+    if not trade:
+        if sell_size < 5.0:
+            return SellPositionResponse(
+                success=False,
+                market_id=req.market_id,
+                question=position.question,
+                error=(
+                    f"Position too small to sell ({sell_size:.2f} shares, "
+                    f"min ~5). Must wait for resolution."
+                ),
+            )
+        return SellPositionResponse(
+            success=False,
+            market_id=req.market_id,
+            question=position.question,
+            error="Sell order rejected by exchange",
+        )
+
+    proceeds = sell_size * best_bid
+
+    # Record PnL if immediately filled
+    if trade.status == "filled":
+        pnl = await engine.portfolio.record_trade_close(position.market_id, best_bid)
+        engine.risk_manager.update_daily_pnl(pnl)
+
+    logger.info(
+        "sell_position_completed",
+        market_id=req.market_id,
+        size_sold=sell_size,
+        price=best_bid,
+        proceeds=proceeds,
+        order_id=trade.order_id if trade else None,
+    )
+
+    return SellPositionResponse(
+        success=True,
+        market_id=req.market_id,
+        question=position.question,
+        size_sold=sell_size,
+        price=best_bid,
+        proceeds=round(proceeds, 4),
+        order_id=trade.order_id if trade else None,
     )
 
 

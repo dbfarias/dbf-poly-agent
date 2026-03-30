@@ -485,34 +485,34 @@ class TestCheckCategoryExposure:
 
 class TestCheckMinEdge:
     def test_above_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.02
+        config = RiskConfig.get()  # min_edge_pct=0.01
         signal = make_signal(edge=0.06)
         assert rm._check_min_edge(signal, config).passed is True
 
     def test_below_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.02
+        config = RiskConfig.get()  # min_edge_pct=0.01
         signal = make_signal(edge=0.005)
         result = rm._check_min_edge(signal, config)
         assert result.passed is False
 
     def test_edge_multiplier_tightens_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.02
-        # Edge of 0.028 normally passes (> 0.02), but with 1.5x multiplier
-        # required edge = 0.03, so 0.028 should fail
-        signal = make_signal(edge=0.028)
+        config = RiskConfig.get()  # min_edge_pct=0.01
+        # Edge of 0.014 normally passes (> 0.01), but with 1.5x multiplier
+        # required edge = 0.015, so 0.014 should fail
+        signal = make_signal(edge=0.014)
         result = rm._check_min_edge(signal, config, edge_multiplier=1.5)
         assert result.passed is False
 
     def test_edge_multiplier_relaxes_threshold(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.02
-        # With 0.8x multiplier, required edge = 0.016
-        signal = make_signal(edge=0.018)
+        config = RiskConfig.get()  # min_edge_pct=0.01
+        # With 0.8x multiplier, required edge = 0.008
+        signal = make_signal(edge=0.009)
         result = rm._check_min_edge(signal, config, edge_multiplier=0.8)
         assert result.passed is True
 
     def test_edge_multiplier_default_is_one(self, rm):
-        config = RiskConfig.get()  # min_edge_pct=0.02
-        signal = make_signal(edge=0.025)
+        config = RiskConfig.get()  # min_edge_pct=0.01
+        signal = make_signal(edge=0.015)
         # Without multiplier (default 1.0), should pass
         result = rm._check_min_edge(signal, config)
         assert result.passed is True

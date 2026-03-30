@@ -309,6 +309,15 @@ class Portfolio:
                     )
                     continue
 
+                # Allow re-sync if the user manually re-entered a previously auto-removed market
+                if (
+                    rp.market_id in self._auto_removed_ids
+                    and rp.size > 1
+                    and rp.current_price > 0.01
+                ):
+                    self._auto_removed_ids.discard(rp.market_id)
+                    logger.info("auto_removed_re_synced", market_id=rp.market_id, size=rp.size)
+
                 # Skip markets that were auto-removed as stuck/worthless
                 if rp.market_id in self._auto_removed_ids:
                     logger.debug(

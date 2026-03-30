@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { DollarSign, Layers, Target, TrendingUp, Wallet, Crosshair } from "lucide-react";
-import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats } from "../api/client";
+import { fetchPortfolio, fetchPositions, fetchTrades, fetchTradeStats, sellPosition } from "../api/client";
 import DailyPnlChart from "../components/DailyPnlChart";
 import DailyTargetChart from "../components/DailyTargetChart";
 import EquityChart from "../components/EquityChart";
@@ -12,6 +13,29 @@ import TradeTable from "../components/TradeTable";
 import WinLossChart from "../components/WinLossChart";
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
+  const [sellingMarketId, setSellingMarketId] = useState<string | null>(null);
+
+  const handleSell = async (marketId: string, question: string) => {
+    if (!window.confirm(`Sell entire position?\n\n${question}`)) return;
+    setSellingMarketId(marketId);
+    try {
+      const result = await sellPosition({ market_id: marketId });
+      if (result.success) {
+        alert(`Sold ${result.size_sold?.toFixed(1)} shares at $${result.price?.toFixed(3)} for $${result.proceeds?.toFixed(2)}`);
+        queryClient.invalidateQueries({ queryKey: ["positions"] });
+        queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+      } else {
+        alert(`Sell failed: ${result.error}`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      alert(`Sell error: ${msg}`);
+    } finally {
+      setSellingMarketId(null);
+    }
+  };
+
   const { data: portfolio, isLoading: portfolioLoading } = useQuery({
     queryKey: ["portfolio"],
     queryFn: fetchPortfolio,
@@ -215,15 +239,25 @@ export default function Dashboard() {
                     {p.outcome} · {p.strategy} · ${p.avg_price.toFixed(3)}
                   </div>
                 </div>
-                <div className="text-right ml-3 shrink-0">
-                  <div className="text-sm">${p.current_price.toFixed(3)}</div>
-                  <div
-                    className={`text-xs font-medium ${
-                      p.unrealized_pnl >= 0 ? "text-green-400" : "text-red-400"
-                    }`}
-                  >
-                    ${p.unrealized_pnl.toFixed(2)}
+                <div className="flex items-center gap-2 ml-3 shrink-0">
+                  <div className="text-right">
+                    <div className="text-sm">${p.current_price.toFixed(3)}</div>
+                    <div
+                      className={`text-xs font-medium ${
+                        p.unrealized_pnl >= 0 ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      ${p.unrealized_pnl.toFixed(2)}
+                    </div>
                   </div>
+                  <button
+                    onClick={() => handleSell(p.market_id, p.question)}
+                    disabled={sellingMarketId === p.market_id}
+                    className="px-2 py-1 text-xs font-medium rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    data-testid={`sell-btn-${p.id}`}
+                  >
+                    {sellingMarketId === p.market_id ? "..." : "Sell"}
+                  </button>
                 </div>
               </div>
             ))}

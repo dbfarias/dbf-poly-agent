@@ -269,3 +269,20 @@ class AssistantResponse(BaseModel):
     cost: float | None = None
     order_id: str | None = None
     error: str | None = None
+
+
+# Sell Position
+class SellPositionRequest(BaseModel):
+    market_id: str
+    size: float | None = None  # None = sell all
+
+
+class SellPositionResponse(BaseModel):
+    success: bool
+    market_id: str
+    question: str | None = None
+    size_sold: float | None = None
+    price: float | None = None
+    proceeds: float | None = None
+    order_id: str | None = None
+    error: str | None = None

@@ -39,7 +39,7 @@ class RiskConfig:
         "max_deployed_pct": 0.65,      # Was 0.60: slightly more capital at work
         "daily_loss_limit_pct": 0.08,  # 8%: enough headroom to trade without blocking too early
         "max_drawdown_pct": 0.12,
-        "min_edge_pct": 0.02,          # 2% minimum edge (time-adjusted down to 0.6%)
+        "min_edge_pct": 0.01,          # 1% minimum edge (calibration factor ~0.47 was blocking 2%)
         "min_win_prob": 0.55,
         "max_per_category_pct": 0.35,  # Was 0.40: less concentration per category
         "kelly_fraction": 0.25,        # Quarter-Kelly for conservative sizing
