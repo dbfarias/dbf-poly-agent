@@ -16,6 +16,7 @@ from api.rate_limit import limiter
 from api.routers import (
     activity,
     assistant,
+    backtest,
     config,
     learner,
     markets,
@@ -117,6 +118,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(auth_router)
+app.include_router(backtest.router)
 app.include_router(assistant.router)
 app.include_router(portfolio.router)
 app.include_router(trades.router)

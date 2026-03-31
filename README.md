@@ -11,28 +11,31 @@
 
 ---
 
-**11 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
+**12 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
 ---
 
-PolyBot is a fully autonomous prediction market trading agent for [Polymarket](https://polymarket.com). It runs 24/7 as a single Python process (FastAPI + asyncio), scanning hundreds of markets every 60 seconds, generating signals across 11 parallel strategies, and filtering each signal through a 15-stage risk pipeline before execution. A React dashboard provides real-time monitoring and configuration. The bot starts in **paper trading mode** by default -- no real funds are needed to get started.
+PolyBot is a fully autonomous prediction market trading agent for [Polymarket](https://polymarket.com). It runs 24/7 as a single Python process (FastAPI + asyncio), scanning hundreds of markets every 60 seconds, generating signals across 12 parallel strategies, and filtering each signal through a 15-stage risk pipeline before execution. A React dashboard provides real-time monitoring, manual trade execution, and configuration. The bot starts in **paper trading mode** by default -- no real funds are needed to get started.
 
 ---
 
 ## Key Features
 
-- **11 trading strategies** -- time decay, arbitrage, value betting, price divergence, swing trading, market making, weather trading, crypto short-term, news sniping, copy trading, and flash crash mean-reversion
+- **12 trading strategies** -- time decay, arbitrage, value betting, price divergence, swing trading, market making, weather trading, crypto short-term, news sniping, copy trading, flash crash mean-reversion, and sports favorite
 - **15-stage risk pipeline** -- VaR (95%), VPIN toxic flow, AI debate, drawdown checks, event-aware exit protection (sports, eSports, soccer), rate limiting, configurable spread-crossing for aggressive fills, and more
 - **AI-powered trade filtering** -- two Claude Haiku agents debate every trade (Proposer vs Challenger) before execution
+- **Trade Assistant** -- free-text trade execution from the dashboard. Type a message with a Polymarket URL (e.g., "Buy No on Uruguay $5") and the bot parses intent, fetches market data, and executes. Supports English and Portuguese
+- **One-click sell** -- sell any open position directly from the dashboard with best-bid pricing and confirmation dialog
+- **Backtesting framework** -- lightweight backtesting engine with historical data from Polymarket, accurate non-linear fee model, and metrics including Sharpe ratio, max drawdown, win rate, and ROI
 - **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo (weather), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
 - **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
 - **Cross-platform convergence scoring** -- aggregates signals across sources, boosts edge when multiple signals agree
 - **Deep research mode** -- high-edge trades (>10%) get enriched context with all available data for better LLM analysis
 - **Bayesian position updating** -- re-evaluates open positions with fresh research every cycle, exits when fundamentals shift
 - **Adaptive learning** -- PerformanceLearner adjusts edge multipliers, category confidence, and urgency every 5 minutes
-- **Real-time dashboard** -- 12-page React UI with equity curves, trade history, strategy performance, risk metrics, and AI debate logs
+- **Real-time dashboard** -- 14-page React UI with equity curves, trade history, strategy performance, risk metrics, AI debate logs, trade assistant, and backtesting
 - **Real-time WebSocket orderbook tracking** -- live orderbook snapshots for spread analysis and flash crash detection
 - **Flash crash detection** -- mean-reversion strategy that buys when price drops 30%+ within 30 seconds
 - **On-chain position verification** -- phantom position sync detects and reconciles mismatches between local state and on-chain data
@@ -118,7 +121,7 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 |   React Dashboard   |     |   FastAPI + Bot         |
 |   (Static Nginx)    |     |   (Single Process)      |
 |                     |     |                          |
-|  12 Pages:          |     |  +------------------+   |
+|  14 Pages:          |     |  +------------------+   |
 |  - Dashboard        |<--->|  |   FastAPI App     |   |
 |  - Trades           | API |  |   /api/* + /ws/*  |   |
 |  - Strategies       |     |  +--------+---------+   |
@@ -127,14 +130,15 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 |  - Research         |     |  |  Trading Engine   |   |
 |  - Learner          |     |  |  (asyncio task)   |   |
 |  - AI Debates       |     |  |                   |   |
-|  - Activity         |     |  |  - 11 Strategies  |   |
-|  - Settings         |     |  |  - Risk Manager   |   |
-+---------------------+     |  |  - Portfolio      |   |
-                             |  |  - Learner        |   |
-                             |  |  - Research Engine|   |
+|  - Trade Assistant  |     |  |  - 12 Strategies  |   |
+|  - Backtesting      |     |  |  - Risk Manager   |   |
+|  - Activity         |     |  |  - Portfolio      |   |
+|  - Settings         |     |  |  - Learner        |   |
++---------------------+     |  |  - Research Engine|   |
                              |  |  - Market Classif.|   |
                              |  |  - LLM Debate Gate|   |
                              |  |  - OrderbookTracker|  |
+                             |  |  - Backtest Engine|   |
                              |  +--------+---------+   |
                              |           |              |
                              |  +--------v---------+   |
@@ -150,7 +154,7 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 Every 60 seconds, a signal must pass **all 15 stages** to become a trade:
 
 ```
-Market Scan (~600 markets) -> Strategy Evaluation (11 strategies)
+Market Scan (~600 markets) -> Strategy Evaluation (12 strategies)
     -> Signal -> Risk Pipeline:
        1. Market type policy check   9. Debate cooldown
        2. Learner pause check        10. LLM Debate (Proposer + Challenger)
@@ -170,7 +174,7 @@ Every market is classified into one of 6 types, and a frozen `MarketPolicy` dete
 
 | Type | Examples | Allowed Strategies | Stop Loss | Early Exit | Bayesian | Rebalance |
 |:---|:---|:---|:---:|:---:|:---:|:---:|
-| **SHORT_TERM** | Crypto 5-min, daily binary, hourly | All 11 | 15% | Yes | Yes | Yes |
+| **SHORT_TERM** | Crypto 5-min, daily binary, hourly | All 12 | 15% | Yes | Yes | Yes |
 | **EVENT** | Sports, eSports, soccer, MMA | time_decay, copy_trading | No | No | No | No |
 | **LONG_TERM** | Politics, elections, ceasefire, treaties | time_decay, copy_trading, news_sniping | 35% | Yes | No | No |
 | **ECONOMIC** | Fed rate, CPI, GDP, unemployment | time_decay | No | No | No | No |
@@ -196,6 +200,7 @@ Classification uses regex keyword matching + end_date heuristics. See `bot/resea
 | 9 | **News Sniping** | Trade on breaking news via RSS polling + sentiment analysis | Medium |
 | 10 | **Copy Trading** | Follow top Polymarket traders via leaderboard + wallet tracking | Medium |
 | 11 | **Flash Crash** | Mean-reversion on sudden probability drops. Buys when price drops 30%+ within 30 seconds | Very High |
+| 12 | **Sports Favorite** | Buys "No" on weak teams in football matches, winning on both draw and loss. Targets "Will X win?" markets where No price is $0.70-$0.90, entering 1-12h before kickoff | Medium |
 
 Strategies are modular -- each extends `BaseStrategy` and implements `scan()` and `should_exit()`. You can enable/disable any strategy at runtime via the dashboard or API. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add your own.
 
@@ -243,7 +248,7 @@ All runtime settings are persisted to the database and restored on restart.
 
 ## Dashboard
 
-The React dashboard provides 12 pages for full visibility into the bot's operations:
+The React dashboard provides 14 pages for full visibility into the bot's operations:
 
 | Page | Description |
 |:---|:---|
@@ -256,8 +261,12 @@ The React dashboard provides 12 pages for full visibility into the bot's operati
 | **Learner** | Adaptive learning: edge multipliers, Brier scores, strategy pauses |
 | **AI Debates** | Trade debate history, position reviews, post-mortem analysis |
 | **Market Report** | Daily summary: portfolio, sentiment, top opportunities, alerts |
+| **Trade Assistant** | Free-text trade execution -- type a message with a Polymarket URL to buy or sell |
+| **Backtesting** | Run strategy backtests with historical data, view Sharpe ratio, drawdown, and ROI |
 | **Activity** | Bot decision log with filtering by event type |
 | **Settings** | All runtime parameters, AI toggles, strategy controls |
+
+Active positions include a **Sell** button for one-click exit at best bid with a confirmation dialog.
 
 Features: real-time WebSocket updates, auto-refreshing queries, PWA push notifications, JWT authentication.
 
@@ -350,6 +359,28 @@ Five LLM features using **Claude Haiku** -- each independently toggleable with a
 | **Post-Mortem** | Analyzes resolved trades for strategy fit feedback | ~$0.05 |
 
 All LLM calls share a global cost tracker. When the daily budget is exhausted (~$3/day default), all features gracefully fall back to non-LLM behavior.
+
+---
+
+## Backtesting
+
+PolyBot includes a lightweight backtesting framework for strategy validation using historical data from the Polymarket Data API.
+
+```bash
+# Run a backtest via API
+curl -X POST http://localhost:8000/api/backtest \
+  -H "Authorization: Bearer <token>" \
+  -d '{"strategy": "time_decay", "days": 30}'
+```
+
+**Features:**
+- Historical price data fetched directly from Polymarket
+- Accurate non-linear fee model with separate exponents for crypto and sports markets
+- Metrics: Sharpe ratio, max drawdown, win rate, ROI, total PnL
+- No heavy dependencies -- pure Python, no NautilusTrader or Rust toolchains required
+- Accessible from the dashboard Backtesting page or via the REST API
+
+Backtesting results help validate parameter changes and new strategies before deploying to live trading.
 
 ---
 
