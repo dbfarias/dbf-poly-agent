@@ -299,12 +299,25 @@ docker compose -f docker-compose.prod.yml up -d
 PolyBot is designed to run on a minimal VPS (1GB RAM, 2 vCPU is sufficient):
 
 ```bash
-# 1. Provision a server (any cloud provider)
+# 1. Provision a server in an eligible region (see below)
 # 2. Install Docker and Docker Compose
 # 3. Clone the repo and configure .env
 # 4. Launch with docker compose
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+> **Server Location Matters.** Polymarket blocks access from certain countries (including the United States). Your server must be in an **eligible region** where Polymarket is accessible. Recommended regions:
+>
+> | Provider | Region | Example |
+> |----------|--------|---------|
+> | AWS Lightsail | Mumbai (ap-south-1) | $5/mo, 1GB RAM |
+> | AWS Lightsail | Singapore (ap-southeast-1) | $5/mo, 1GB RAM |
+> | DigitalOcean | Singapore (sgp1) | $6/mo, 1GB RAM |
+> | DigitalOcean | Bangalore (blr1) | $6/mo, 1GB RAM |
+> | Hetzner | Singapore | EUR 4.50/mo |
+> | Vultr | Mumbai / Tokyo / Singapore | $6/mo |
+>
+> **Blocked regions include:** United States, France, Cuba, Iran, North Korea, Syria, and other OFAC-sanctioned countries. Check [Polymarket's Terms of Service](https://polymarket.com/tos) for the full list. If your server is in a blocked region, API calls to Polymarket will fail with 403 errors.
 
 ### HTTPS
 
