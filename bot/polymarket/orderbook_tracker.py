@@ -25,6 +25,11 @@ class OrderbookTracker:
     - Latest orderbook snapshot per token
     - Mid-price history with configurable window
     - Flash crash detection (significant drop within time window)
+
+    Thread safety: This class is NOT thread-safe. It relies on asyncio's
+    single-threaded cooperative model — all callers (WebSocketManager,
+    strategy scanners) run on the same event loop, so no locking is needed.
+    Do not call methods from threads outside the event loop.
     """
 
     MAX_HISTORY_SECONDS = 600  # 10 minutes of history

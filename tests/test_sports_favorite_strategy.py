@@ -66,7 +66,8 @@ async def test_scan_finds_weak_team_no():
     assert sig.outcome == "No"
     assert sig.token_id == "tok_no"
     assert sig.market_price == 0.80
-    assert sig.confidence == 0.80
+    # At sweet spot center (0.80), confidence is at peak (0.85)
+    assert sig.confidence == 0.85
 
 
 @pytest.mark.asyncio

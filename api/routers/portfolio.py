@@ -354,6 +354,25 @@ async def sell_position(
         pnl = await engine.portfolio.record_trade_close(position.market_id, best_bid)
         engine.risk_manager.update_daily_pnl(pnl)
 
+        # Write PnL to trades table so learner can learn from this exit
+        try:
+            from bot.data.database import async_session
+            from bot.data.repositories import TradeRepository
+
+            async with async_session() as session:
+                repo = TradeRepository(session)
+                await repo.close_trade_for_position(
+                    position.market_id, pnl, "manual_sell",
+                    close_price=best_bid,
+                    position_size=sell_size,
+                )
+        except Exception as e:
+            logger.warning(
+                "sell_position_trade_update_failed",
+                market_id=position.market_id,
+                error=str(e),
+            )
+
     logger.info(
         "sell_position_completed",
         market_id=req.market_id,

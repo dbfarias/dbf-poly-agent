@@ -129,12 +129,28 @@ class SportsFavoriteStrategy(BaseStrategy):
             f"Win on draw or loss."
         )
 
+        # Scale confidence with distance from sweet spot (0.75-0.85).
+        # Peak confidence at center of sweet spot, lower at range edges.
+        sweet_spot_center = 0.80
+        sweet_spot_half_width = 0.05  # 0.75-0.85 is the sweet spot
+        range_half_width = (self.MAX_NO_PRICE - self.MIN_NO_PRICE) / 2.0
+        distance = abs(no_price - sweet_spot_center)
+        if distance <= sweet_spot_half_width:
+            confidence = 0.85
+        else:
+            # Linear decay from 0.85 to 0.65 as price moves to range edges
+            edge_distance = distance - sweet_spot_half_width
+            max_edge_distance = range_half_width - sweet_spot_half_width
+            decay = edge_distance / max_edge_distance if max_edge_distance > 0 else 0.0
+            confidence = 0.85 - 0.20 * min(decay, 1.0)
+
         self.logger.info(
             "sports_favorite_signal",
             market_id=market.id,
             team=team_name,
             no_price=no_price,
             edge=round(edge, 4),
+            confidence=round(confidence, 2),
         )
 
         return TradeSignal(
@@ -148,7 +164,7 @@ class SportsFavoriteStrategy(BaseStrategy):
             market_price=no_price,
             edge=edge,
             size_usd=0.0,  # Risk manager will size
-            confidence=0.80,
+            confidence=confidence,
             reasoning=reasoning,
         )
 

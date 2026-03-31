@@ -458,12 +458,16 @@ class Portfolio:
             await self.update_position_prices(prices)
 
     async def _detect_capital_flow(self, new_balance: float) -> None:
-        """Log equity changes between sync cycles for diagnostics.
+        """Log equity changes between sync cycles (diagnostics only).
 
-        Automatic day_start_equity adjustment is DISABLED because the
-        Polymarket Data API has latency: when a user buys directly, cash
-        drops immediately but the new position appears 1-2 cycles later.
-        This creates transient equity drops that look like withdrawals.
+        This method only LOGS significant equity changes (> $0.50) for
+        observability. It does NOT adjust day_start_equity or record
+        capital flows to the database.
+
+        Automatic adjustment is disabled because the Polymarket Data API
+        has latency: when a user buys directly, cash drops immediately
+        but the new position appears 1-2 cycles later, creating transient
+        equity drops that look like withdrawals.
 
         Real deposits/withdrawals (USDC transfers) can be handled via
         the manual PnL reset endpoint on the dashboard.

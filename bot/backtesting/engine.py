@@ -32,7 +32,12 @@ class BacktestTrade:
 
 @dataclass
 class BacktestResult:
-    """Results of a backtest run."""
+    """Results of a backtest run.
+
+    Intentionally mutable (not frozen): the backtest engine uses a builder
+    pattern, appending trades and updating final_balance incrementally
+    as it processes price ticks.
+    """
 
     strategy_name: str
     market_slug: str
@@ -166,6 +171,9 @@ def _close_position(
     entry_fee = polymarket_fee(shares, entry_price, fee_rate, fee_exponent)
     exit_fee = polymarket_fee(shares, exit_price, fee_rate, fee_exponent)
     fees = entry_fee + exit_fee
+    # Long-only (BUY "Yes"): Polymarket strategies buy outcome tokens and
+    # profit when the probability rises toward 1.0. Short-selling is not
+    # currently supported by the CLOB, so backtests only simulate buys.
     return BacktestTrade(
         entry_time=entry_time,
         exit_time=exit_time,

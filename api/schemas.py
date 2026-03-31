@@ -255,7 +255,7 @@ class HealthCheck(BaseModel):
 
 # Trade Assistant
 class AssistantRequest(BaseModel):
-    message: str  # Free text, e.g. "Buy Italy win $5 https://polymarket.com/..."
+    message: str = Field(min_length=1, max_length=1000)
 
 
 class AssistantResponse(BaseModel):

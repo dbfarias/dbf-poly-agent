@@ -4,6 +4,7 @@ Uses Polymarket's trade history API for price data. No heavy dependencies
 (pyarrow, duckdb) required -- just httpx which is already in the project.
 """
 
+import json
 from datetime import datetime, timezone
 from typing import NamedTuple
 
@@ -18,6 +19,9 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com"
 # Reasonable limits to avoid pulling enormous datasets
 _MAX_TRADES_PER_REQUEST = 1000
 _MAX_PAGES = 10
+
+# Price above which a closed market is considered resolved to "Yes"
+_RESOLUTION_YES_THRESHOLD = 0.9
 
 
 class PriceTick(NamedTuple):
@@ -55,6 +59,9 @@ async def resolve_market_slug(slug: str) -> dict | None:
                 f"{GAMMA_API_URL}/markets",
                 params={"slug": slug, "limit": 1},
             )
+            if resp.status_code == 404:
+                logger.info("resolve_slug_not_found", slug=slug)
+                return None
             resp.raise_for_status()
             data = resp.json()
             if not data:
@@ -68,8 +75,14 @@ async def resolve_market_slug(slug: str) -> dict | None:
                 "end_date": market.get("endDate", ""),
                 "closed": market.get("closed", False),
             }
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "resolve_slug_http_error", slug=slug,
+                status=exc.response.status_code,
+            )
+            return None
         except Exception:
-            logger.warning("resolve_slug_failed", slug=slug)
+            logger.warning("resolve_slug_network_error", slug=slug)
             return None
 
 
@@ -112,7 +125,8 @@ def _parse_trade(raw: dict) -> PriceTick | None:
             size=float(raw.get("size", 0)),
             side=raw.get("side", "BUY").upper(),
         )
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as exc:
+        logger.debug("trade_parse_failed", error=str(exc), raw_keys=list(raw.keys()))
         return None
 
 
@@ -149,8 +163,6 @@ async def load_market_history(
     is_closed = info.get("closed", False)
 
     # Parse token IDs
-    import json
-
     raw_tokens = info.get("token_ids", "[]")
     try:
         token_ids = json.loads(raw_tokens) if isinstance(raw_tokens, str) else raw_tokens
@@ -199,7 +211,7 @@ async def load_market_history(
     resolution: float | None = None
     if is_closed and ticks:
         last_price = ticks[-1].price
-        resolution = 1.0 if last_price > 0.9 else 0.0
+        resolution = 1.0 if last_price > _RESOLUTION_YES_THRESHOLD else 0.0
 
     logger.info(
         "market_history_loaded",

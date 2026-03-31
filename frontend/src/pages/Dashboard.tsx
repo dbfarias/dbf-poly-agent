@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [sellingMarketId, setSellingMarketId] = useState<string | null>(null);
 
   const handleSell = async (marketId: string, question: string) => {
+    // TODO: Replace window.confirm with a proper React confirmation modal
     if (!window.confirm(`Sell entire position?\n\n${question}`)) return;
     setSellingMarketId(marketId);
     try {

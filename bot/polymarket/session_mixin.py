@@ -33,7 +33,10 @@ class ThreadLocalSessionMixin:
         if not hasattr(self._thread_local, "sessions"):
             self._thread_local.sessions = {}
 
-        # Key by (instance_id, thread_id) to isolate per-instance
+        # Key by (instance_id, thread_id) to isolate per-instance.
+        # Note: id(self) can be reused by the GC after an object is freed, but
+        # this is acceptable here because client instances are long-lived
+        # singletons that persist for the entire process lifetime.
         key = (id(self), threading.get_ident())
         if key not in self._thread_local.sessions:
             self._thread_local.sessions[key] = httpx.Client(**kwargs)

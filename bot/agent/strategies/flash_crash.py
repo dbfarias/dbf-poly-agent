@@ -129,7 +129,10 @@ class FlashCrashStrategy(BaseStrategy):
 
         edge = (pre_crash_price - current_mid) / current_mid
         confidence = self._compute_confidence(drop_magnitude)
-        outcome = "Yes" if token_idx == 0 else "No"
+        # Resolve outcome from market's outcomes metadata instead of
+        # assuming index 0 = "Yes", 1 = "No" (may differ for multi-outcome).
+        outcomes = market.outcomes
+        outcome = outcomes[token_idx] if token_idx < len(outcomes) else "Yes"
 
         self.logger.info(
             "flash_crash_detected",

@@ -76,6 +76,17 @@ def parse_amount(message: str) -> float:
     return 5.0
 
 
+def _keyword_matches(keyword: str, text: str) -> bool:
+    """Check if keyword appears in text.
+
+    Single-word keywords use word-boundary matching to avoid false positives
+    (e.g. "no" matching "northern"). Multi-word phrases use substring match.
+    """
+    if " " not in keyword:
+        return bool(re.search(r"\b" + re.escape(keyword) + r"\b", text))
+    return keyword in text
+
+
 def parse_intent(message: str) -> tuple[str, str]:
     """Parse side (BUY/SELL) and outcome preference (Yes/No) from message.
 
@@ -85,19 +96,19 @@ def parse_intent(message: str) -> tuple[str, str]:
 
     side = "BUY"
     for kw in _SELL_KEYWORDS:
-        if kw in lower:
+        if _keyword_matches(kw, lower):
             side = "SELL"
             break
 
     outcome_hint = ""
     # Check NO keywords first (more specific patterns like "not win")
     for kw in sorted(_NO_KEYWORDS, key=len, reverse=True):
-        if kw in lower:
+        if _keyword_matches(kw, lower):
             outcome_hint = "No"
             break
     if not outcome_hint:
         for kw in _YES_KEYWORDS:
-            if kw in lower:
+            if _keyword_matches(kw, lower):
                 outcome_hint = "Yes"
                 break
 
@@ -348,18 +359,33 @@ async def execute_trade_assistant(
 
 
 async def _fetch_event(slug: str) -> dict | None:
-    """Fetch event from Gamma API by slug."""
+    """Fetch event from Gamma API by slug.
+
+    Returns None on both "not found" and network errors, but logs
+    differently to aid debugging.
+    """
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
                 f"{GAMMA_API_URL}/events",
                 params={"slug": slug},
             )
+            if resp.status_code == 404:
+                logger.info("gamma_event_not_found", slug=slug)
+                return None
             resp.raise_for_status()
             data = resp.json()
             if data and isinstance(data, list) and len(data) > 0:
                 return data[0]
+            # Empty response — event does not exist
+            logger.info("gamma_event_empty_response", slug=slug)
             return None
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "gamma_event_http_error", slug=slug,
+            status=exc.response.status_code, error=str(exc),
+        )
+        return None
     except Exception as exc:
-        logger.error("gamma_event_fetch_failed", slug=slug, error=str(exc))
+        logger.error("gamma_event_network_error", slug=slug, error=str(exc))
         return None
