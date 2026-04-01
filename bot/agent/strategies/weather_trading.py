@@ -615,10 +615,16 @@ class WeatherTradingStrategy(BaseStrategy):
         if current_price >= self.EXIT_THRESHOLD:
             return f"exit_threshold (price ${current_price:.3f} >= ${self.EXIT_THRESHOLD:.2f})"
 
-        # Take-profit after minimum hold
+        # Take-profit after minimum hold.
+        # Weather markets have wide spreads (~$0.03-0.05), so the actual
+        # sell price (best bid) will be significantly below the mid/ask
+        # price used here. We add a spread buffer to ensure the fill
+        # price still yields real profit after slippage.
+        spread_buffer = 0.15  # require 15% extra to absorb spread
+        effective_tp = self.EXIT_TAKE_PROFIT_PCT + spread_buffer
         if avg_price > 0 and created_at is not None:
             profit_pct = (current_price - avg_price) / avg_price
-            if profit_pct >= self.EXIT_TAKE_PROFIT_PCT:
+            if profit_pct >= effective_tp:
                 now = datetime.now(timezone.utc)
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
