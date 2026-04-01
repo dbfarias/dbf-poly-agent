@@ -353,9 +353,10 @@ class ResearchEngine:
                 keywords, category=category, max_results=5,
             )
 
-        # Tavily general news (broader than Twitter-only domain restriction)
+        # Tavily general news — only for eligible markets (same filter as Twitter)
+        # to conserve the 1000 credits/month budget
         tavily_items: list[NewsItem] = []
-        if settings.tavily_api_key:
+        if settings.tavily_api_key and market_id in twitter_eligible:
             tavily_items = await self.tavily_news.search_news(
                 keywords, max_results=5,
             )
