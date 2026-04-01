@@ -227,7 +227,7 @@ class PositionCloser:
                 question=pos.question,
                 strategy=pos.strategy,
                 side="SELL",
-                price=pos.current_price,
+                price=actual_sell_price,
                 size=pos.size,
                 pnl=pnl,
             )
