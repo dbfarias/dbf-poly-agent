@@ -282,11 +282,25 @@ async def sell_position(
     """Sell an open position at current best bid price."""
     engine = get_engine()
 
-    # Find position by market_id
+    # Find position by market_id — try in-memory first, then DB
+    # (sync cycle may have updated in-memory list between page load and click)
     position = next(
         (p for p in engine.portfolio.positions if p.market_id == req.market_id and p.is_open),
         None,
     )
+    if not position:
+        # Fallback: check DB directly (race condition with sync)
+        from bot.data.database import async_session
+        from bot.data.repositories import PositionRepository
+
+        async with async_session() as session:
+            repo = PositionRepository(session)
+            all_open = await repo.get_open()
+            position = next(
+                (p for p in all_open if p.market_id == req.market_id),
+                None,
+            )
+
     if not position:
         raise HTTPException(
             status_code=404,
