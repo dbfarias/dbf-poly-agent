@@ -35,7 +35,7 @@ function WatcherCard({
   onKill: (id: number) => void;
   killing: boolean;
 }) {
-  const currentPrice = w.highest_price || w.avg_entry_price;
+  const currentPrice = w.current_price || w.highest_price || w.avg_entry_price;
   const pnl =
     w.avg_entry_price > 0
       ? ((currentPrice - w.avg_entry_price) / w.avg_entry_price) * w.current_exposure

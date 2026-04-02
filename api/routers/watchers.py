@@ -39,6 +39,7 @@ def _watcher_to_response(w) -> WatcherResponse:
         scale_count=w.scale_count,
         max_scale_count=w.max_scale_count,
         highest_price=w.highest_price,
+        current_price=getattr(w, "current_price", 0.0),
         last_check_at=w.last_check_at,
         last_news_at=w.last_news_at,
         end_date=w.end_date,

@@ -324,6 +324,7 @@ class WatcherResponse(BaseModel):
     scale_count: int
     max_scale_count: int
     highest_price: float
+    current_price: float = 0.0
     last_check_at: datetime | None = None
     last_news_at: datetime | None = None
     end_date: datetime | None = None

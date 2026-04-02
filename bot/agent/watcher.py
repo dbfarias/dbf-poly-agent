@@ -148,6 +148,10 @@ class TradeWatcher:
         await self._log_decision(verdict, momentum, volume, news)
         self._apply_verdict(verdict, current)
         self._watcher.last_check_at = datetime.now(timezone.utc)
+        self._watcher.current_price = current
+
+        # Persist state to DB so dashboard shows live data
+        await self._persist_state()
 
     def _apply_verdict(self, verdict: WatcherVerdict, current_price: float) -> None:
         """Set pending action flags based on the verdict."""
@@ -243,6 +247,15 @@ class TradeWatcher:
                 error=str(e),
             )
             return compute_news_signal([])
+
+    async def _persist_state(self) -> None:
+        """Persist watcher state to DB so dashboard shows live data."""
+        try:
+            async with async_session() as session:
+                await session.merge(self._watcher)
+                await session.commit()
+        except Exception as e:
+            logger.debug("watcher_persist_failed", error=str(e))
 
     def _check_termination(self, current_price: float = 0.0) -> str | None:
         """Check if watcher should auto-terminate. Returns reason or None."""

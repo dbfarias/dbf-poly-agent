@@ -246,6 +246,7 @@ class Watcher(Base):
     scale_count: Mapped[int] = mapped_column(Integer, default=0)
     max_scale_count: Mapped[int] = mapped_column(Integer, default=3)
     highest_price: Mapped[float] = mapped_column(Float, default=0.0)
+    current_price: Mapped[float] = mapped_column(Float, default=0.0)
     last_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_news_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

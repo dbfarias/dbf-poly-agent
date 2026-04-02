@@ -596,6 +596,7 @@ export interface WatcherItem {
   scale_count: number;
   max_scale_count: number;
   highest_price: number;
+  current_price: number;
   last_check_at: string | null;
   last_news_at: string | null;
   end_date: string | null;
