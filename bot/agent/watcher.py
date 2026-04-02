@@ -73,6 +73,7 @@ class TradeWatcher:
         self._pending_scale_up: PendingScaleUp | None = None
         self._pending_exit: PendingExit | None = None
         self._last_fetched_price: float = 0.0
+        self._position_lost: bool = False
 
     @property
     def watcher_id(self) -> int:
@@ -164,6 +165,28 @@ class TradeWatcher:
     def _apply_verdict(self, verdict: WatcherVerdict, current_price: float) -> None:
         """Set pending action flags based on the verdict."""
         w = self._watcher
+
+        # Re-entry after position lost: only if signals are not bearish
+        if self._position_lost and verdict.action != "exit":
+            self._position_lost = False
+            self._pending_scale_up = PendingScaleUp(
+                watcher_id=self.watcher_id,
+                token_id=w.token_id,
+                market_id=w.market_id,
+                question=w.question,
+                outcome=w.outcome,
+                current_price=current_price,
+                confidence=verdict.confidence,
+                reasoning=f"Re-entry: position lost, signals say {verdict.action}.",
+            )
+            logger.info(
+                "watcher_re_entry_on_signals",
+                watcher_id=self.watcher_id,
+                verdict=verdict.action,
+                confidence=round(verdict.confidence, 2),
+            )
+            return
+
         if verdict.action == "scale_up" and self._can_scale_up():
             self._pending_scale_up = PendingScaleUp(
                 watcher_id=self.watcher_id,
@@ -331,25 +354,10 @@ class TradeWatcher:
                         watcher_id=self.watcher_id,
                         market_id=self._watcher.market_id,
                     )
-                    # Position gone — request re-entry via scale-up
+                    # Mark exposure as zero — re-entry only if signals confirm
                     self._watcher.current_exposure = 0.0
                     self._watcher.scale_count = max(0, self._watcher.scale_count - 1)
-                    current = self._get_current_price()
-                    self._pending_scale_up = PendingScaleUp(
-                        watcher_id=self.watcher_id,
-                        token_id=self._watcher.token_id,
-                        market_id=self._watcher.market_id,
-                        question=self._watcher.question,
-                        outcome=self._watcher.outcome,
-                        current_price=current,
-                        confidence=0.8,
-                        reasoning="Position lost (sync/phantom). Re-entering per watcher thesis.",
-                    )
-                    logger.info(
-                        "watcher_re_entry_requested",
-                        watcher_id=self.watcher_id,
-                        price=current,
-                    )
+                    self._position_lost = True
         except Exception as e:
             logger.debug("watcher_position_check_failed", error=str(e))
 
