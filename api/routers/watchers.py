@@ -78,6 +78,7 @@ async def create_watcher(
         keywords=body.keywords,
         thesis=body.thesis,
         current_price=body.current_price,
+        current_exposure=body.current_exposure,
         max_exposure_usd=body.max_exposure_usd,
         stop_loss_pct=body.stop_loss_pct,
         max_age_hours=body.max_age_hours,

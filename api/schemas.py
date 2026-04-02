@@ -298,6 +298,7 @@ class CreateWatcherRequest(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     thesis: str = Field(default="", max_length=500)
     current_price: float = Field(default=0.0, ge=0.0, le=1.0)
+    current_exposure: float = Field(default=0.0, ge=0.0, le=100.0)
     max_exposure_usd: float = Field(default=20.0, gt=0.0, le=100.0)
     stop_loss_pct: float = Field(default=0.25, gt=0.0, le=1.0)
     max_age_hours: float = Field(default=168.0, gt=0.0, le=720.0)
