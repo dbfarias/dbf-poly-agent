@@ -254,33 +254,54 @@ class TradeWatcher:
         """Fetch current price from Gamma API as fallback."""
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=10) as client:
+                # Gamma API uses condition_id param, not id
                 resp = await client.get(
                     "https://gamma-api.polymarket.com/markets",
-                    params={"id": self._watcher.market_id},
+                    params={"condition_id": self._watcher.market_id},
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    if data and isinstance(data, list) and data[0]:
-                        import json as _json
-                        prices = data[0].get("outcomePrices", "[]")
-                        if isinstance(prices, str):
-                            prices = _json.loads(prices)
-                        outcome = self._watcher.outcome
-                        outcomes = data[0].get("outcomes", "[]")
-                        if isinstance(outcomes, str):
-                            outcomes = _json.loads(outcomes)
-                        if outcomes and prices:
-                            try:
-                                idx = outcomes.index(outcome)
-                                price = float(prices[idx])
-                                if price > 0:
-                                    self._last_fetched_price = price
-                                    return price
-                            except (ValueError, IndexError):
-                                pass
+                    market = data[0] if isinstance(data, list) and data else None
+                    if market:
+                        return self._parse_price_from_market(market)
+
+                # Fallback: search by question text
+                q = self._watcher.question
+                if q:
+                    resp = await client.get(
+                        "https://gamma-api.polymarket.com/markets",
+                        params={"_q": q[:50], "closed": "false", "_limit": 3},
+                    )
+                    if resp.status_code == 200:
+                        for m in resp.json():
+                            if self._watcher.market_id in (
+                                m.get("conditionId", ""),
+                                m.get("id", ""),
+                            ):
+                                return self._parse_price_from_market(m)
         except Exception:
             pass
+        return 0.0
+
+    def _parse_price_from_market(self, market: dict) -> float:
+        """Extract price for our outcome from a Gamma API market dict."""
+        prices = market.get("outcomePrices", "[]")
+        outcomes = market.get("outcomes", "[]")
+        if isinstance(prices, str):
+            prices = json.loads(prices)
+        if isinstance(outcomes, str):
+            outcomes = json.loads(outcomes)
+        if outcomes and prices:
+            try:
+                idx = outcomes.index(self._watcher.outcome)
+                price = float(prices[idx])
+                if price > 0:
+                    self._last_fetched_price = price
+                    return price
+            except (ValueError, IndexError):
+                pass
         return 0.0
 
     def _get_price_momentum(self) -> PriceMomentum:
