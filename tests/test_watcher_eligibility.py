@@ -2,7 +2,11 @@
 
 from datetime import datetime, timedelta, timezone
 
-from bot.agent.watcher_eligibility import is_watcher_eligible
+from bot.agent.watcher_eligibility import (
+    detect_scalable_event,
+    extract_price_level,
+    is_watcher_eligible,
+)
 from bot.research.market_classifier import MarketType
 
 _NOW = datetime.now(timezone.utc)
@@ -143,3 +147,79 @@ class TestTimeHorizon:
             volume=10000.0,
         )
         assert result is True
+
+
+# ---------------------------------------------------------------------------
+# detect_scalable_event
+# ---------------------------------------------------------------------------
+
+
+class TestDetectScalableEvent:
+    """Detect price-level markets that belong to scalable events."""
+
+    def test_hit_high_pattern(self):
+        q = "Will WTI Crude Oil (WTI) hit (HIGH) $120 in April?"
+        assert detect_scalable_event(q) is True
+
+    def test_hit_low_pattern(self):
+        q = "Will Gold hit (LOW) $1,800 in March?"
+        assert detect_scalable_event(q) is True
+
+    def test_above_pattern(self):
+        q = "Will Bitcoin be above $100,000 on April 30?"
+        assert detect_scalable_event(q) is True
+
+    def test_below_pattern(self):
+        q = "Will ETH be below $2,000 by end of Q2?"
+        assert detect_scalable_event(q) is True
+
+    def test_between_pattern(self):
+        q = "Will oil be between $80 and $90 in May?"
+        assert detect_scalable_event(q) is True
+
+    def test_sports_not_scalable(self):
+        q = "Will the Lakers win the NBA Finals?"
+        assert detect_scalable_event(q) is False
+
+    def test_binary_not_scalable(self):
+        q = "Will Trump be impeached in 2026?"
+        assert detect_scalable_event(q) is False
+
+    def test_weather_not_scalable(self):
+        q = "Will it rain in NYC tomorrow?"
+        assert detect_scalable_event(q) is False
+
+    def test_temperature_not_scalable(self):
+        q = "What will be the highest temperature in LA?"
+        assert detect_scalable_event(q) is False
+
+    def test_over_pattern(self):
+        q = "Will S&P 500 close over $5,000?"
+        assert detect_scalable_event(q) is True
+
+    def test_under_pattern(self):
+        q = "Will Nasdaq fall under $15,000?"
+        assert detect_scalable_event(q) is True
+
+
+# ---------------------------------------------------------------------------
+# extract_price_level
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPriceLevel:
+    def test_simple_price(self):
+        assert extract_price_level("hit (HIGH) $120 in April") == 120.0
+
+    def test_comma_price(self):
+        assert extract_price_level("above $100,000 on April 30") == 100000.0
+
+    def test_decimal_price(self):
+        assert extract_price_level("above $99.50 by Friday") == 99.5
+
+    def test_no_price(self):
+        assert extract_price_level("Will the Lakers win?") is None
+
+    def test_multiple_prices_returns_first(self):
+        result = extract_price_level("between $80 and $90 in May")
+        assert result == 80.0

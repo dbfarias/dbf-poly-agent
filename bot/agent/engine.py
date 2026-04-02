@@ -2184,7 +2184,10 @@ class TradingEngine:
 
     async def _maybe_create_watcher(self, signal, trade) -> None:
         """Auto-create a Trade Watcher after a qualifying trade fill."""
-        from bot.agent.watcher_eligibility import is_watcher_eligible
+        from bot.agent.watcher_eligibility import (
+            detect_scalable_event,
+            is_watcher_eligible,
+        )
         from bot.research.market_classifier import classify_market
 
         # Only eligible strategies
@@ -2212,6 +2215,11 @@ class TradingEngine:
         # Extract keywords from question (filter stopwords)
         keywords = _extract_keywords(signal.question)
 
+        # Detect scalable price-level events (e.g. WTI $110/$120/$130)
+        event_slug = ""
+        if detect_scalable_event(signal.question):
+            event_slug = await self._find_event_slug(signal.market_id)
+
         await self.watcher_manager.create_watcher(
             market_id=signal.market_id,
             token_id=signal.token_id,
@@ -2224,7 +2232,34 @@ class TradingEngine:
             source_strategy=signal.strategy,
             auto_created=True,
             end_date=end_date,
+            event_slug=event_slug,
         )
+
+    async def _find_event_slug(self, market_id: str) -> str:
+        """Look up the event slug for a market via Gamma API."""
+        gamma = getattr(self, "gamma", None)
+        if gamma is None:
+            return ""
+        try:
+            market = await gamma.get_market(market_id)
+            if market and market.slug:
+                # Event slug is the slug minus the market-specific suffix
+                # Gamma events endpoint uses the event slug, not market slug
+                # Try fetching the market from Gamma to get the event info
+                import httpx
+
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.get(
+                        "https://gamma-api.polymarket.com/markets",
+                        params={"condition_id": market_id},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data and isinstance(data, list):
+                            return data[0].get("eventSlug", "")
+        except Exception:
+            pass
+        return ""
 
     def _build_debate_context(self, signal, research) -> DebateContext:
         """Build rich DebateContext from learner + research for LLM debate."""

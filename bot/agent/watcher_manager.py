@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from bot.data.database import async_session
 from bot.data.models import Watcher, WatcherDecision
@@ -56,6 +56,7 @@ class WatcherManager:
         stop_loss_pct: float = 0.25,
         max_age_hours: float = 168.0,
         end_date: datetime | None = None,
+        event_slug: str = "",
     ) -> Watcher | None:
         """Create a new watcher. Returns None if rejected."""
         if self.active_count >= MAX_WATCHERS:
@@ -86,6 +87,7 @@ class WatcherManager:
             source_strategy=source_strategy,
             auto_created=auto_created,
             end_date=end_date,
+            event_slug=event_slug,
         )
 
         async with async_session() as session:
@@ -99,6 +101,7 @@ class WatcherManager:
             watcher_id=watcher.id,
             market_id=market_id,
             question=question[:50],
+            event_slug=event_slug or "(none)",
         )
 
         self._spawn_task(watcher)
@@ -145,11 +148,119 @@ class WatcherManager:
             if watcher is None or watcher.status != "active":
                 continue
 
+            if tw.pending_scale_level is not None:
+                await self._execute_level_scale(tw, watcher)
+
             if tw.pending_scale_up is not None:
                 await self._execute_scale_up(tw, watcher)
 
             if tw.pending_exit is not None:
                 await self._execute_exit(tw, watcher)
+
+    async def _execute_level_scale(
+        self, tw: TradeWatcher, watcher: Watcher
+    ) -> None:
+        """Execute a level-scale trade: sell current level, buy new level."""
+        req = tw.pending_scale_level
+        if req is None:
+            return
+
+        tw.clear_pending_scale_level()
+
+        closer = getattr(self._engine, "position_closer", None)
+        portfolio = getattr(self._engine, "portfolio", None)
+        order_mgr = getattr(self._engine, "order_manager", None)
+        if closer is None or portfolio is None or order_mgr is None:
+            logger.warning("watcher_level_scale_no_deps", watcher_id=watcher.id)
+            return
+
+        # Step 1: Sell current position
+        sold = await self._sell_current_level(closer, portfolio, req, watcher)
+        if not sold:
+            return
+
+        # Step 2: Buy the new level
+        filled = await self._buy_new_level(order_mgr, req, watcher)
+
+        # Step 3: Update watcher to track the new market
+        if filled:
+            self._update_watcher_for_new_level(watcher, req, filled)
+
+        await self._log_action(
+            watcher.id,
+            f"scale_level_{req.direction}",
+            "filled" if filled else "partial_sell_only",
+            req.reasoning,
+        )
+
+    async def _sell_current_level(
+        self, closer, portfolio, req, watcher: Watcher
+    ) -> bool:
+        """Sell the current position for a level scale. Returns success."""
+        pos = None
+        for p in portfolio.positions:
+            if p.market_id == req.sell_market_id and p.is_open:
+                pos = p
+                break
+
+        if pos is None:
+            logger.info(
+                "watcher_level_scale_no_position",
+                watcher_id=watcher.id,
+                market_id=req.sell_market_id,
+            )
+            return False
+
+        await closer.close_position(
+            pos, exit_reason=f"watcher level scale {req.direction}"
+        )
+        logger.info(
+            "watcher_level_scale_sold",
+            watcher_id=watcher.id,
+            market_id=req.sell_market_id,
+        )
+        return True
+
+    async def _buy_new_level(self, order_mgr, req, watcher: Watcher):
+        """Buy the new level market. Returns trade or None."""
+        size_usd = min(watcher.max_exposure_usd, 5.0)
+        if size_usd < 1.0:
+            return None
+
+        signal = TradeSignal(
+            strategy="watcher",
+            market_id=req.buy_market_id,
+            token_id=req.buy_token_id,
+            question=req.buy_question,
+            side=OrderSide.BUY,
+            outcome=req.buy_outcome,
+            estimated_prob=req.buy_price + 0.05,
+            market_price=req.buy_price,
+            edge=0.03,
+            size_usd=size_usd,
+            confidence=0.7,
+            reasoning=f"Watcher level scale: {req.reasoning[:200]}",
+            metadata={"watcher_id": watcher.id},
+        )
+
+        trade = await order_mgr.execute_signal(signal)
+        if trade and trade.status == "filled":
+            return trade
+        return None
+
+    def _update_watcher_for_new_level(
+        self, watcher: Watcher, req, trade
+    ) -> None:
+        """Update watcher state to track the new price level."""
+        watcher.market_id = req.buy_market_id
+        watcher.token_id = req.buy_token_id
+        watcher.question = req.buy_question[:200]
+        watcher.outcome = req.buy_outcome
+        watcher.avg_entry_price = trade.price
+        watcher.current_exposure = trade.cost_usd
+        watcher.highest_price = trade.price
+        watcher.current_price = trade.price
+        watcher.scale_count += 1
 
     async def _execute_scale_up(self, tw: TradeWatcher, watcher: Watcher) -> None:
         """Execute a scale-up trade for a watcher."""
@@ -322,6 +433,8 @@ class WatcherManager:
 
     async def restore_from_db(self) -> None:
         """Restore active watchers from DB after restart."""
+        await self._migrate_event_slug_column()
+
         try:
             async with async_session() as session:
                 result = await session.execute(
@@ -338,6 +451,21 @@ class WatcherManager:
 
         if watchers:
             logger.info("watchers_restored", count=len(watchers))
+
+    async def _migrate_event_slug_column(self) -> None:
+        """Ensure event_slug column exists (migration for existing DBs)."""
+        try:
+            async with async_session() as session:
+                await session.execute(
+                    text(
+                        "ALTER TABLE watchers "
+                        "ADD COLUMN event_slug VARCHAR(256) DEFAULT ''"
+                    )
+                )
+                await session.commit()
+                logger.info("watcher_migration_event_slug_added")
+        except Exception:
+            pass  # Column already exists
 
     def _spawn_task(self, watcher: Watcher) -> None:
         """Spawn an asyncio task for a TradeWatcher."""

@@ -83,6 +83,7 @@ async def create_watcher(
         max_exposure_usd=body.max_exposure_usd,
         stop_loss_pct=body.stop_loss_pct,
         max_age_hours=body.max_age_hours,
+        event_slug=body.event_slug,
     )
     if watcher is None:
         raise HTTPException(

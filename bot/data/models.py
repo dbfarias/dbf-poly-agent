@@ -253,6 +253,9 @@ class Watcher(Base):
     # Market end date (for termination checks)
     end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Event-level price scaling (e.g. WTI $110, $120, $130 in same event)
+    event_slug: Mapped[str] = mapped_column(String(256), default="")
+
     # Trigger
     source_strategy: Mapped[str] = mapped_column(String(64), default="")
     auto_created: Mapped[bool] = mapped_column(Boolean, default=False)

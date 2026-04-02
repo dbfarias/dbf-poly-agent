@@ -11,6 +11,17 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from bot.agent.watcher_scaling import (
+    CachedLevels,
+    PriceLevel,
+    ScaleLevelRequest,
+    evaluate_scale_down,
+    evaluate_scale_up,
+    find_adjacent_level,
+    find_our_level,
+    is_cache_valid,
+    parse_levels_from_event,
+)
 from bot.agent.watcher_signals import (
     PriceMomentum,
     VolumeSignal,
@@ -72,8 +83,10 @@ class TradeWatcher:
         self._running = False
         self._pending_scale_up: PendingScaleUp | None = None
         self._pending_exit: PendingExit | None = None
+        self._pending_scale_level: ScaleLevelRequest | None = None
         self._last_fetched_price: float = 0.0
         self._position_lost: bool = False
+        self._cached_levels: CachedLevels | None = None
 
     @property
     def watcher_id(self) -> int:
@@ -91,11 +104,18 @@ class TradeWatcher:
     def pending_exit(self) -> PendingExit | None:
         return self._pending_exit
 
+    @property
+    def pending_scale_level(self) -> ScaleLevelRequest | None:
+        return self._pending_scale_level
+
     def clear_pending_scale_up(self) -> None:
         self._pending_scale_up = None
 
     def clear_pending_exit(self) -> None:
         self._pending_exit = None
+
+    def clear_pending_scale_level(self) -> None:
+        self._pending_scale_level = None
 
     async def run(self) -> None:
         """Main watcher loop — runs until killed or auto-terminated."""
@@ -156,6 +176,10 @@ class TradeWatcher:
 
         await self._log_decision(verdict, momentum, volume, news)
         self._apply_verdict(verdict, current)
+
+        # Evaluate event-level scaling after regular verdict
+        await self._evaluate_scaling(current, verdict)
+
         self._watcher.last_check_at = datetime.now(timezone.utc)
         self._watcher.current_price = current
 
@@ -215,6 +239,151 @@ class TradeWatcher:
                 watcher_id=self.watcher_id,
                 reason=verdict.reasoning[:80],
             )
+
+    async def _evaluate_scaling(
+        self, current_price: float, verdict: WatcherVerdict
+    ) -> None:
+        """Evaluate if we should scale to a different price level."""
+        if not self._watcher.event_slug:
+            return
+
+        # Don't create scaling request if we already have pending actions
+        if self._pending_scale_level or self._pending_exit:
+            return
+
+        levels = await self._get_event_levels()
+        if not levels:
+            return
+
+        our = find_our_level(levels, self._watcher.market_id)
+        if our is None:
+            return
+
+        # Require at least 2 confirming signals for scaling decisions
+        if verdict.confirming_signals < 2 and verdict.action != "exit":
+            return
+
+        self._try_scale_up(current_price, verdict, levels, our)
+        if self._pending_scale_level is None:
+            self._try_scale_down(current_price, verdict, levels, our)
+
+    def _try_scale_up(
+        self,
+        current_price: float,
+        verdict: WatcherVerdict,
+        levels: list[PriceLevel],
+        our: PriceLevel,
+    ) -> None:
+        """Try to create a scale-up request if conditions are met."""
+        if verdict.action == "exit":
+            return
+        next_up = find_adjacent_level(levels, our, "up")
+        if not evaluate_scale_up(current_price, our, next_up):
+            return
+        assert next_up is not None  # evaluate_scale_up checks this  # noqa: S101
+        self._pending_scale_level = ScaleLevelRequest(
+            watcher_id=self.watcher_id,
+            direction="up",
+            sell_market_id=our.market_id,
+            sell_token_id=our.token_id,
+            buy_market_id=next_up.market_id,
+            buy_token_id=next_up.token_id,
+            buy_price=next_up.yes_price,
+            buy_question=next_up.question,
+            buy_outcome="Yes",
+            from_level=our.price_target,
+            to_level=next_up.price_target,
+            reasoning=(
+                f"Scale up: ${our.price_target}-> ${next_up.price_target}, "
+                f"current={current_price:.2f}, next={next_up.yes_price:.2f}"
+            ),
+        )
+        logger.info(
+            "watcher_scale_level_up",
+            watcher_id=self.watcher_id,
+            from_level=our.price_target,
+            to_level=next_up.price_target,
+        )
+
+    def _try_scale_down(
+        self,
+        current_price: float,
+        verdict: WatcherVerdict,
+        levels: list[PriceLevel],
+        our: PriceLevel,
+    ) -> None:
+        """Try to create a scale-down request if conditions are met."""
+        next_down = find_adjacent_level(levels, our, "down")
+        if not evaluate_scale_down(
+            current_price, self._watcher.avg_entry_price, our, next_down
+        ):
+            return
+        assert next_down is not None  # noqa: S101
+        self._pending_scale_level = ScaleLevelRequest(
+            watcher_id=self.watcher_id,
+            direction="down",
+            sell_market_id=our.market_id,
+            sell_token_id=our.token_id,
+            buy_market_id=next_down.market_id,
+            buy_token_id=next_down.token_id,
+            buy_price=next_down.yes_price,
+            buy_question=next_down.question,
+            buy_outcome="Yes",
+            from_level=our.price_target,
+            to_level=next_down.price_target,
+            reasoning=(
+                f"Scale down: ${our.price_target}-> ${next_down.price_target}, "
+                f"current={current_price:.2f}, safer={next_down.yes_price:.2f}"
+            ),
+        )
+        logger.info(
+            "watcher_scale_level_down",
+            watcher_id=self.watcher_id,
+            from_level=our.price_target,
+            to_level=next_down.price_target,
+        )
+
+    async def _get_event_levels(self) -> list[PriceLevel]:
+        """Get cached event levels, refreshing if stale."""
+        if is_cache_valid(self._cached_levels):
+            assert self._cached_levels is not None  # noqa: S101
+            return list(self._cached_levels.levels)
+
+        levels = await self._fetch_event_levels()
+        if levels:
+            self._cached_levels = CachedLevels(
+                levels=tuple(levels), fetched_at=time.time()
+            )
+        return levels
+
+    async def _fetch_event_levels(self) -> list[PriceLevel]:
+        """Fetch all price levels for this watcher's event from Gamma API."""
+        slug = self._watcher.event_slug
+        if not slug:
+            return []
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://gamma-api.polymarket.com/events",
+                    params={"slug": slug},
+                )
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                event = data[0] if isinstance(data, list) and data else None
+                if not event:
+                    return []
+                return parse_levels_from_event(event)
+        except Exception as e:
+            logger.debug(
+                "watcher_event_levels_fetch_failed",
+                watcher_id=self.watcher_id,
+                slug=slug,
+                error=str(e),
+            )
+            return []
 
     def _can_scale_up(self) -> bool:
         """Check if watcher is allowed to scale up."""

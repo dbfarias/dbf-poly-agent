@@ -4,7 +4,7 @@
 
 ### Autonomous Polymarket Trading Agent
 
-[![Tests](https://img.shields.io/badge/Tests-2687_passing-brightgreen?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/Tests-2734_passing-brightgreen?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
@@ -426,6 +426,16 @@ Verdicts are computed via multi-signal aggregation with a minimum of **2 confirm
 - **Scale Up**: 2+ bullish signals (momentum + volume spike, or momentum + positive news)
 - **Exit**: stop loss hit, or 2+ bearish signals (momentum + negative news)
 - **Hold**: mixed or insufficient signals (default)
+
+### Event-Level Price Scaling
+
+For scalable events with multiple price levels (e.g., "WTI $110, $120, $130, $140"), watchers automatically detect the full event structure and scale between levels:
+
+- **Scale Up**: when the current position reaches 80%+ of max price and signals are bullish, the watcher sells the current level and buys the next level up (more upside). Example: sell $120 at $0.85, buy $130 at $0.40.
+- **Scale Down**: when signals turn bearish or the position drops 15% from entry, the watcher moves to a safer lower level. Example: sell $120 at $0.50, buy $110 at $0.85.
+- **Position Recovery**: if a position is lost (phantom sync, external sell), the watcher detects it and re-enters only if signals still support the thesis.
+
+Scalable events are auto-detected from market question patterns ("hit $X", "above $X", "between $X and $Y"). The event price levels are cached for 5 minutes to minimize API calls.
 
 ### Guardrails
 
