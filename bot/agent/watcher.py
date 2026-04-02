@@ -118,6 +118,10 @@ class TradeWatcher:
 
     async def _check_cycle(self) -> None:
         """Single check cycle: gather signals, compute verdict, log decision."""
+        # Verify position still exists — if lost, request re-entry
+        if self._watcher.current_exposure > 0:
+            await self._verify_position_exists()
+
         # Fetch price from API if local trackers have no data
         await self._fetch_price_from_api()
 
@@ -300,6 +304,54 @@ class TradeWatcher:
                 error=str(e),
             )
             return compute_news_signal([])
+
+    async def _verify_position_exists(self) -> None:
+        """Check if the position still exists in the DB.
+
+        If the position was closed (phantom sync, manual sell, etc.)
+        but the watcher thesis is still valid, request re-entry.
+        """
+        try:
+            async with async_session() as session:
+                from sqlalchemy import select
+
+                from bot.data.models import Position
+
+                result = await session.execute(
+                    select(Position).where(
+                        Position.market_id == self._watcher.market_id,
+                        Position.is_open.is_(True),
+                    )
+                )
+                position = result.scalars().first()
+
+                if position is None and self._watcher.current_exposure > 0:
+                    logger.warning(
+                        "watcher_position_lost",
+                        watcher_id=self.watcher_id,
+                        market_id=self._watcher.market_id,
+                    )
+                    # Position gone — request re-entry via scale-up
+                    self._watcher.current_exposure = 0.0
+                    self._watcher.scale_count = max(0, self._watcher.scale_count - 1)
+                    current = self._get_current_price()
+                    self._pending_scale_up = PendingScaleUp(
+                        watcher_id=self.watcher_id,
+                        token_id=self._watcher.token_id,
+                        market_id=self._watcher.market_id,
+                        question=self._watcher.question,
+                        outcome=self._watcher.outcome,
+                        current_price=current,
+                        confidence=0.8,
+                        reasoning="Position lost (sync/phantom). Re-entering per watcher thesis.",
+                    )
+                    logger.info(
+                        "watcher_re_entry_requested",
+                        watcher_id=self.watcher_id,
+                        price=current,
+                    )
+        except Exception as e:
+            logger.debug("watcher_position_check_failed", error=str(e))
 
     async def _persist_state(self) -> None:
         """Persist watcher state to DB so dashboard shows live data."""
