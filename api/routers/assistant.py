@@ -54,8 +54,8 @@ _SELL_KEYWORDS = frozenset({
 
 # Trade intent keywords — presence of these + URL means EXECUTE mode
 _TRADE_KEYWORDS = frozenset({
-    "buy", "sell", "exit", "close", "dump",
-    "comprar", "vender", "sair", "fechar",
+    "buy", "sell", "exit", "close", "dump", "trade", "execute", "place",
+    "comprar", "vender", "sair", "fechar", "apostar", "entrar", "executar",
 })
 
 
@@ -130,6 +130,9 @@ def parse_intent(message: str) -> tuple[str, str]:
 def has_trade_intent(message: str) -> bool:
     """Check if message contains explicit trade keywords (buy/sell/etc)."""
     lower = message.lower()
+    # Dollar amount is strong trade intent signal
+    if _AMOUNT_RE.search(message) or _AMOUNT_BARE_RE.search(lower):
+        return True
     return any(_keyword_matches(kw, lower) for kw in _TRADE_KEYWORDS)
 
 
