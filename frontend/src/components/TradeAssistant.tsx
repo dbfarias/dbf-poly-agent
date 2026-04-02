@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Terminal, CheckCircle, XCircle, Loader2 } from "lucide-react";
-import { executeTradeAssistant, type AssistantResponse } from "../api/client";
+import { Send, Terminal, CheckCircle, XCircle, Loader2, Search, BarChart3, Zap } from "lucide-react";
+import { analyzeAssistant, type AssistantResponse } from "../api/client";
+
+const MODE_LABELS: Record<string, { label: string; icon: typeof Zap }> = {
+  execute: { label: "EXECUTE", icon: Zap },
+  analyze: { label: "ANALYZE", icon: BarChart3 },
+  search: { label: "SEARCH", icon: Search },
+};
 
 export default function TradeAssistant() {
   const [message, setMessage] = useState("");
@@ -19,9 +25,9 @@ export default function TradeAssistant() {
     setIsLoading(true);
     setResult(null);
     try {
-      const response = await executeTradeAssistant(message);
+      const response = await analyzeAssistant(message);
       setResult(response);
-      if (response.success) {
+      if (response.success && response.mode === "execute") {
         setMessage("");
       }
     } catch (err: unknown) {
@@ -29,6 +35,7 @@ export default function TradeAssistant() {
       setResult({
         success: false,
         log: ["Request failed"],
+        mode: null,
         error: axiosErr.response?.data?.detail || axiosErr.message || "Unknown error",
         market_title: null,
         outcome: null,
@@ -50,6 +57,11 @@ export default function TradeAssistant() {
     }
   };
 
+  const modeInfo = result?.mode ? MODE_LABELS[result.mode] : null;
+  const ModeIcon = modeInfo?.icon ?? Terminal;
+
+  const isAnalysis = result?.mode === "analyze" || result?.mode === "search";
+
   return (
     <div
       className="bg-[#1e2130] rounded-lg border border-[#2a2d3e] p-4"
@@ -58,6 +70,16 @@ export default function TradeAssistant() {
       <div className="flex items-center gap-2 mb-3">
         <Terminal size={16} className="text-indigo-400" />
         <h3 className="text-sm font-medium text-zinc-300">Trade Assistant</h3>
+        {result?.mode && (
+          <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${
+            result.mode === "execute" ? "bg-amber-500/20 text-amber-400" :
+            result.mode === "analyze" ? "bg-blue-500/20 text-blue-400" :
+            "bg-purple-500/20 text-purple-400"
+          }`}>
+            <ModeIcon size={10} className="inline mr-1" />
+            {modeInfo?.label}
+          </span>
+        )}
       </div>
 
       {/* Input row */}
@@ -67,7 +89,7 @@ export default function TradeAssistant() {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder='Ex: Buy No on Uruguay $5 https://polymarket.com/...'
+          placeholder="Analyze a market, search topics, or execute trades... (EN/PT-BR)"
           disabled={isLoading}
           className="flex-1 bg-[#0f1117] border border-[#2a2d3e] rounded-md px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
           data-testid="assistant-input"
@@ -86,13 +108,15 @@ export default function TradeAssistant() {
           Send
         </button>
       </div>
-      <p className="text-xs text-zinc-600 mt-1">Enter to send</p>
+      <p className="text-xs text-zinc-600 mt-1">
+        {`"futebol hoje" | "bitcoin april" | "https://polymarket.com/..." | "buy No $5 https://..."`}
+      </p>
 
       {/* Loading state */}
       {isLoading && !result && (
         <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
           <Loader2 size={14} className="animate-spin" />
-          <span>Processing trade request...</span>
+          <span>Processing request...</span>
         </div>
       )}
 
@@ -100,27 +124,54 @@ export default function TradeAssistant() {
       {result && (
         <div
           ref={logRef}
-          className="mt-3 max-h-64 overflow-y-auto rounded-md bg-[#0f1117] border border-[#2a2d3e] p-3 space-y-1.5"
+          className="mt-3 max-h-80 overflow-y-auto rounded-md bg-[#0f1117] border border-[#2a2d3e] p-3 space-y-1.5"
           data-testid="assistant-result"
         >
           {/* Log entries */}
-          {result.log.map((entry, i) => (
-            <div
-              key={i}
-              className={`flex items-start gap-2 text-sm py-1 px-2 rounded border-l-2 ${
-                result.success
-                  ? "border-l-green-500/60 text-zinc-300"
-                  : "border-l-red-500/60 text-zinc-300"
-              }`}
-            >
-              {result.success ? (
-                <CheckCircle size={13} className="text-green-400 mt-0.5 shrink-0" />
-              ) : (
-                <XCircle size={13} className="text-red-400 mt-0.5 shrink-0" />
-              )}
-              <span className="break-all">{entry}</span>
-            </div>
-          ))}
+          {result.log.map((entry, i) => {
+            const isSeparator = entry.startsWith("---") && entry.endsWith("---");
+            const isAnalysisBlock = entry.length > 100 && isAnalysis;
+
+            if (isSeparator) {
+              return (
+                <div
+                  key={i}
+                  className="text-xs font-semibold text-zinc-500 uppercase tracking-wider pt-2 pb-1 border-t border-[#2a2d3e] mt-2"
+                >
+                  {entry.replace(/---/g, "").trim()}
+                </div>
+              );
+            }
+
+            if (isAnalysisBlock) {
+              return (
+                <div
+                  key={i}
+                  className="text-sm text-zinc-200 py-2 px-2 rounded bg-[#1a1d2e] border-l-2 border-l-indigo-500/60 whitespace-pre-wrap"
+                >
+                  {entry}
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={i}
+                className={`flex items-start gap-2 text-sm py-1 px-2 rounded border-l-2 ${
+                  result.success
+                    ? "border-l-green-500/60 text-zinc-300"
+                    : "border-l-red-500/60 text-zinc-300"
+                }`}
+              >
+                {result.success ? (
+                  <CheckCircle size={13} className="text-green-400 mt-0.5 shrink-0" />
+                ) : (
+                  <XCircle size={13} className="text-red-400 mt-0.5 shrink-0" />
+                )}
+                <span className="break-all">{entry}</span>
+              </div>
+            );
+          })}
 
           {/* Error message */}
           {result.error && (
@@ -130,8 +181,8 @@ export default function TradeAssistant() {
             </div>
           )}
 
-          {/* Trade details on success */}
-          {result.success && result.market_title && (
+          {/* Trade details on success (execute mode) */}
+          {result.success && result.mode === "execute" && result.market_title && (
             <div className="mt-2 pt-2 border-t border-[#2a2d3e] space-y-1 text-sm text-zinc-400">
               <div>
                 <span className="text-zinc-500">Market:</span>{" "}

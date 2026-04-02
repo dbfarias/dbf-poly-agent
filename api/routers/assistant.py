@@ -1,4 +1,10 @@
-"""Trade Assistant API — parse free-text commands and execute trades."""
+"""Trade Assistant API — parse free-text commands and execute trades.
+
+Supports three modes:
+- EXECUTE: URL + trade intent -> place order via CLOB
+- ANALYZE: URL without trade intent -> fetch market data + Claude analysis
+- SEARCH: no URL -> search Gamma API + Claude analysis
+"""
 
 import json
 import math
@@ -44,6 +50,12 @@ _YES_KEYWORDS = frozenset({
 _SELL_KEYWORDS = frozenset({
     "sell", "exit", "close", "dump",
     "vender", "sair", "fechar",
+})
+
+# Trade intent keywords — presence of these + URL means EXECUTE mode
+_TRADE_KEYWORDS = frozenset({
+    "buy", "sell", "exit", "close", "dump",
+    "comprar", "vender", "sair", "fechar",
 })
 
 
@@ -113,6 +125,25 @@ def parse_intent(message: str) -> tuple[str, str]:
                 break
 
     return side, outcome_hint
+
+
+def has_trade_intent(message: str) -> bool:
+    """Check if message contains explicit trade keywords (buy/sell/etc)."""
+    lower = message.lower()
+    return any(_keyword_matches(kw, lower) for kw in _TRADE_KEYWORDS)
+
+
+def detect_mode(message: str) -> str:
+    """Detect assistant mode from message content.
+
+    Returns "execute", "analyze", or "search".
+    """
+    url = extract_url(message)
+    if url and has_trade_intent(message):
+        return "execute"
+    if url:
+        return "analyze"
+    return "search"
 
 
 def _find_best_market(
@@ -204,7 +235,100 @@ def _get_token_and_price(
     return token_id, price
 
 
-# --- API endpoint ---
+def _format_market_summary(market: dict) -> str:
+    """Format a single market's data for Claude analysis."""
+    question = market.get("question", "Unknown")
+    outcomes = _parse_json_field(market.get("outcomes", "[]"))
+    prices = _parse_json_field(market.get("outcomePrices", "[]"))
+    volume = market.get("volume", 0)
+    end_date = market.get("endDate", "Unknown")
+
+    parts = [f"  Q: {question}"]
+    for i, outcome in enumerate(outcomes):
+        price = float(prices[i]) if i < len(prices) else 0.0
+        pct = price * 100
+        parts.append(f"    {outcome}: {pct:.0f}c (${price:.2f})")
+    if volume:
+        try:
+            parts.append(f"    Volume: ${float(volume):,.0f}")
+        except (ValueError, TypeError):
+            pass
+    if end_date and end_date != "Unknown":
+        parts.append(f"    Ends: {end_date}")
+    return "\n".join(parts)
+
+
+def _format_event_summary(event: dict) -> str:
+    """Format an event from search results for Claude analysis."""
+    title = event.get("title", "Unknown")
+    volume = event.get("volume", 0)
+    end_date = event.get("endDate", "Unknown")
+    markets = event.get("markets", [])
+
+    parts = [f"- {title}"]
+    if volume:
+        try:
+            parts[0] += f" (Volume: ${float(volume):,.0f})"
+        except (ValueError, TypeError):
+            pass
+    if end_date and end_date != "Unknown":
+        parts.append(f"  Ends: {end_date}")
+
+    for mkt in markets[:5]:  # Limit markets per event
+        outcomes = _parse_json_field(mkt.get("outcomes", "[]"))
+        prices = _parse_json_field(mkt.get("outcomePrices", "[]"))
+        q = mkt.get("question", "")
+        if q:
+            price_parts = []
+            for i, out in enumerate(outcomes):
+                p = float(prices[i]) if i < len(prices) else 0.0
+                price_parts.append(f"{out}:{p * 100:.0f}c")
+            prices_str = ", ".join(price_parts) if price_parts else ""
+            parts.append(f"  - {q} [{prices_str}]")
+
+    return "\n".join(parts)
+
+
+# --- Claude LLM helper ---
+
+_ANALYZE_SYSTEM = (
+    "You are a Polymarket trading analyst. Analyze this market and recommend "
+    "a trade. Be concise (3-5 sentences). Include: which side to buy, at what "
+    "price, and why. Consider: probability edge, liquidity, time to resolution, "
+    "fees (~2%). Respond in the same language as the user's message."
+)
+
+_SEARCH_SYSTEM = (
+    "You are a Polymarket trading analyst. The user is looking for trading "
+    "opportunities. Analyze these markets and suggest the best 1-3 "
+    "opportunities. Be concise. Consider probability edge, volume, and timing. "
+    "Respond in the same language as the user's message."
+)
+
+
+async def _ask_claude(system_prompt: str, user_message: str) -> str:
+    """Call Claude Haiku for analysis. Returns empty string on failure."""
+    from bot.config import settings
+
+    if not settings.anthropic_api_key:
+        return "(LLM analysis unavailable -- no API key)"
+    try:
+        from anthropic import AsyncAnthropic
+
+        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        return response.content[0].text
+    except Exception as e:
+        logger.error("assistant_llm_failed", error=str(e))
+        return f"(Analysis error: {e})"
+
+
+# --- API endpoints ---
 
 
 @router.post("/execute", response_model=AssistantResponse)
@@ -215,6 +339,11 @@ async def execute_trade_assistant(
     _: str = Depends(verify_api_key),
 ):
     """Parse a free-text trade command and execute it via CLOB."""
+    return await _execute_trade_logic(body)
+
+
+async def _execute_trade_logic(body: AssistantRequest) -> AssistantResponse:
+    """Core trade execution logic, shared by /execute and /analyze endpoints."""
     log: list[str] = []
     message = body.message.strip()
     log.append(f"Received: {message}")
@@ -224,6 +353,7 @@ async def execute_trade_assistant(
     if not url:
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + ["No Polymarket URL found in message."],
             error="No Polymarket URL found in message.",
         )
@@ -238,6 +368,7 @@ async def execute_trade_assistant(
     if not event:
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + [f"Event not found for slug: {slug}"],
             error=f"Event not found for slug: {slug}",
         )
@@ -249,6 +380,7 @@ async def execute_trade_assistant(
     if not markets:
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + ["No markets in this event."],
             error="No markets in this event.",
         )
@@ -263,6 +395,7 @@ async def execute_trade_assistant(
     if market is None:
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + ["Could not match a market from the event."],
             error="Could not match a market from the event.",
         )
@@ -276,6 +409,7 @@ async def execute_trade_assistant(
     if not token_id or not price or price <= 0:
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + [f"Could not resolve token/price for outcome: {resolved_outcome}"],
             error=f"Could not resolve token/price for outcome: {resolved_outcome}",
         )
@@ -288,6 +422,7 @@ async def execute_trade_assistant(
     if shares < 1.0:
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + [f"Order too small: {shares} shares (min 1.0)"],
             error=f"Order too small: {shares} shares at ${price:.2f}",
         )
@@ -316,6 +451,7 @@ async def execute_trade_assistant(
         logger.error("assistant_order_failed", error=str(exc))
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log + [f"Order failed: {exc}"],
             market_title=event_title,
             outcome=resolved_outcome,
@@ -332,6 +468,7 @@ async def execute_trade_assistant(
         log.append(f"CLOB error: {error_msg}")
         return AssistantResponse(
             success=False,
+            mode="execute",
             log=log,
             market_title=event_title,
             outcome=resolved_outcome,
@@ -347,6 +484,7 @@ async def execute_trade_assistant(
 
     return AssistantResponse(
         success=True,
+        mode="execute",
         log=log,
         market_title=event_title,
         outcome=resolved_outcome,
@@ -356,6 +494,148 @@ async def execute_trade_assistant(
         cost=cost,
         order_id=order_id,
     )
+
+
+@router.post("/analyze", response_model=AssistantResponse)
+@limiter.limit("10/minute")
+async def analyze_assistant(
+    request: Request,
+    body: AssistantRequest,
+    _: str = Depends(verify_api_key),
+):
+    """Smart assistant: auto-detects mode (execute/analyze/search)."""
+    message = body.message.strip()
+    mode = detect_mode(message)
+
+    if mode == "execute":
+        return await _execute_trade_logic(body)
+
+    if mode == "analyze":
+        return await _handle_analyze(message)
+
+    return await _handle_search(message)
+
+
+async def _handle_analyze(message: str) -> AssistantResponse:
+    """Fetch market data from URL and provide Claude analysis."""
+    log: list[str] = []
+    log.append(f"Received: {message}")
+    log.append("Mode: ANALYZE")
+
+    url = extract_url(message)
+    if not url:
+        return AssistantResponse(
+            success=False, mode="analyze",
+            log=log + ["No URL found."], error="No URL found.",
+        )
+
+    slug = extract_slug(url)
+    log.append(f"Slug: {slug}")
+
+    event = await _fetch_event(slug)
+    if not event:
+        return AssistantResponse(
+            success=False, mode="analyze",
+            log=log + [f"Event not found: {slug}"],
+            error=f"Event not found: {slug}",
+        )
+
+    event_title = event.get("title", slug)
+    markets = event.get("markets", [])
+    log.append(f"Event: {event_title} ({len(markets)} market(s))")
+
+    if not markets:
+        return AssistantResponse(
+            success=False, mode="analyze",
+            log=log + ["No markets in this event."],
+            error="No markets in this event.",
+        )
+
+    # Build market summary for Claude
+    market_lines = []
+    for mkt in markets:
+        market_lines.append(_format_market_summary(mkt))
+    market_text = "\n".join(market_lines)
+
+    log.append("--- Market Data ---")
+    for mkt in markets:
+        question = mkt.get("question", "Unknown")
+        outcomes = _parse_json_field(mkt.get("outcomes", "[]"))
+        prices = _parse_json_field(mkt.get("outcomePrices", "[]"))
+        price_parts = []
+        for i, out in enumerate(outcomes):
+            p = float(prices[i]) if i < len(prices) else 0.0
+            price_parts.append(f"{out}: {p * 100:.0f}c")
+        log.append(f"{question} -- {', '.join(price_parts)}")
+
+    # Ask Claude for analysis
+    user_msg = (
+        f"Event: {event_title}\n"
+        f"Markets:\n{market_text}\n\n"
+        f"User message: {message}"
+    )
+    analysis = await _ask_claude(_ANALYZE_SYSTEM, user_msg)
+
+    log.append("--- Analysis ---")
+    log.append(analysis)
+
+    return AssistantResponse(
+        success=True, mode="analyze", log=log,
+        market_title=event_title,
+    )
+
+
+async def _handle_search(message: str) -> AssistantResponse:
+    """Search Gamma API for markets matching the query."""
+    log: list[str] = []
+    log.append(f"Received: {message}")
+    log.append("Mode: SEARCH")
+
+    events = await _search_events(message)
+    if not events:
+        return AssistantResponse(
+            success=False, mode="search",
+            log=log + ["No markets found for this query."],
+            error="No markets found for this query.",
+        )
+
+    log.append(f"Found {len(events)} event(s)")
+
+    # Build summary for Claude
+    event_lines = []
+    for ev in events:
+        event_lines.append(_format_event_summary(ev))
+        # Also add to log for the user
+        title = ev.get("title", "Unknown")
+        markets = ev.get("markets", [])
+        log.append(f"--- {title} ({len(markets)} market(s)) ---")
+        for mkt in markets[:5]:
+            question = mkt.get("question", "")
+            outcomes = _parse_json_field(mkt.get("outcomes", "[]"))
+            prices = _parse_json_field(mkt.get("outcomePrices", "[]"))
+            price_parts = []
+            for i, out in enumerate(outcomes):
+                p = float(prices[i]) if i < len(prices) else 0.0
+                price_parts.append(f"{out}: {p * 100:.0f}c")
+            if question:
+                log.append(f"  {question} -- {', '.join(price_parts)}")
+
+    events_text = "\n".join(event_lines)
+
+    # Ask Claude for analysis
+    user_msg = (
+        f"Markets found:\n{events_text}\n\n"
+        f"User query: {message}"
+    )
+    analysis = await _ask_claude(_SEARCH_SYSTEM, user_msg)
+
+    log.append("--- Analysis ---")
+    log.append(analysis)
+
+    return AssistantResponse(success=True, mode="search", log=log)
+
+
+# --- Gamma API helpers ---
 
 
 async def _fetch_event(slug: str) -> dict | None:
@@ -389,3 +669,32 @@ async def _fetch_event(slug: str) -> dict | None:
     except Exception as exc:
         logger.error("gamma_event_network_error", slug=slug, error=str(exc))
         return None
+
+
+async def _search_events(query: str) -> list[dict]:
+    """Search Gamma API for events matching a query.
+
+    Returns up to 5 open events, or empty list on failure.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"{GAMMA_API_URL}/events",
+                params={"_q": query, "closed": "false", "_limit": 5},
+            )
+            if resp.status_code == 404:
+                return []
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, list):
+                return data
+            return []
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "gamma_search_http_error", query=query,
+            status=exc.response.status_code, error=str(exc),
+        )
+        return []
+    except Exception as exc:
+        logger.error("gamma_search_network_error", query=query, error=str(exc))
+        return []

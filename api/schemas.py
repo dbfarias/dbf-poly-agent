@@ -261,6 +261,7 @@ class AssistantRequest(BaseModel):
 class AssistantResponse(BaseModel):
     success: bool
     log: list[str]  # Step-by-step log of what happened
+    mode: str | None = None  # "execute", "analyze", "search"
     market_title: str | None = None
     outcome: str | None = None  # "Yes" or "No"
     side: str | None = None  # "BUY" or "SELL"

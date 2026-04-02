@@ -532,6 +532,7 @@ export interface AssistantRequest {
 export interface AssistantResponse {
   success: boolean;
   log: string[];
+  mode: string | null;
   market_title: string | null;
   outcome: string | null;
   side: string | null;
@@ -544,6 +545,11 @@ export interface AssistantResponse {
 
 export const executeTradeAssistant = async (message: string): Promise<AssistantResponse> => {
   const { data } = await api.post<AssistantResponse>("/api/assistant/execute", { message });
+  return data;
+};
+
+export const analyzeAssistant = async (message: string): Promise<AssistantResponse> => {
+  const { data } = await api.post<AssistantResponse>("/api/assistant/analyze", { message });
   return data;
 };
 
