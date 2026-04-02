@@ -4,14 +4,14 @@
 
 ### Autonomous Polymarket Trading Agent
 
-[![Tests](https://img.shields.io/badge/Tests-2600%2B_passing-brightgreen?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/Tests-2687_passing-brightgreen?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
 
 ---
 
-**12 Strategies** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
+**12 Strategies** | **Trade Watchers** | **AI Trade Debates** | **Multi-Source Research** | **Quantitative Risk Gates** | **Adaptive Learning** | **Real-Time Dashboard**
 
 </div>
 
@@ -33,9 +33,10 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 - **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
 - **Cross-platform convergence scoring** -- aggregates signals across sources, boosts edge when multiple signals agree
 - **Deep research mode** -- high-edge trades (>10%) get enriched context with all available data for better LLM analysis
+- **Trade Watcher agents** -- live, temporary agents that monitor scalable positions in real-time. Automatically created on qualifying trades (or manually via dashboard). Each watcher tracks price momentum, volume spikes, and Google News RSS, aggregates multi-signal verdicts (requiring 2+ confirming signals), and autonomously scales up or exits positions. Guardrails: max 5 concurrent watchers, 50% equity cap, trailing stop, max 3 scale-ups per watcher, risk manager approval on every order
 - **Bayesian position updating** -- re-evaluates open positions with fresh research every cycle, exits when fundamentals shift
 - **Adaptive learning** -- PerformanceLearner adjusts edge multipliers, category confidence, and urgency every 5 minutes
-- **Real-time dashboard** -- 14-page React UI with equity curves, trade history, strategy performance, risk metrics, AI debate logs, trade assistant, and backtesting
+- **Real-time dashboard** -- 15-page React UI with equity curves, trade history, strategy performance, risk metrics, AI debate logs, trade assistant, and backtesting
 - **Real-time WebSocket orderbook tracking** -- live orderbook snapshots for spread analysis and flash crash detection
 - **Flash crash detection** -- mean-reversion strategy that buys when price drops 30%+ within 30 seconds
 - **On-chain position verification** -- phantom position sync detects and reconciles mismatches between local state and on-chain data
@@ -121,7 +122,7 @@ The bot will immediately start scanning markets and generating paper trades. Ope
 |   React Dashboard   |     |   FastAPI + Bot         |
 |   (Static Nginx)    |     |   (Single Process)      |
 |                     |     |                          |
-|  14 Pages:          |     |  +------------------+   |
+|  15 Pages:          |     |  +------------------+   |
 |  - Dashboard        |<--->|  |   FastAPI App     |   |
 |  - Trades           | API |  |   /api/* + /ws/*  |   |
 |  - Strategies       |     |  +--------+---------+   |
@@ -248,7 +249,7 @@ All runtime settings are persisted to the database and restored on restart.
 
 ## Dashboard
 
-The React dashboard provides 14 pages for full visibility into the bot's operations:
+The React dashboard provides 15 pages for full visibility into the bot's operations:
 
 | Page | Description |
 |:---|:---|
@@ -260,6 +261,7 @@ The React dashboard provides 14 pages for full visibility into the bot's operati
 | **Research** | News sentiment, volume anomalies, whale activity, market categories |
 | **Learner** | Adaptive learning: edge multipliers, Brier scores, strategy pauses |
 | **AI Debates** | Trade debate history, position reviews, post-mortem analysis |
+| **Watchers** | Trade Watcher agents: create, monitor, kill. Live status, P&L, scale count, signals |
 | **Market Report** | Daily summary: portfolio, sentiment, top opportunities, alerts |
 | **Trade Assistant** | Free-text trade execution -- type a message with a Polymarket URL to buy or sell |
 | **Backtesting** | Run strategy backtests with historical data, view Sharpe ratio, drawdown, and ROI |
@@ -331,7 +333,7 @@ bash deploy/setup-https.sh <duckdns-subdomain> <duckdns-token> <your-email>
 
 The included GitHub Actions workflow (`.github/workflows/deploy.yml`) runs a 3-job pipeline on push to `main`:
 
-1. **Test** -- pytest (2600+ tests) + ruff lint + frontend build
+1. **Test** -- pytest (2687+ tests) + ruff lint + frontend build
 2. **Build** -- Docker images pushed to GitHub Container Registry
 3. **Deploy** -- SSH to server, pull images, restart with healthcheck + auto-rollback
 
@@ -341,7 +343,7 @@ Configure these GitHub secrets for CI/CD: `SERVER_HOST`, `SERVER_USER`, `SERVER_
 
 ## Testing
 
-**2600+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
+**2687+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -394,6 +396,52 @@ curl -X POST http://localhost:8000/api/backtest \
 - Accessible from the dashboard Backtesting page or via the REST API
 
 Backtesting results help validate parameter changes and new strategies before deploying to live trading.
+
+---
+
+## Trade Watcher Agents
+
+Trade Watchers are live, temporary agents that monitor and manage scalable positions autonomously. Unlike strategies (which find new opportunities), watchers manage existing positions -- scaling up when momentum confirms or exiting when conditions deteriorate.
+
+### When They Activate
+
+- **Automatically** after a qualifying trade fill (eligible strategies: time_decay, copy_trading, news_sniping, arbitrage, value_betting, swing_trading)
+- **Manually** via the Watchers dashboard page or the REST API
+- Only markets classified as LONG_TERM, ECONOMIC, or UNKNOWN qualify (sports, weather, and short-term markets do not)
+
+### What They Monitor
+
+Each watcher runs its own 15-minute check cycle, gathering three independent signals:
+
+| Signal | Source | Bullish Trigger | Bearish Trigger |
+|:---|:---|:---|:---|
+| **Price Momentum** | In-memory price tracker (1h, 4h, 24h windows) | 1h > +1%, 4h > +2% | 1h < -1%, 4h < -2% |
+| **Volume** | 24h volume vs rolling average | > 2x average (spike) | -- |
+| **News** | Google News RSS for extracted keywords | 3+ headlines, sentiment > +0.3 | 3+ headlines, sentiment < -0.3 |
+
+### How They Decide
+
+Verdicts are computed via multi-signal aggregation with a minimum of **2 confirming signals** required:
+
+- **Scale Up**: 2+ bullish signals (momentum + volume spike, or momentum + positive news)
+- **Exit**: stop loss hit, or 2+ bearish signals (momentum + negative news)
+- **Hold**: mixed or insufficient signals (default)
+
+### Guardrails
+
+| Limit | Value | Description |
+|:---|:---|:---|
+| Max concurrent watchers | 5 | Hard cap on active watchers |
+| Max equity deployed | 50% | Aggregate watcher exposure cap |
+| Max scale-ups per watcher | 3 | Prevents overconcentration |
+| Max exposure per watcher | $20 | Default, configurable per watcher |
+| Trailing stop | Configurable (default 25%) | Triggers exit from highest observed price |
+| Max age | 7 days (default) | Auto-terminates stale watchers |
+| Market end date | 48h | Auto-exits when market resolution approaches |
+
+### Dashboard Management
+
+The Watchers page shows all watchers (active, completed, killed) with status badges, entry/current price, P&L, exposure, scale count, and last signal. Active watchers can be killed with one click. New watchers can be created manually with a market ID, thesis, and risk parameters.
 
 ---
 

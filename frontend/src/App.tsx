@@ -15,6 +15,7 @@ import Settings from "./pages/Settings";
 import Strategies from "./pages/Strategies";
 import CapitalFlows from "./pages/CapitalFlows";
 import Trades from "./pages/Trades";
+import Watchers from "./pages/Watchers";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           <Route path="report" element={<Report />} />
           <Route path="learner" element={<Learner />} />
           <Route path="ai-debates" element={<AIDebates />} />
+          <Route path="watchers" element={<Watchers />} />
           <Route path="capital-flows" element={<CapitalFlows />} />
           <Route path="activity" element={<Activity />} />
           <Route path="settings" element={<Settings />} />

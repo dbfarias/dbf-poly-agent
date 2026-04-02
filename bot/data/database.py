@@ -17,6 +17,7 @@ logger = structlog.get_logger()
 ALLOWED_TABLES = frozenset({
     "trades", "positions", "portfolio_snapshots", "bot_activity",
     "tracked_wallets", "strategy_metrics", "capital_flows",
+    "watchers", "watcher_decisions",
 })
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 

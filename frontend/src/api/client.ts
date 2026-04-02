@@ -574,3 +574,60 @@ export const sellPosition = async (req: SellPositionRequest): Promise<SellPositi
   const { data } = await api.post<SellPositionResponse>("/api/portfolio/positions/sell", req);
   return data;
 };
+
+// Watcher types
+export interface WatcherItem {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  market_id: string;
+  token_id: string;
+  question: string;
+  outcome: string;
+  keywords: string;
+  thesis: string;
+  max_exposure_usd: number;
+  stop_loss_pct: number;
+  max_age_hours: number;
+  check_interval_sec: number;
+  status: string;
+  current_exposure: number;
+  avg_entry_price: number;
+  scale_count: number;
+  max_scale_count: number;
+  highest_price: number;
+  last_check_at: string | null;
+  last_news_at: string | null;
+  end_date: string | null;
+  source_strategy: string;
+  auto_created: boolean;
+}
+
+export interface CreateWatcherBody {
+  market_id: string;
+  token_id?: string;
+  question?: string;
+  outcome?: string;
+  keywords?: string[];
+  thesis?: string;
+  current_price?: number;
+  max_exposure_usd?: number;
+  stop_loss_pct?: number;
+  max_age_hours?: number;
+}
+
+// Watcher API functions
+export const fetchWatchers = async (): Promise<WatcherItem[]> => {
+  const { data } = await api.get<WatcherItem[]>("/api/watchers");
+  return data;
+};
+
+export const killWatcher = async (id: number): Promise<{ success: boolean; watcher_id: number }> => {
+  const { data } = await api.post(`/api/watchers/${id}/kill`);
+  return data;
+};
+
+export const createWatcher = async (body: CreateWatcherBody): Promise<WatcherItem> => {
+  const { data } = await api.post<WatcherItem>("/api/watchers", body);
+  return data;
+};

@@ -27,6 +27,7 @@ from api.routers import (
     risk,
     strategies,
     trades,
+    watchers,
     websocket,
 )
 from bot.config import settings
@@ -131,6 +132,7 @@ app.include_router(activity.router)
 app.include_router(research.router)
 app.include_router(report.router)
 app.include_router(push.router)
+app.include_router(watchers.router)
 app.include_router(websocket.router)
 
 

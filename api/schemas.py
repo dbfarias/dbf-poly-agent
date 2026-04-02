@@ -287,3 +287,61 @@ class SellPositionResponse(BaseModel):
     proceeds: float | None = None
     order_id: str | None = None
     error: str | None = None
+
+
+# Watchers
+class CreateWatcherRequest(BaseModel):
+    market_id: str = Field(min_length=1, max_length=128)
+    token_id: str = Field(default="", max_length=256)
+    question: str = Field(default="", max_length=200)
+    outcome: str = Field(default="", max_length=32)
+    keywords: list[str] = Field(default_factory=list)
+    thesis: str = Field(default="", max_length=500)
+    current_price: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_exposure_usd: float = Field(default=20.0, gt=0.0, le=100.0)
+    stop_loss_pct: float = Field(default=0.25, gt=0.0, le=1.0)
+    max_age_hours: float = Field(default=168.0, gt=0.0, le=720.0)
+
+
+class WatcherResponse(BaseModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    market_id: str
+    token_id: str
+    question: str
+    outcome: str
+    keywords: str
+    thesis: str
+    max_exposure_usd: float
+    stop_loss_pct: float
+    max_age_hours: float
+    check_interval_sec: int
+    status: str
+    current_exposure: float
+    avg_entry_price: float
+    scale_count: int
+    max_scale_count: int
+    highest_price: float
+    last_check_at: datetime | None = None
+    last_news_at: datetime | None = None
+    end_date: datetime | None = None
+    source_strategy: str
+    auto_created: bool
+
+
+class WatcherDecisionResponse(BaseModel):
+    id: int
+    created_at: datetime
+    watcher_id: int
+    decision: str
+    signals_json: str
+    reasoning: str
+    action_taken: str
+    size_usd: float
+    price_at_decision: float | None = None
+
+
+class WatcherDetailResponse(BaseModel):
+    watcher: WatcherResponse
+    decisions: list[WatcherDecisionResponse]

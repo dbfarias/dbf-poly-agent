@@ -212,3 +212,64 @@ class StrategyMetric(Base):
     max_drawdown: Mapped[float] = mapped_column(Float, default=0.0)
     avg_hold_time_hours: Mapped[float] = mapped_column(Float, default=0.0)
     profit_factor: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class Watcher(Base):
+    __tablename__ = "watchers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utc_now, onupdate=_utc_now
+    )
+
+    # Market
+    market_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    token_id: Mapped[str] = mapped_column(String(256), default="")
+    question: Mapped[str] = mapped_column(Text, default="")
+    outcome: Mapped[str] = mapped_column(String(32), default="")
+
+    # Config
+    keywords: Mapped[str] = mapped_column(Text, default="[]")  # JSON array
+    thesis: Mapped[str] = mapped_column(Text, default="")
+    max_exposure_usd: Mapped[float] = mapped_column(Float, default=20.0)
+    stop_loss_pct: Mapped[float] = mapped_column(Float, default=0.25)
+    max_age_hours: Mapped[float] = mapped_column(Float, default=168.0)  # 7 days
+    check_interval_sec: Mapped[int] = mapped_column(Integer, default=900)  # 15 min
+
+    # State
+    status: Mapped[str] = mapped_column(
+        String(16), index=True, default="active"
+    )  # active, paused, completed, killed
+    current_exposure: Mapped[float] = mapped_column(Float, default=0.0)
+    avg_entry_price: Mapped[float] = mapped_column(Float, default=0.0)
+    scale_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_scale_count: Mapped[int] = mapped_column(Integer, default=3)
+    highest_price: Mapped[float] = mapped_column(Float, default=0.0)
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_news_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Market end date (for termination checks)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    # Trigger
+    source_strategy: Mapped[str] = mapped_column(String(64), default="")
+    auto_created: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class WatcherDecision(Base):
+    __tablename__ = "watcher_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)
+    watcher_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+
+    # Possible values: scale_up, hold, scale_down, exit, check
+    decision: Mapped[str] = mapped_column(String(16), default="")
+    signals_json: Mapped[str] = mapped_column(Text, default="{}")
+    reasoning: Mapped[str] = mapped_column(Text, default="")
+    action_taken: Mapped[str] = mapped_column(
+        String(32), default=""
+    )  # placed_order, held, exited, blocked_by_risk
+    size_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    price_at_decision: Mapped[float | None] = mapped_column(Float, nullable=True)

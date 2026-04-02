@@ -12,6 +12,7 @@ from bot.agent.order_manager import OrderManager
 from bot.agent.portfolio import Portfolio
 from bot.agent.position_closer import PositionCloser
 from bot.agent.risk_manager import RiskManager
+from bot.agent.watcher_manager import WatcherManager
 from bot.config import RiskConfig, settings, trading_day
 from bot.data.activity import (
     log_cycle_summary,
@@ -85,6 +86,24 @@ from .strategies.value_betting import ValueBettingStrategy
 from .strategies.weather_trading import WeatherTradingStrategy
 
 logger = structlog.get_logger()
+
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "will", "would", "could", "should", "can", "do", "does", "did", "has",
+    "have", "had", "in", "on", "at", "to", "for", "of", "with", "by",
+    "from", "and", "or", "but", "not", "no", "yes", "if", "it", "its",
+    "this", "that", "than", "what", "which", "who", "whom", "how",
+    "before", "after", "above", "below", "between", "up", "down",
+})
+
+
+def _extract_keywords(question: str, max_words: int = 6) -> list[str]:
+    """Extract keywords from a market question, filtering stopwords."""
+    import re
+
+    words = re.findall(r"[A-Za-z0-9]+", question)
+    keywords = [w for w in words if w.lower() not in _STOPWORDS and len(w) > 2]
+    return keywords[:max_words]
 
 
 def _apply_urgency_to_edge_multiplier(
@@ -165,6 +184,9 @@ class TradingEngine:
 
         # Shared price tracker (in-memory, ~6h history per market)
         self.price_tracker = PriceTracker()
+
+        # Trade Watcher manager (autonomous monitoring + scaling)
+        self.watcher_manager = WatcherManager(engine=self)
 
         # Wire orderbook tracker into WebSocket
         self.ws_manager.orderbook_tracker = self.orderbook_tracker
@@ -367,6 +389,9 @@ class TradingEngine:
         # Expire stale pending orders orphaned by previous container restarts
         await self._expire_stale_pending_orders()
 
+        # Restore active watchers from DB
+        await self.watcher_manager.restore_from_db()
+
         logger.info(
             "engine_initialized",
             equity=self.portfolio.total_equity,
@@ -557,6 +582,7 @@ class TradingEngine:
         await self.clob_client.close()
         await self.gamma_client.close()
         await self.data_api.close()
+        await self.watcher_manager.shutdown()
         await close_telegram_client()
         logger.info("engine_shutdown")
 
@@ -946,6 +972,9 @@ class TradingEngine:
         signals_found, signals_approved, orders_placed = (
             await self._evaluate_signals()
         )
+
+        # 6b. Process pending watcher actions (scale-up / exit)
+        await self.watcher_manager.process_pending_actions()
 
         # 7. Monitor pending orders
         await self.order_manager.monitor_orders()
@@ -2131,6 +2160,11 @@ class TradingEngine:
                     size=trade.size,
                 )
                 self._set_cooldown(signal.market_id, signal.strategy)
+                # Auto-create Trade Watcher for qualifying fills
+                try:
+                    await self._maybe_create_watcher(signal, trade)
+                except Exception as e:
+                    logger.debug("watcher_auto_create_failed", error=str(e))
             elif trade:
                 orders_placed += 1
                 await self._mark_scan_traded(signal)
@@ -2147,6 +2181,50 @@ class TradingEngine:
                 )
 
         return len(signals), signals_approved, orders_placed
+
+    async def _maybe_create_watcher(self, signal, trade) -> None:
+        """Auto-create a Trade Watcher after a qualifying trade fill."""
+        from bot.agent.watcher_eligibility import is_watcher_eligible
+        from bot.research.market_classifier import classify_market
+
+        # Only eligible strategies
+        eligible_strategies = frozenset({
+            "time_decay", "copy_trading", "news_sniping",
+            "arbitrage", "value_betting", "swing_trading",
+        })
+        if signal.strategy not in eligible_strategies:
+            return
+
+        # Check market eligibility
+        cached = self.cache.get_market(signal.market_id)
+        end_date = getattr(cached, "end_date", None) if cached else None
+        volume = getattr(cached, "volume", 0.0) if cached else 0.0
+        mtype = classify_market(signal.question, end_date)
+
+        if not is_watcher_eligible(mtype, end_date, trade.price, volume):
+            return
+
+        # No existing watcher for this market
+        for w in self.watcher_manager.active_watchers:
+            if w.market_id == signal.market_id:
+                return
+
+        # Extract keywords from question (filter stopwords)
+        keywords = _extract_keywords(signal.question)
+
+        await self.watcher_manager.create_watcher(
+            market_id=signal.market_id,
+            token_id=signal.token_id,
+            question=signal.question,
+            outcome=signal.outcome,
+            keywords=keywords,
+            thesis=signal.reasoning[:500] if signal.reasoning else "",
+            current_price=trade.price,
+            current_exposure=trade.cost_usd,
+            source_strategy=signal.strategy,
+            auto_created=True,
+            end_date=end_date,
+        )
 
     def _build_debate_context(self, signal, research) -> DebateContext:
         """Build rich DebateContext from learner + research for LLM debate."""
