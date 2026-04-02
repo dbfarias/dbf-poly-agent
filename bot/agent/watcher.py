@@ -72,6 +72,7 @@ class TradeWatcher:
         self._running = False
         self._pending_scale_up: PendingScaleUp | None = None
         self._pending_exit: PendingExit | None = None
+        self._last_fetched_price: float = 0.0
 
     @property
     def watcher_id(self) -> int:
@@ -117,6 +118,9 @@ class TradeWatcher:
 
     async def _check_cycle(self) -> None:
         """Single check cycle: gather signals, compute verdict, log decision."""
+        # Fetch price from API if local trackers have no data
+        await self._fetch_price_from_api()
+
         momentum = self._get_price_momentum()
         volume = await self._get_volume_signal()
         news = await self._get_news_signal()
@@ -195,13 +199,62 @@ class TradeWatcher:
         return True
 
     def _get_current_price(self) -> float:
-        """Get current price from price tracker or fall back to entry."""
+        """Get current price from multiple sources, fallback chain."""
+        # 1. Try PriceTracker (WebSocket-fed, real-time)
         if self._price_tracker is not None:
-            # PriceTracker stores (price, timestamp) per market
             raw = self._price_tracker._history.get(self._watcher.token_id)
             if raw:
-                return raw[-1][0]  # latest price
+                return raw[-1][0]
+            # Also try market_id as key (some trackers use condition_id)
+            raw = self._price_tracker._history.get(self._watcher.market_id)
+            if raw:
+                return raw[-1][0]
+
+        # 2. Try OrderbookTracker (if available via engine)
+        if hasattr(self, "_orderbook_tracker") and self._orderbook_tracker:
+            mid = self._orderbook_tracker.get_mid_price(self._watcher.token_id)
+            if mid and mid > 0:
+                return mid
+
+        # 3. Try fetching from Gamma API (async, so we cache result)
+        # This is handled by _fetch_price_from_api called in check_cycle
+        if self._last_fetched_price > 0:
+            return self._last_fetched_price
+
         return self._watcher.avg_entry_price
+
+    async def _fetch_price_from_api(self) -> float:
+        """Fetch current price from Gamma API as fallback."""
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://gamma-api.polymarket.com/markets",
+                    params={"id": self._watcher.market_id},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data and isinstance(data, list) and data[0]:
+                        import json as _json
+                        prices = data[0].get("outcomePrices", "[]")
+                        if isinstance(prices, str):
+                            prices = _json.loads(prices)
+                        outcome = self._watcher.outcome
+                        outcomes = data[0].get("outcomes", "[]")
+                        if isinstance(outcomes, str):
+                            outcomes = _json.loads(outcomes)
+                        if outcomes and prices:
+                            try:
+                                idx = outcomes.index(outcome)
+                                price = float(prices[idx])
+                                if price > 0:
+                                    self._last_fetched_price = price
+                                    return price
+                            except (ValueError, IndexError):
+                                pass
+        except Exception:
+            pass
+        return 0.0
 
     def _get_price_momentum(self) -> PriceMomentum:
         """Compute price momentum from price tracker history."""
