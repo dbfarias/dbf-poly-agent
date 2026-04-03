@@ -11,7 +11,7 @@ def test_risk_config_values():
     RiskConfig.reset()
     config = RiskConfig.get()
     assert config["max_positions"] == 8
-    assert config["max_per_position_pct"] == 0.150
+    assert config["max_per_position_pct"] == 0.10
     assert config["max_deployed_pct"] == 0.65
     assert config["max_per_category_pct"] == 0.35
     assert config["min_win_prob"] == 0.55

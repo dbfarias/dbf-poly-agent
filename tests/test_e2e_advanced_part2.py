@@ -240,7 +240,7 @@ class TestDebateFailureFallback:
         # Signal with very low edge and no hours_to_resolution discount
         sig = _make_signal(
             market_id="risk_debate", strategy="time_decay",
-            edge=0.005, estimated_prob=0.92, market_price=0.86,
+            edge=0.002, estimated_prob=0.92, market_price=0.86,
             metadata={"category": "crypto", "price_std": 0.02},  # no hours_to_resolution
         )
         _setup_engine_for_evaluate(engine, [sig])
