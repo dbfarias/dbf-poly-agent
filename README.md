@@ -4,7 +4,7 @@
 
 ### Autonomous Polymarket Trading Agent
 
-[![Tests](https://img.shields.io/badge/Tests-2734_passing-brightgreen?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/Tests-2752_passing-brightgreen?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
@@ -29,7 +29,7 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 - **Trade Assistant** -- free-text trade execution from the dashboard. Type a message with a Polymarket URL (e.g., "Buy No on Uruguay $5") and the bot parses intent, fetches market data, and executes. Supports English and Portuguese
 - **One-click sell** -- sell any open position directly from the dashboard with best-bid pricing and confirmation dialog
 - **Backtesting framework** -- lightweight backtesting engine with historical data from Polymarket, accurate non-linear fee model, and metrics including Sharpe ratio, max drawdown, win rate, and ROI
-- **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo (weather), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
+- **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo + ECMWF (weather, 3-model ensemble), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
 - **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
 - **Cross-platform convergence scoring** -- aggregates signals across sources, boosts edge when multiple signals agree
 - **Deep research mode** -- high-edge trades (>10%) get enriched context with all available data for better LLM analysis
@@ -196,7 +196,7 @@ Classification uses regex keyword matching + end_date heuristics. See `bot/resea
 | 4 | **Price Divergence** | Detect crypto/sentiment price divergence using external signals | Medium |
 | 5 | **Swing Trading** | Buy markets with confirmed upward momentum (3+ rising ticks) | Medium |
 | 6 | **Market Making** | Provide liquidity on both sides of the spread | High |
-| 7 | **Weather Trading** | Trade weather markets using NOAA forecast data | Medium |
+| 7 | **Weather Trading** | Trade weather markets using NOAA + Open-Meteo + ECMWF ensemble with temperature laddering, tail bets, and 25 global cities | Medium |
 | 8 | **Crypto Short-Term** | Trade 5-minute crypto markets using real-time spot prices | Medium |
 | 9 | **News Sniping** | Trade on breaking news via RSS polling + sentiment analysis | Medium |
 | 10 | **Copy Trading** | Follow top Polymarket traders via leaderboard + wallet tracking | Medium |

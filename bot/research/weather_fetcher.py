@@ -185,14 +185,16 @@ _INTL_CITIES: dict[str, tuple[float, float]] = {
 
 
 class WeatherFetcher:
-    """Fetches forecasts from NOAA (US) and Open-Meteo (worldwide).
+    """Fetches forecasts from NOAA (US), Open-Meteo GFS, and ECMWF.
 
     For US cities, combines station observations (what already happened today)
     with hourly forecasts (what's coming) to produce accurate daily max temps.
+    ECMWF data is fetched via Open-Meteo's free ECMWF endpoint.
     """
 
     BASE_URL = "https://api.weather.gov"
     OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+    ECMWF_URL = "https://api.open-meteo.com/v1/ecmwf"
     CACHE_TTL = 1800  # 30 min
     TIMEOUT = 15.0
 
@@ -619,6 +621,85 @@ class WeatherFetcher:
                 )
             )
 
+        return result
+
+    async def fetch_ecmwf_forecast(
+        self, lat: float, lon: float, days: int = 3,
+    ) -> list[TemperaturePeriod] | None:
+        """Fetch ECMWF ensemble forecast from Open-Meteo (free, no key).
+
+        Returns list of TemperaturePeriod with daily max temps, or None.
+        ECMWF provides independent model data for ensemble verification.
+        """
+        client = await self._get_client()
+        response = await client.get(
+            self.ECMWF_URL,
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "daily": "temperature_2m_max,temperature_2m_min",
+                "timezone": "auto",
+                "forecast_days": min(days, 10),
+            },
+        )
+        if response.status_code == 429:
+            logger.warning("ecmwf_rate_limited")
+            return None
+
+        response.raise_for_status()
+        data = response.json()
+
+        daily = data.get("daily")
+        if not daily:
+            logger.warning("ecmwf_no_daily", lat=lat, lon=lon)
+            return None
+
+        return self._parse_ecmwf_daily(lat, lon, daily)
+
+    def _parse_ecmwf_daily(
+        self, lat: float, lon: float, daily: dict,
+    ) -> list[TemperaturePeriod]:
+        """Parse ECMWF daily response into TemperaturePeriod list."""
+        dates = daily.get("time", [])
+        highs_c = daily.get("temperature_2m_max", [])
+        lows_c = daily.get("temperature_2m_min", [])
+
+        result: list[TemperaturePeriod] = []
+        city_label = f"ecmwf_{lat:.2f}_{lon:.2f}"
+
+        for i, date_str in enumerate(dates):
+            if i >= len(highs_c) or i >= len(lows_c):
+                break
+            high_c = highs_c[i]
+            if high_c is None:
+                continue
+
+            high_f = _c_to_f(high_c)
+            low_c = lows_c[i]
+            low_f = _c_to_f(low_c) if low_c is not None else high_f - 10
+
+            confidence = _DEFAULT_CONFIDENCE
+            for hours_limit, conf in _CONFIDENCE_BY_HOURS:
+                if (i + 1) * 24 <= hours_limit:
+                    confidence = conf
+                    break
+
+            result.append(
+                TemperaturePeriod(
+                    city=city_label,
+                    date=date_str,
+                    period="day",
+                    temp_f=high_f,
+                    temp_low_f=low_f,
+                    temp_high_f=high_f + _UNCERTAINTY_F,
+                    confidence=confidence,
+                )
+            )
+
+        logger.info(
+            "ecmwf_forecast_fetched",
+            lat=lat, lon=lon, periods=len(result),
+        )
         return result
 
     async def close(self) -> None:

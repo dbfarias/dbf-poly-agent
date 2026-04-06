@@ -1,13 +1,15 @@
-"""Weather trading strategy v2: AlterEgo-inspired statistical rigor.
+"""Weather trading strategy v3: laddering, tail bets, ECMWF ensemble.
 
-Uses NOAA + Open-Meteo ensemble, bucket-boundary uncertainty modeling,
-and Gaussian probability for temperature buckets. Zero LLM cost.
+Uses NOAA + Open-Meteo + ECMWF ensemble (2-of-3 agreement),
+bucket-boundary uncertainty modeling, temperature laddering (buy 3-5
+adjacent buckets instead of 1), and tail bucket trading for asymmetric
+payoffs. Zero LLM cost.
 
-Key improvements over v1:
-- Bucket boundary awareness: confidence drops when forecast is near boundary
-- Dual-model ensemble: only trades when NOAA and Open-Meteo agree
-- Gaussian fair value: models temperature uncertainty as normal distribution
-- Tighter risk: higher MIN_EDGE, lower ENTRY_THRESHOLD
+Key improvements over v2:
+- Temperature laddering: buy top N buckets with decaying size
+- Tail bucket trading: cheap buckets ($0.01-0.05) for 20-100x payoffs
+- ECMWF ensemble: 3-model agreement (NOAA + Open-Meteo GFS + ECMWF)
+- Expanded city coverage: 25 global cities
 """
 
 import json
@@ -31,6 +33,7 @@ _MONTHS = [
 
 # City slug aliases — Polymarket uses these in URL slugs
 _CITY_SLUGS: dict[str, str] = {
+    # US cities
     "new york": "nyc",
     "nyc": "nyc",
     "chicago": "chicago",
@@ -38,6 +41,26 @@ _CITY_SLUGS: dict[str, str] = {
     "dallas": "dallas",
     "seattle": "seattle",
     "atlanta": "atlanta",
+    "los angeles": "la",
+    "la": "la",
+    "san francisco": "sf",
+    "denver": "denver",
+    "boston": "boston",
+    "houston": "houston",
+    "phoenix": "phoenix",
+    # International cities
+    "london": "london",
+    "tokyo": "tokyo",
+    "shanghai": "shanghai",
+    "buenos aires": "buenos-aires",
+    "ankara": "ankara",
+    "sydney": "sydney",
+    "mumbai": "mumbai",
+    "são paulo": "sao-paulo",
+    "sao paulo": "sao-paulo",
+    "dubai": "dubai",
+    "paris": "paris",
+    "berlin": "berlin",
 }
 
 # Broad weather detection for fallback scan path
@@ -155,28 +178,42 @@ def _get_uncertainty(hours_ahead: float) -> float:
 
 
 class WeatherTradingStrategy(BaseStrategy):
-    """Trade weather markets using NOAA + Open-Meteo ensemble with Gaussian probability."""
+    """Trade weather markets using NOAA + Open-Meteo + ECMWF ensemble.
+
+    v3 features: temperature laddering, tail bucket trading,
+    ECMWF 3-model ensemble, 25 global cities.
+    """
 
     name = "weather_trading"
     MIN_HOLD_SECONDS = 1800  # 30 min
 
-    # Entry thresholds — v2 tighter than v1
+    # Entry thresholds
     ENTRY_THRESHOLD = 0.50
     EXIT_THRESHOLD = 0.70
-    MIN_EDGE = 0.07  # 7% min edge (was 5% — AlterEgo uses ~7% avg)
+    MIN_EDGE = 0.07  # 7% min edge (AlterEgo uses ~7% avg)
     CONFIDENCE_THRESHOLD = 0.40
     MIN_HOURS_TO_RESOLUTION = 2.0
     LOOKAHEAD_DAYS = 4  # today + 3 days
-    MAX_SIGNALS_PER_SCAN = 3  # fewer, higher quality
+    MAX_SIGNALS_PER_SCAN = 8  # increased for laddering (was 3)
     EXIT_STOP_LOSS_PCT = 0.12
     EXIT_TAKE_PROFIT_PCT = 0.08
     EXIT_MIN_HOLD_HOURS = 1.0
-    EXIT_MAX_AGE_HOURS = 36.0  # shorter than v1 (was 48h)
+    EXIT_MAX_AGE_HOURS = 36.0
 
-    # v2: Gaussian probability params
+    # Gaussian probability params
     MIN_BUCKET_PROB = 0.55  # Only trade if P(bucket) > 55%
-    ENSEMBLE_REQUIRED = True  # Require both NOAA + Open-Meteo to agree
-    MAX_BOUNDARY_PROXIMITY_F = 1.5  # Skip if forecast within 1.5°F of bucket edge
+    ENSEMBLE_REQUIRED = True  # Require 2-of-3 models to agree
+    MAX_BOUNDARY_PROXIMITY_F = 1.5  # Skip if forecast within 1.5F of edge
+
+    # v3: Temperature laddering — buy top N adjacent buckets
+    LADDER_WIDTH: int = 4  # max buckets per ladder
+    LADDER_DECAY: float = 0.6  # each rank gets 60% of previous size
+
+    # v3: Tail bucket trading — cheap buckets for asymmetric payoffs
+    TAIL_MAX_PRICE: float = 0.05  # max price for tail buckets
+    TAIL_MIN_PROB: float = 0.02  # min model probability for tail
+    TAIL_SIZE_PCT: float = 0.02  # 2% of normal position size
+    MAX_TAILS_PER_MARKET: int = 2  # max tail bets per event
 
     _MUTABLE_PARAMS = {
         "ENTRY_THRESHOLD": {"type": float, "min": 0.01, "max": 0.50},
@@ -185,7 +222,7 @@ class WeatherTradingStrategy(BaseStrategy):
         "CONFIDENCE_THRESHOLD": {"type": float, "min": 0.3, "max": 1.0},
         "MIN_HOURS_TO_RESOLUTION": {"type": float, "min": 0.0, "max": 24.0},
         "LOOKAHEAD_DAYS": {"type": int, "min": 1, "max": 7},
-        "MAX_SIGNALS_PER_SCAN": {"type": int, "min": 1, "max": 20},
+        "MAX_SIGNALS_PER_SCAN": {"type": int, "min": 1, "max": 30},
         "MIN_HOLD_SECONDS": {"type": int, "min": 0, "max": 14400},
         "EXIT_STOP_LOSS_PCT": {"type": float, "min": 0.01, "max": 0.30},
         "EXIT_TAKE_PROFIT_PCT": {"type": float, "min": 0.01, "max": 0.30},
@@ -194,6 +231,12 @@ class WeatherTradingStrategy(BaseStrategy):
         "MIN_BUCKET_PROB": {"type": float, "min": 0.30, "max": 0.90},
         "ENSEMBLE_REQUIRED": {"type": bool},
         "MAX_BOUNDARY_PROXIMITY_F": {"type": float, "min": 0.0, "max": 5.0},
+        "LADDER_WIDTH": {"type": int, "min": 1, "max": 8},
+        "LADDER_DECAY": {"type": float, "min": 0.1, "max": 1.0},
+        "TAIL_MAX_PRICE": {"type": float, "min": 0.01, "max": 0.10},
+        "TAIL_MIN_PROB": {"type": float, "min": 0.005, "max": 0.10},
+        "TAIL_SIZE_PCT": {"type": float, "min": 0.005, "max": 0.10},
+        "MAX_TAILS_PER_MARKET": {"type": int, "min": 0, "max": 5},
     }
 
     def __init__(self, *args, weather_fetcher=None, **kwargs):
@@ -201,14 +244,17 @@ class WeatherTradingStrategy(BaseStrategy):
         self._weather_fetcher = weather_fetcher
         # Per-scan cache for Open-Meteo results (avoid rate limiting)
         self._om_cache: dict[str, list | None] = {}
+        # Per-scan cache for ECMWF results
+        self._ecmwf_cache: dict[str, list | None] = {}
 
     async def scan(self, markets: list[GammaMarket]) -> list[TradeSignal]:
         """Scan weather markets using slug-based direct lookup."""
         if self._weather_fetcher is None:
             return []
 
-        # Clear per-scan Open-Meteo cache
+        # Clear per-scan caches
         self._om_cache.clear()
+        self._ecmwf_cache.clear()
 
         signals: list[TradeSignal] = []
 
@@ -238,14 +284,15 @@ class WeatherTradingStrategy(BaseStrategy):
 
     async def _get_ensemble_forecast(
         self, city: str, date_str: str,
-    ) -> tuple[float | None, float | None]:
-        """Get forecast from both NOAA and Open-Meteo for ensemble check.
+    ) -> tuple[float | None, float | None, float | None]:
+        """Get forecast from NOAA, Open-Meteo GFS, and ECMWF.
 
-        Returns (noaa_temp, open_meteo_temp) — either can be None.
-        Uses per-scan cache for Open-Meteo to avoid rate limiting.
+        Returns (noaa_temp, open_meteo_temp, ecmwf_temp) — any can be None.
+        Uses per-scan caches to avoid rate limiting.
         """
         noaa_temp = None
         om_temp = None
+        ecmwf_temp = None
 
         # NOAA forecast (primary)
         forecast = await self._weather_fetcher.get_forecast(city)
@@ -255,10 +302,11 @@ class WeatherTradingStrategy(BaseStrategy):
                     noaa_temp = period.temp_f
                     break
 
-        # Open-Meteo forecast (secondary) — cached per city per scan
         city_key = city.strip().lower()
+        coords = self._weather_fetcher.CITIES.get(city_key)
+
+        # Open-Meteo GFS forecast (secondary) — cached per city per scan
         if city_key not in self._om_cache:
-            coords = self._weather_fetcher.CITIES.get(city_key)
             if coords:
                 try:
                     self._om_cache[city_key] = await self._weather_fetcher._fetch_open_meteo(
@@ -274,7 +322,28 @@ class WeatherTradingStrategy(BaseStrategy):
                     om_temp = period.temp_f
                     break
 
-        return noaa_temp, om_temp
+        # ECMWF forecast (tertiary) — cached per city per scan
+        if city_key not in self._ecmwf_cache:
+            if coords and hasattr(self._weather_fetcher, "fetch_ecmwf_forecast"):
+                try:
+                    self._ecmwf_cache[city_key] = (
+                        await self._weather_fetcher.fetch_ecmwf_forecast(
+                            coords[0], coords[1],
+                        )
+                    )
+                except Exception:
+                    self._ecmwf_cache[city_key] = None
+            else:
+                self._ecmwf_cache[city_key] = None
+
+        ecmwf_periods = self._ecmwf_cache.get(city_key)
+        if ecmwf_periods:
+            for period in ecmwf_periods:
+                if period.period == "day" and period.date == date_str:
+                    ecmwf_temp = period.temp_f
+                    break
+
+        return noaa_temp, om_temp, ecmwf_temp
 
     async def _scan_via_slugs(self) -> list[TradeSignal]:
         """Scan weather markets via predictable Polymarket slugs."""
@@ -307,32 +376,19 @@ class WeatherTradingStrategy(BaseStrategy):
                 if confidence < self.CONFIDENCE_THRESHOLD:
                     continue
 
-                # Ensemble check: get Open-Meteo forecast
-                om_temp = None
+                # Ensemble check: get forecasts from up to 3 models
                 if self.ENSEMBLE_REQUIRED:
-                    _, om_temp = await self._get_ensemble_forecast(
+                    _, om_temp, ecmwf_temp = await self._get_ensemble_forecast(
                         city_key, date_str,
                     )
-                    if om_temp is not None:
-                        # Models must agree within uncertainty range
-                        disagreement = abs(noaa_temp - om_temp)
-                        hours_ahead = day_offset * 24.0
-                        sigma = _get_uncertainty(hours_ahead)
-                        if disagreement > sigma:
-                            self.logger.info(
-                                "weather_ensemble_disagree",
-                                city=city_key, date=date_str,
-                                noaa=noaa_temp, open_meteo=round(om_temp, 1),
-                                disagreement=round(disagreement, 1),
-                                sigma=sigma,
-                            )
-                            continue
-                        # Use average of both models for better accuracy
-                        forecast_temp = (noaa_temp + om_temp) / 2.0
-                    else:
-                        # Open-Meteo unavailable — use NOAA alone but lower confidence
-                        forecast_temp = noaa_temp
-                        confidence *= 0.85
+                    result = self._compute_ensemble_temp(
+                        noaa_temp, om_temp, ecmwf_temp,
+                        city_key, date_str, day_offset * 24.0,
+                    )
+                    if result is None:
+                        continue
+                    forecast_temp, confidence_adj = result
+                    confidence *= confidence_adj
                 else:
                     forecast_temp = noaa_temp
 
@@ -350,13 +406,348 @@ class WeatherTradingStrategy(BaseStrategy):
                 hours_ahead = day_offset * 24.0
                 sigma = _get_uncertainty(hours_ahead)
 
-                # Find matching bucket with Gaussian probability
-                signal = self._match_bucket(
+                # Temperature laddering: find top N buckets
+                ladder = self._match_bucket_ladder(
                     event, city_key, date_str, forecast_temp,
                     confidence, sigma, hours_ahead,
                 )
-                if signal is not None:
-                    signals.append(signal)
+                signals.extend(ladder)
+
+                # Tail bucket trading: cheap asymmetric bets
+                tails = self._find_tail_buckets(
+                    event, city_key, date_str, forecast_temp,
+                    confidence, sigma, hours_ahead,
+                )
+                signals.extend(tails)
+
+        return signals
+
+    def _compute_ensemble_temp(
+        self,
+        noaa: float | None,
+        om: float | None,
+        ecmwf: float | None,
+        city: str,
+        date: str,
+        hours_ahead: float,
+    ) -> tuple[float, float] | None:
+        """Compute ensemble forecast from up to 3 models.
+
+        Returns (forecast_temp, confidence_multiplier) or None if
+        insufficient agreement. Requires 2-of-3 models within sigma.
+        """
+        temps = [t for t in (noaa, om, ecmwf) if t is not None]
+        if not temps:
+            return None
+
+        # Single model — use it but penalize confidence
+        if len(temps) == 1:
+            return temps[0], 0.85
+
+        sigma = _get_uncertainty(hours_ahead)
+
+        # 2 models: both must agree within sigma
+        if len(temps) == 2:
+            if abs(temps[0] - temps[1]) > sigma:
+                self.logger.info(
+                    "weather_ensemble_disagree",
+                    city=city, date=date,
+                    temps=[round(t, 1) for t in temps],
+                    sigma=sigma,
+                )
+                return None
+            return sum(temps) / len(temps), 1.0
+
+        # 3 models: require 2-of-3 within sigma of each other
+        pairs = [(0, 1), (0, 2), (1, 2)]
+        agreeing: list[float] = []
+        for i, j in pairs:
+            if abs(temps[i] - temps[j]) <= sigma:
+                agreeing = [temps[i], temps[j]]
+                # Include third if it also agrees with the pair
+                k = 3 - i - j
+                if abs(temps[k] - sum(agreeing) / 2) <= sigma:
+                    agreeing.append(temps[k])
+                break
+
+        if not agreeing:
+            self.logger.info(
+                "weather_ensemble_disagree",
+                city=city, date=date,
+                temps=[round(t, 1) for t in temps],
+                sigma=sigma,
+            )
+            return None
+
+        avg = sum(agreeing) / len(agreeing)
+        # 3-of-3 agreement → full confidence; 2-of-3 → slight penalty
+        multiplier = 1.0 if len(agreeing) == 3 else 0.95
+        return avg, multiplier
+
+    def _evaluate_bucket(
+        self, market: dict, forecast_temp: float, sigma: float,
+    ) -> tuple[str, list[str], float, float, float, float] | None:
+        """Evaluate a single bucket market for trading opportunity.
+
+        Returns (market_id, token_ids, yes_price, low, high, bucket_prob)
+        or None if the bucket should be skipped.
+        """
+        question = market.get("question", "")
+        temp_range = parse_temp_range(question)
+        if temp_range is None:
+            return None
+
+        low, high = temp_range
+
+        # Bucket boundary awareness
+        if self.MAX_BOUNDARY_PROXIMITY_F > 0:
+            if low > -900 and abs(forecast_temp - low) < self.MAX_BOUNDARY_PROXIMITY_F:
+                return None
+            if high < 900 and abs(forecast_temp - high) < self.MAX_BOUNDARY_PROXIMITY_F:
+                return None
+
+        bucket_prob = bucket_probability(forecast_temp, low, high, sigma)
+
+        try:
+            prices = json.loads(market.get("outcomePrices", "[0.5,0.5]"))
+            yes_price = float(prices[0])
+        except (json.JSONDecodeError, ValueError, IndexError, TypeError):
+            return None
+
+        try:
+            token_ids = json.loads(market.get("clobTokenIds", "[]"))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            token_ids = []
+        if not token_ids:
+            return None
+
+        market_id = market.get("conditionId") or market.get("id", "")
+        if not market_id:
+            return None
+
+        return market_id, token_ids, yes_price, low, high, bucket_prob
+
+    def _match_bucket_ladder(
+        self,
+        event: dict,
+        city: str,
+        date: str,
+        forecast_temp: float,
+        confidence: float,
+        sigma: float,
+        hours_ahead: float,
+    ) -> list[TradeSignal]:
+        """Find top N buckets by edge for temperature laddering."""
+        candidates: list[dict] = []
+
+        for market in event.get("markets", []):
+            result = self._evaluate_bucket(market, forecast_temp, sigma)
+            if result is None:
+                continue
+
+            market_id, token_ids, yes_price, low, high, bucket_prob = result
+
+            if bucket_prob < self.MIN_BUCKET_PROB:
+                continue
+            if yes_price >= self.ENTRY_THRESHOLD:
+                continue
+
+            fair_value = min(0.95, bucket_prob * confidence)
+            edge = fair_value - yes_price
+            if edge < self.MIN_EDGE:
+                continue
+
+            candidates.append({
+                "market_id": market_id,
+                "token_id": token_ids[0],
+                "question": market.get("question", ""),
+                "yes_price": yes_price,
+                "low": low,
+                "high": high,
+                "bucket_prob": bucket_prob,
+                "fair_value": fair_value,
+                "edge": edge,
+            })
+
+        # Sort by edge descending, take top LADDER_WIDTH
+        candidates.sort(key=lambda c: c["edge"], reverse=True)
+        ladder = candidates[:self.LADDER_WIDTH]
+
+        return self._build_ladder_signals(
+            ladder, city, date, forecast_temp, confidence, sigma,
+        )
+
+    def _build_ladder_signals(
+        self,
+        ladder: list[dict],
+        city: str,
+        date: str,
+        forecast_temp: float,
+        confidence: float,
+        sigma: float,
+    ) -> list[TradeSignal]:
+        """Convert ranked bucket candidates into sized ladder signals."""
+        signals: list[TradeSignal] = []
+        for rank, cand in enumerate(ladder, 1):
+            # Decay factor: rank 1 → 1.0, rank 2 → LADDER_DECAY, etc.
+            weight = self.LADDER_DECAY ** (rank - 1)
+            signal_confidence = min(
+                0.95,
+                0.5 + cand["bucket_prob"] * 0.3 + confidence * 0.15,
+            )
+
+            self.logger.info(
+                "weather_ladder_bucket",
+                city=city, date=date, rank=rank,
+                forecast=round(forecast_temp, 1),
+                bucket=f"{cand['low']}-{cand['high']}F",
+                bucket_prob=round(cand["bucket_prob"], 3),
+                edge=round(cand["edge"], 3),
+                weight=round(weight, 2),
+            )
+
+            signals.append(TradeSignal(
+                strategy=self.name,
+                market_id=cand["market_id"],
+                token_id=cand["token_id"],
+                question=cand["question"],
+                side=OrderSide.BUY,
+                outcome="Yes",
+                estimated_prob=min(0.95, cand["yes_price"] + cand["edge"]),
+                market_price=cand["yes_price"],
+                edge=cand["edge"],
+                size_usd=0.0,
+                confidence=signal_confidence,
+                reasoning=(
+                    f"Weather v3 ladder #{rank}: BUY Yes @ ${cand['yes_price']:.3f}. "
+                    f"Forecast {forecast_temp:.0f}F -> bucket "
+                    f"{cand['low']}-{cand['high']}F. "
+                    f"P={cand['bucket_prob']:.0%}, edge {cand['edge']:.2f}"
+                ),
+                metadata={
+                    "city": city,
+                    "date": date,
+                    "forecast_temp": forecast_temp,
+                    "bucket_low": cand["low"],
+                    "bucket_high": cand["high"],
+                    "bucket_prob": cand["bucket_prob"],
+                    "fair_value": cand["fair_value"],
+                    "sigma": sigma,
+                    "forecast_confidence": confidence,
+                    "source": "slug_lookup_v3",
+                    "ladder_rank": rank,
+                    "ladder_weight": weight,
+                },
+            ))
+
+        return signals
+
+    def _find_tail_buckets(
+        self,
+        event: dict,
+        city: str,
+        date: str,
+        forecast_temp: float,
+        confidence: float,
+        sigma: float,
+        hours_ahead: float,
+    ) -> list[TradeSignal]:
+        """Find cheap tail buckets for asymmetric payoffs (20-100x)."""
+        tails: list[dict] = []
+
+        for market in event.get("markets", []):
+            result = self._evaluate_bucket(market, forecast_temp, sigma)
+            if result is None:
+                continue
+
+            market_id, token_ids, yes_price, low, high, bucket_prob = result
+
+            # Tail criteria: cheap price but non-zero model probability
+            if yes_price > self.TAIL_MAX_PRICE:
+                continue
+            if bucket_prob < self.TAIL_MIN_PROB:
+                continue
+            # Exclude buckets that would also qualify for ladder
+            if bucket_prob >= self.MIN_BUCKET_PROB:
+                continue
+
+            edge = bucket_prob - yes_price
+            if edge <= 0:
+                continue
+
+            tails.append({
+                "market_id": market_id,
+                "token_id": token_ids[0],
+                "question": market.get("question", ""),
+                "yes_price": yes_price,
+                "low": low,
+                "high": high,
+                "bucket_prob": bucket_prob,
+                "edge": edge,
+            })
+
+        # Sort by expected value (prob / price ratio), limit
+        tails.sort(key=lambda t: t["bucket_prob"] / max(t["yes_price"], 0.001), reverse=True)
+        tails = tails[:self.MAX_TAILS_PER_MARKET]
+
+        return self._build_tail_signals(
+            tails, city, date, forecast_temp, confidence, sigma,
+        )
+
+    def _build_tail_signals(
+        self,
+        tails: list[dict],
+        city: str,
+        date: str,
+        forecast_temp: float,
+        confidence: float,
+        sigma: float,
+    ) -> list[TradeSignal]:
+        """Convert tail bucket candidates into small-sized signals."""
+        signals: list[TradeSignal] = []
+        for tail in tails:
+            payoff_ratio = 1.0 / max(tail["yes_price"], 0.01)
+
+            self.logger.info(
+                "weather_tail_bucket",
+                city=city, date=date,
+                bucket=f"{tail['low']}-{tail['high']}F",
+                price=tail["yes_price"],
+                prob=round(tail["bucket_prob"], 3),
+                payoff=f"{payoff_ratio:.0f}x",
+            )
+
+            signals.append(TradeSignal(
+                strategy=self.name,
+                market_id=tail["market_id"],
+                token_id=tail["token_id"],
+                question=tail["question"],
+                side=OrderSide.BUY,
+                outcome="Yes",
+                estimated_prob=tail["bucket_prob"],
+                market_price=tail["yes_price"],
+                edge=tail["edge"],
+                size_usd=0.0,
+                confidence=min(0.50, 0.2 + tail["bucket_prob"] * 2),
+                reasoning=(
+                    f"Weather v3 TAIL: BUY Yes @ ${tail['yes_price']:.3f}. "
+                    f"Bucket {tail['low']}-{tail['high']}F, "
+                    f"P={tail['bucket_prob']:.1%}, {payoff_ratio:.0f}x payoff"
+                ),
+                metadata={
+                    "city": city,
+                    "date": date,
+                    "forecast_temp": forecast_temp,
+                    "bucket_low": tail["low"],
+                    "bucket_high": tail["high"],
+                    "bucket_prob": tail["bucket_prob"],
+                    "sigma": sigma,
+                    "forecast_confidence": confidence,
+                    "source": "tail_v3",
+                    "tail_bet": True,
+                    "tail_size_pct": self.TAIL_SIZE_PCT,
+                },
+            ))
 
         return signals
 
@@ -370,119 +761,20 @@ class WeatherTradingStrategy(BaseStrategy):
         sigma: float,
         hours_ahead: float,
     ) -> TradeSignal | None:
-        """Find the temperature bucket with highest Gaussian probability."""
-        best_signal: TradeSignal | None = None
-        best_edge = 0.0
+        """Find the single best bucket — legacy compat wrapper for ladder.
 
-        for market in event.get("markets", []):
-            question = market.get("question", "")
-            temp_range = parse_temp_range(question)
-            if temp_range is None:
-                continue
-
-            low, high = temp_range
-
-            # Bucket boundary awareness: skip if forecast is too close to edge
-            if self.MAX_BOUNDARY_PROXIMITY_F > 0:
-                if low > -900 and abs(forecast_temp - low) < self.MAX_BOUNDARY_PROXIMITY_F:
-                    self.logger.debug(
-                        "weather_boundary_too_close",
-                        city=city, forecast=forecast_temp,
-                        boundary=low, proximity=abs(forecast_temp - low),
-                    )
-                    continue
-                if high < 900 and abs(forecast_temp - high) < self.MAX_BOUNDARY_PROXIMITY_F:
-                    self.logger.debug(
-                        "weather_boundary_too_close",
-                        city=city, forecast=forecast_temp,
-                        boundary=high, proximity=abs(forecast_temp - high),
-                    )
-                    continue
-
-            # Gaussian probability of landing in this bucket
-            bucket_prob = bucket_probability(forecast_temp, low, high, sigma)
-
-            if bucket_prob < self.MIN_BUCKET_PROB:
-                continue
-
-            # Extract price
-            try:
-                prices = json.loads(market.get("outcomePrices", "[0.5,0.5]"))
-                yes_price = float(prices[0])
-            except (json.JSONDecodeError, ValueError, IndexError, TypeError):
-                continue
-
-            token_ids_raw = market.get("clobTokenIds", "[]")
-            try:
-                token_ids = json.loads(token_ids_raw)
-            except (json.JSONDecodeError, ValueError, TypeError):
-                token_ids = []
-            if not token_ids:
-                continue
-
-            market_id = market.get("conditionId") or market.get("id", "")
-            if not market_id:
-                continue
-
-            if yes_price >= self.ENTRY_THRESHOLD:
-                continue
-
-            # Fair value = Gaussian probability * confidence adjustment
-            fair_value = min(0.95, bucket_prob * confidence)
-            edge = fair_value - yes_price
-
-            self.logger.info(
-                "weather_bucket_evaluated",
-                city=city, date=date,
-                forecast=round(forecast_temp, 1),
-                bucket=f"{low}-{high}°F",
-                bucket_prob=round(bucket_prob, 3),
-                fair_value=round(fair_value, 3),
-                yes_price=yes_price,
-                edge=round(edge, 3),
-                sigma=sigma,
+        Returns the top-ranked ladder signal or None.
+        """
+        saved_width = self.LADDER_WIDTH
+        self.LADDER_WIDTH = 1
+        try:
+            ladder = self._match_bucket_ladder(
+                event, city, date, forecast_temp,
+                confidence, sigma, hours_ahead,
             )
-
-            if edge < self.MIN_EDGE:
-                continue
-
-            if edge > best_edge:
-                best_edge = edge
-                signal_confidence = min(0.95, 0.5 + bucket_prob * 0.3 + confidence * 0.15)
-
-                best_signal = TradeSignal(
-                    strategy=self.name,
-                    market_id=market_id,
-                    token_id=token_ids[0],
-                    question=question,
-                    side=OrderSide.BUY,
-                    outcome="Yes",
-                    estimated_prob=min(0.95, yes_price + edge),
-                    market_price=yes_price,
-                    edge=edge,
-                    size_usd=0.0,
-                    confidence=signal_confidence,
-                    reasoning=(
-                        f"Weather v2: BUY Yes @ ${yes_price:.3f}. "
-                        f"Forecast {forecast_temp:.0f}°F → bucket {low}-{high}°F. "
-                        f"P(bucket)={bucket_prob:.0%}, σ={sigma:.1f}°F. "
-                        f"Fair value ~{fair_value:.2f}, edge {edge:.2f}"
-                    ),
-                    metadata={
-                        "city": city,
-                        "date": date,
-                        "forecast_temp": forecast_temp,
-                        "bucket_low": low,
-                        "bucket_high": high,
-                        "bucket_prob": bucket_prob,
-                        "fair_value": fair_value,
-                        "sigma": sigma,
-                        "forecast_confidence": confidence,
-                        "source": "slug_lookup_v2",
-                    },
-                )
-
-        return best_signal
+            return ladder[0] if ladder else None
+        finally:
+            self.LADDER_WIDTH = saved_width
 
     async def _evaluate_legacy_market(
         self, market: GammaMarket,
@@ -581,11 +873,16 @@ class WeatherTradingStrategy(BaseStrategy):
         """Extract city name from a weather market question."""
         q_lower = question.lower()
         known_cities = [
+            # US
             "new york", "nyc", "chicago", "miami", "dallas",
             "seattle", "atlanta", "los angeles", "houston",
             "phoenix", "philadelphia", "san antonio", "san diego",
             "denver", "boston", "san francisco", "minneapolis",
             "detroit", "washington", "dc",
+            # International
+            "london", "tokyo", "shanghai", "buenos aires", "ankara",
+            "sydney", "mumbai", "dubai", "paris", "berlin",
+            "sao paulo",
         ]
         for city in known_cities:
             if city in q_lower:
