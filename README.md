@@ -29,11 +29,11 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 - **Trade Assistant** -- free-text trade execution from the dashboard. Type a message with a Polymarket URL (e.g., "Buy No on Uruguay $5") and the bot parses intent, fetches market data, and executes. Supports English and Portuguese
 - **One-click sell** -- sell any open position directly from the dashboard with best-bid pricing and confirmation dialog
 - **Backtesting framework** -- lightweight backtesting engine with historical data from Polymarket, accurate non-linear fee model, and metrics including Sharpe ratio, max drawdown, win rate, and ROI
-- **Multi-source research engine** -- Tavily real-time search, Google News, Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo + ECMWF (weather, 3-model ensemble), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
+- **Multi-source research engine** -- Tavily real-time search, Google News, Financial Times RSS (commodities, world, markets), Twitter/X, Reddit, CoinGecko, The Odds API (sports + eSports), NOAA + Open-Meteo + ECMWF (weather, 3-model ensemble), Manifold Markets (cross-platform), FRED (economics), Fear & Greed Index, whale detection, volume anomaly tracking
 - **Technical indicators** -- RSI, MACD, VWAP, CVD for crypto markets via Coinbase WebSocket
 - **Cross-platform convergence scoring** -- aggregates signals across sources, boosts edge when multiple signals agree
 - **Deep research mode** -- high-edge trades (>10%) get enriched context with all available data for better LLM analysis
-- **Trade Watcher agents** -- live, temporary agents that monitor scalable positions in real-time. Automatically created on qualifying trades (or manually via dashboard). Each watcher tracks price momentum, volume spikes, and Google News RSS, aggregates multi-signal verdicts (requiring 2+ confirming signals), and autonomously scales up or exits positions. Guardrails: max 5 concurrent watchers, 50% equity cap, trailing stop, max 3 scale-ups per watcher, risk manager approval on every order
+- **Trade Watcher agents** -- live, temporary agents that monitor scalable positions in real-time. Automatically created on qualifying trades (or manually via dashboard). Each watcher tracks price momentum, volume spikes, and Google News + FT RSS, aggregates multi-signal verdicts (requiring 2+ confirming signals), and autonomously scales up or exits positions. Guardrails: max 5 concurrent watchers, 50% equity cap, trailing stop, max 3 scale-ups per watcher, risk manager approval on every order
 - **Bayesian position updating** -- re-evaluates open positions with fresh research every cycle, exits when fundamentals shift
 - **Adaptive learning** -- PerformanceLearner adjusts edge multipliers, category confidence, and urgency every 5 minutes
 - **Real-time dashboard** -- 15-page React UI with equity curves, trade history, strategy performance, risk metrics, AI debate logs, trade assistant, and backtesting
@@ -417,7 +417,7 @@ Each watcher runs its own 15-minute check cycle, gathering three independent sig
 |:---|:---|:---|:---|
 | **Price Momentum** | In-memory price tracker (1h, 4h, 24h windows) | 1h > +1%, 4h > +2% | 1h < -1%, 4h < -2% |
 | **Volume** | 24h volume vs rolling average | > 2x average (spike) | -- |
-| **News** | Google News RSS for extracted keywords | 3+ headlines, sentiment > +0.3 | 3+ headlines, sentiment < -0.3 |
+| **News** | Google News + FT RSS for extracted keywords | 3+ headlines, sentiment > +0.3 | 3+ headlines, sentiment < -0.3 |
 
 ### How They Decide
 
