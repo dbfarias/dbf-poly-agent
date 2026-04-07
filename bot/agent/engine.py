@@ -1533,9 +1533,13 @@ class TradingEngine:
                 )
                 continue
 
-            # Algorithmic strategies bypass ALL debate logic (cooldown + debate)
+            # Algorithmic strategies and tail bets bypass ALL debate logic.
+            # Tail bets are micro-sized ($0.10-0.15) — the LLM debate costs
+            # more than the trade. They win by payoff ratio (20-100x), not
+            # win rate, so LLM's win-rate-based judgment is wrong for them.
             algo_strategies = {"crypto_short_term", "arbitrage"}
-            skip_debate = signal.strategy in algo_strategies
+            is_tail = signal.metadata.get("tail_bet", False) if signal.metadata else False
+            skip_debate = signal.strategy in algo_strategies or is_tail
 
             # Debate cooldown: skip markets recently rejected by debate
             # (but NOT for algorithmic strategies — they don't use debate)
