@@ -1364,9 +1364,11 @@ class TradingEngine:
             )
 
             # Hard check: reject signals at prices below exit threshold
-            # (prevents buy→immediate near_worthless exit loop)
+            # (prevents buy→immediate near_worthless exit loop).
+            # Exception: tail bets are intentionally cheap — skip this check.
+            is_tail = signal.metadata.get("tail_bet", False) if signal.metadata else False
             near_worthless = self.analyzer.NEAR_WORTHLESS_PRICE
-            if signal.market_price < near_worthless:
+            if signal.market_price < near_worthless and not is_tail:
                 logger.info(
                     "signal_skipped_below_exit_threshold",
                     strategy=signal.strategy,
