@@ -384,6 +384,11 @@ class RiskManager:
         return RiskCheckResult(True)
 
     def _check_min_win_prob(self, signal: TradeSignal, config: dict) -> RiskCheckResult:
+        # Tail bets win by payoff ratio (20-100x), not win probability.
+        # A 2% win prob at 50x payoff is +EV. Skip this check for tails.
+        is_tail = signal.metadata.get("tail_bet", False) if signal.metadata else False
+        if is_tail:
+            return RiskCheckResult(True)
         if signal.estimated_prob < config["min_win_prob"]:
             return RiskCheckResult(
                 False,
