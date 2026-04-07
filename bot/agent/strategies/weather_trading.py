@@ -898,9 +898,27 @@ class WeatherTradingStrategy(BaseStrategy):
     async def should_exit(
         self, market_id: str, current_price: float, **kwargs,
     ) -> str | bool:
-        """Exit on stop-loss, take-profit, swing, or max-age."""
+        """Exit on stop-loss, take-profit, swing, or max-age.
+
+        Tail bets (avg_price < TAIL_MAX_PRICE) only exit on swing
+        threshold ($0.70+) or max age — they are held to resolution.
+        """
         avg_price = kwargs.get("avg_price", 0.0)
         created_at = kwargs.get("created_at")
+
+        # Tail bets: hold to resolution. Only exit if price reaches
+        # swing threshold (near resolution) or max age expires.
+        if avg_price > 0 and avg_price <= self.TAIL_MAX_PRICE:
+            if current_price >= self.EXIT_THRESHOLD:
+                return f"tail_swing_exit (${current_price:.3f} >= ${self.EXIT_THRESHOLD:.2f})"
+            if created_at is not None:
+                now = datetime.now(timezone.utc)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                held = (now - created_at).total_seconds() / 3600
+                if held >= self.EXIT_MAX_AGE_HOURS:
+                    return f"tail_max_age ({held:.0f}h)"
+            return False
 
         # Stop-loss
         if avg_price > 0:
