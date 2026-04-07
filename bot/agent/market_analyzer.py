@@ -462,9 +462,11 @@ class MarketAnalyzer:
         )
         age_secs = age_hours * 3600 if age_hours is not None else None
 
-        # Near-worthless: always exit (emergency, ignores min_hold)
+        # Near-worthless: exit if price collapsed from a higher entry.
+        # Skip for tail bets that were bought cheap intentionally.
         if position.current_price < self.NEAR_WORTHLESS_PRICE:
-            return f"near_worthless (price={position.current_price:.4f})"
+            if position.avg_price >= self.NEAR_WORTHLESS_PRICE:
+                return f"near_worthless (price={position.current_price:.4f})"
 
         # Skip non-emergency exits if position is too young (< 1h)
         min_universal_hold = 3600  # 1h minimum before any normal exit
