@@ -375,10 +375,20 @@ class RiskManager:
             elif hours <= 96:
                 adjusted_min *= 0.7   # 4 days: ~1.4% edge OK
 
-        if signal.edge < adjusted_min:
+        # Apply longshot bias discount for cheap contracts (<$0.30).
+        # Cheap contracts are systematically overpriced, so the raw edge
+        # overstates the true edge. Discount it before the threshold check.
+        from bot.research.longshot_calibrator import longshot_discount
+
+        signal_edge = signal.edge
+        if signal.market_price < 0.30:
+            discount = longshot_discount(signal.market_price)
+            signal_edge = signal.edge * discount
+
+        if signal_edge < adjusted_min:
             return RiskCheckResult(
                 False,
-                f"Edge too low: {signal.edge:.1%} < {adjusted_min:.1%} "
+                f"Edge too low: {signal_edge:.1%} < {adjusted_min:.1%} "
                 f"(base {config['min_edge_pct']:.1%} x {edge_multiplier:.1f})",
             )
         return RiskCheckResult(True)

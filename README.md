@@ -4,7 +4,7 @@
 
 ### Autonomous Polymarket Trading Agent
 
-[![Tests](https://img.shields.io/badge/Tests-2752_passing-brightgreen?style=for-the-badge)]()
+[![Tests](https://img.shields.io/badge/Tests-2807_passing-brightgreen?style=for-the-badge)]()
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
@@ -41,6 +41,9 @@ PolyBot is a fully autonomous prediction market trading agent for [Polymarket](h
 - **Flash crash detection** -- mean-reversion strategy that buys when price drops 30%+ within 30 seconds
 - **On-chain position verification** -- phantom position sync detects and reconciles mismatches between local state and on-chain data
 - **Thread-safe HTTP sessions** -- all external API calls use isolated sessions to prevent concurrency issues
+- **Longshot bias calibration** -- empirical discount factors from 72.1M trade study (Becker 2026) correct for systematic overpricing of cheap contracts (<$0.30)
+- **Maker order optimization** -- tail bets and cheap contracts use maker mode (sit on book) instead of crossing the spread, capturing a 2.24% execution advantage
+- **Markov Chain Monte Carlo** -- transition matrix model estimates true probability from historical price dynamics via Monte Carlo simulation
 - **Configurable spread-crossing** -- aggressive limit order pricing with adjustable offset for faster fills
 - **Paper trading mode** -- test everything risk-free before going live
 - **PWA push notifications** -- trade fills, errors, and daily summaries on mobile/desktop
@@ -333,7 +336,7 @@ bash deploy/setup-https.sh <duckdns-subdomain> <duckdns-token> <your-email>
 
 The included GitHub Actions workflow (`.github/workflows/deploy.yml`) runs a 3-job pipeline on push to `main`:
 
-1. **Test** -- pytest (2687+ tests) + ruff lint + frontend build
+1. **Test** -- pytest (2807+ tests) + ruff lint + frontend build
 2. **Build** -- Docker images pushed to GitHub Container Registry
 3. **Deploy** -- SSH to server, pull images, restart with healthcheck + auto-rollback
 
@@ -343,7 +346,7 @@ Configure these GitHub secrets for CI/CD: `SERVER_HOST`, `SERVER_USER`, `SERVER_
 
 ## Testing
 
-**2687+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
+**2807+ tests** across 50+ test files covering bot logic, API endpoints, strategies, research engine, and adaptive learning.
 
 ```bash
 # Run all tests
@@ -391,8 +394,9 @@ curl -X POST http://localhost:8000/api/backtest \
 **Features:**
 - Historical price data fetched directly from Polymarket
 - Accurate non-linear fee model with separate exponents for crypto and sports markets
+- Markov Chain transition matrix model for Monte Carlo probability estimation from price history
 - Metrics: Sharpe ratio, max drawdown, win rate, ROI, total PnL
-- No heavy dependencies -- pure Python, no NautilusTrader or Rust toolchains required
+- No heavy dependencies -- pure Python + NumPy, no NautilusTrader or Rust toolchains required
 - Accessible from the dashboard Backtesting page or via the REST API
 
 Backtesting results help validate parameter changes and new strategies before deploying to live trading.

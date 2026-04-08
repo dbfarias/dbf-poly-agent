@@ -199,6 +199,7 @@ class PolymarketClient:
         price: float,
         size: float,
         spread_cross_offset: float = 0.0,
+        maker_mode: bool = False,
     ) -> dict:
         """Place a limit order. Returns order info dict.
 
@@ -206,14 +207,24 @@ class PolymarketClient:
             spread_cross_offset: Aggressive pricing offset to cross the spread
                 for faster fills. BUY prices increase, SELL prices decrease.
                 Capped at [0.01, 0.99] and re-rounded to tick size.
+            maker_mode: When True, place orders on the book instead of
+                crossing the spread. BUY uses floor (bid), SELL uses ceil
+                (ask). Earns maker rebate (+1.12%) instead of paying taker
+                cost (-1.12%). Use for non-time-sensitive orders.
         """
-        # Round price to tick size — direction-aware to ensure fills:
-        # BUY: round UP (ceil) to match or beat the ask
-        # SELL: round DOWN (floor) to match or beat the bid
-        if side == OrderSide.BUY:
-            price = round(math.ceil(price / TICK_SIZE) * TICK_SIZE, 2)
+        # Round price to tick size — direction-aware:
+        # Default (taker): BUY ceil (cross ask), SELL floor (cross bid)
+        # Maker mode: BUY floor (sit at bid), SELL ceil (sit at ask)
+        if maker_mode:
+            if side == OrderSide.BUY:
+                price = round(math.floor(price / TICK_SIZE) * TICK_SIZE, 2)
+            else:
+                price = round(math.ceil(price / TICK_SIZE) * TICK_SIZE, 2)
         else:
-            price = round(math.floor(price / TICK_SIZE) * TICK_SIZE, 2)
+            if side == OrderSide.BUY:
+                price = round(math.ceil(price / TICK_SIZE) * TICK_SIZE, 2)
+            else:
+                price = round(math.floor(price / TICK_SIZE) * TICK_SIZE, 2)
 
         # Aggressive pricing: cross the spread for faster fills
         if spread_cross_offset > 0:

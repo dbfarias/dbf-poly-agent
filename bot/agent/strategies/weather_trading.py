@@ -671,7 +671,11 @@ class WeatherTradingStrategy(BaseStrategy):
             if bucket_prob >= self.MIN_BUCKET_PROB:
                 continue
 
-            edge = bucket_prob - yes_price
+            # Apply longshot bias calibration: cheap contracts are
+            # systematically overpriced, so discount the model probability
+            from bot.research.longshot_calibrator import calibrated_edge
+
+            edge = calibrated_edge(bucket_prob, yes_price)
             if edge <= 0:
                 continue
 

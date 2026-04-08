@@ -129,12 +129,23 @@ class OrderManager:
                 min_notional=MIN_ORDER_SIZE_USD,
             )
 
+        # Determine maker vs taker mode:
+        # - Tail bets and cheap contracts (<$0.30) use maker mode (sit on book)
+        # - Time-sensitive signals (sports within 2h, crypto) use taker (cross spread)
+        is_tail = signal.metadata.get("tail_bet", False) if signal.metadata else False
+        is_cheap = signal.market_price < 0.30
+        is_time_sensitive = (
+            signal.metadata.get("time_sensitive", False) if signal.metadata else False
+        )
+        use_maker = (is_tail or is_cheap) and not is_time_sensitive
+
         # Place the order
         result = await self.clob.place_order(
             token_id=signal.token_id,
             side=signal.side,
             price=actual_price,
             size=round(shares, 2),
+            maker_mode=use_maker,
         )
 
         if "error" in result:
