@@ -272,6 +272,10 @@ class TradingEngine:
         self._market_cooldown: dict[str, datetime] = {}  # {"market_id|strategy": tradeable_after}
         self._debate_cooldown: dict[str, datetime] = {}  # {market_id: debate_again_after}
         self._alert_cooldowns: dict[str, datetime] = {}  # {market_id: alert_again_after}
+        # Recent strategy exits: "market_id|strategy" -> (exit_time, exit_reason).
+        # Used to block watcher creation and cross-strategy re-entry after a
+        # loss exit (e.g. copy_trading sells → watcher must not re-enter).
+        self._recent_strategy_exits: dict[str, tuple[datetime, str]] = {}
         self.market_cooldown_hours: float = 1.0  # default for most strategies
 
         # Per-strategy cooldown overrides (short-lived markets need shorter cooldowns)
@@ -320,6 +324,36 @@ class TradingEngine:
         if cooldown_until and datetime.now(timezone.utc) < cooldown_until:
             return True
         return False
+
+    def _record_strategy_exit(
+        self, market_id: str, strategy: str, exit_reason: str
+    ) -> None:
+        """Record that a strategy just exited a market.
+
+        Used by the watcher mutex to prevent re-entry on the same market
+        within a short window after a strategy (notably copy_trading)
+        closes its position.
+        """
+        if not market_id or not strategy:
+            return
+        key = self._cooldown_key(market_id, strategy)
+        self._recent_strategy_exits[key] = (
+            datetime.now(timezone.utc),
+            exit_reason or "",
+        )
+
+    def _strategy_exited_recently(
+        self, market_id: str, strategy: str, hours: float = 6.0
+    ) -> bool:
+        """Return True if `strategy` exited `market_id` within `hours`."""
+        if not market_id or not strategy:
+            return False
+        key = self._cooldown_key(market_id, strategy)
+        rec = self._recent_strategy_exits.get(key)
+        if not rec:
+            return False
+        exit_time, _reason = rec
+        return (datetime.now(timezone.utc) - exit_time).total_seconds() / 3600 < hours
 
     @property
     def is_running(self) -> bool:
@@ -1125,8 +1159,42 @@ class TradingEngine:
                 None,
             )
             if pos:
+                strategy = pos.strategy
                 await self.closer.close_position(pos, exit_reason=exit_reason)
                 exited_ids.add(market_id)
+                # CRITICAL: set cooldown AFTER exit so the same strategy
+                # cannot immediately re-enter the same market.  Without this,
+                # strategies like weather_trading rebuy the same token within
+                # seconds of a stop-loss exit, burning capital on fees.
+                if strategy:
+                    self._set_cooldown(market_id, strategy)
+                # Record the strategy exit so watchers (or other strategies)
+                # cannot re-enter the same market immediately.  Used by the
+                # copy_trading <-> watcher mutex and watcher creation guard.
+                self._record_strategy_exit(market_id, strategy or "", exit_reason)
+                # If copy_trading just exited (especially on a loss), kill
+                # any watcher monitoring the same market — otherwise the
+                # watcher sees "position_lost" and re-enters on price
+                # momentum, fighting the exit signal.
+                if strategy == "copy_trading":
+                    try:
+                        killed = await self.watcher_manager.kill_watchers_for_market(
+                            market_id,
+                            reason=f"copy_trading_exit:{exit_reason}",
+                        )
+                        if killed:
+                            logger.info(
+                                "watcher_killed_on_copy_exit",
+                                market_id=market_id,
+                                killed=killed,
+                                exit_reason=exit_reason,
+                            )
+                    except Exception as e:  # pragma: no cover - defensive
+                        logger.warning(
+                            "watcher_kill_on_copy_exit_failed",
+                            market_id=market_id,
+                            error=str(e),
+                        )
 
         # Bayesian position updater — re-evaluate open positions with fresh research
         await self._bayesian_update_positions(exited_ids)
@@ -2211,6 +2279,19 @@ class TradingEngine:
         mtype = classify_market(signal.question, end_date)
 
         if not is_watcher_eligible(mtype, end_date, trade.price, volume):
+            return
+
+        # Mutex: do not create a watcher if copy_trading exited this same
+        # market recently.  Otherwise the watcher is born, detects
+        # "position_lost", and re-enters on price momentum — fighting the
+        # very strategy that just decided to exit.
+        if self._strategy_exited_recently(
+            signal.market_id, "copy_trading", hours=6.0
+        ):
+            logger.info(
+                "watcher_creation_blocked_copy_exit_recent",
+                market_id=signal.market_id,
+            )
             return
 
         # No existing watcher for this market

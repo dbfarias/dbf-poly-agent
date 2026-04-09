@@ -40,6 +40,22 @@ class WatcherManager:
     def active_count(self) -> int:
         return len(self.active_watchers)
 
+    async def kill_watchers_for_market(
+        self, market_id: str, reason: str = "market_closed_by_strategy"
+    ) -> int:
+        """Kill all active watchers for a given market_id.
+
+        Called when a strategy (e.g. copy_trading) closes its position so
+        the watcher does not re-enter on price momentum right after the
+        strategy exited on a loss.
+        """
+        killed = 0
+        for w in list(self.active_watchers):
+            if w.market_id == market_id:
+                if await self.kill_watcher(w.id, reason=reason):
+                    killed += 1
+        return killed
+
     async def create_watcher(
         self,
         market_id: str,

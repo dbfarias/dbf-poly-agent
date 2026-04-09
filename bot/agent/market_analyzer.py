@@ -487,7 +487,14 @@ class MarketAnalyzer:
             loss_pct = (
                 (position.avg_price - position.current_price) / position.avg_price
             )
-            if loss_pct >= effective_stop_loss:
+            # Absolute-drop floor: cheap tail bets (entry < $0.15) must drop
+            # by at least $0.03 in absolute terms before stop-loss fires.
+            # Rationale: a 25% loss on a $0.04 entry is only a $0.01 move,
+            # which is indistinguishable from normal bid/ask noise and fees.
+            # Forcing a minimum absolute drop prevents whipsaw exits on tails.
+            abs_drop = position.avg_price - position.current_price
+            min_abs_drop = 0.03 if position.avg_price < 0.15 else 0.0
+            if loss_pct >= effective_stop_loss and abs_drop >= min_abs_drop:
                 return f"stop_loss ({loss_pct:.0%} loss)"
 
         # Max position age: free up capital tied in stale positions

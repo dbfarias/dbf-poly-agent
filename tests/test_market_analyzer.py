@@ -186,6 +186,52 @@ class TestCheckStopLoss:
         assert reason is not None
         assert "stop_loss" in reason
 
+    # --- Tail-bet absolute-drop floor (regression: 2026-04-09 weather bleed) ---
+
+    def test_tail_bet_small_abs_drop_does_not_trigger_stop_loss(self):
+        """Tail buys at $0.06 -> $0.04 is only $0.02 absolute — noise, not a stop.
+
+        Without the abs-drop floor, a 33% "loss" triggers on a $0.02 move.
+        Regression test for the weather_trading buy->sell->rebuy loop that
+        cost ~$21 in 7 days.
+        """
+        # Old enough to pass the 1h min hold window
+        old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        pos = _position(
+            strategy="weather_trading",
+            avg_price=0.06,
+            current_price=0.04,  # 33% loss but only $0.02 absolute
+            created_at=old_time,
+        )
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=True)
+        assert reason is None, f"expected no stop_loss on $0.02 tail drop, got: {reason}"
+
+    def test_tail_bet_large_abs_drop_still_triggers(self):
+        """Tail bought at $0.20 -> $0.10 is $0.10 absolute — legitimate stop."""
+        old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        pos = _position(
+            strategy="external",
+            avg_price=0.20,
+            current_price=0.10,  # 50% loss, $0.10 absolute
+            created_at=old_time,
+        )
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
+        assert reason is not None
+        assert "stop_loss" in reason
+
+    def test_normal_position_stop_loss_unaffected_by_abs_floor(self):
+        """High-priced positions are NOT affected by the $0.03 abs-drop floor."""
+        old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        pos = _position(
+            strategy="external",
+            avg_price=0.50,
+            current_price=0.39,  # 22% loss, $0.11 absolute — normal stop
+            created_at=old_time,
+        )
+        reason = self.analyzer._check_stop_loss(pos, strategy_matched=False)
+        assert reason is not None
+        assert "stop_loss" in reason
+
     # --- Max position age (72h) ---
 
     def test_max_age_triggers_exit_after_3_days(self):

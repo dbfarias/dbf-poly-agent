@@ -1827,3 +1827,119 @@ class TestRunPersistsState:
 
         engine._persist_state.assert_called_once()
         assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Strategy Exit Tracking & Watcher Mutex (regression: 2026-04-09 bleed)
+# ---------------------------------------------------------------------------
+
+
+class TestStrategyExitMutex:
+    """Regression tests for the buy->sell->rebuy loops observed on prod.
+
+    - weather_trading rebought same token 87s after stop_loss exit.
+    - copy_trading sells were followed by watcher re-entry on same market.
+    """
+
+    def test_record_strategy_exit_tracks_recent_exit(self):
+        engine = _make_engine()
+        engine._record_strategy_exit("mkt_A", "weather_trading", "stop_loss")
+        assert engine._strategy_exited_recently("mkt_A", "weather_trading") is True
+
+    def test_strategy_exited_recently_window_expires(self):
+        from datetime import timedelta
+
+        engine = _make_engine()
+        # Record an exit 7 hours ago — outside the default 6h window
+        key = engine._cooldown_key("mkt_A", "copy_trading")
+        engine._recent_strategy_exits[key] = (
+            datetime.now(timezone.utc) - timedelta(hours=7),
+            "stop_loss",
+        )
+        assert engine._strategy_exited_recently("mkt_A", "copy_trading") is False
+
+    def test_strategy_exited_recently_unrelated_strategy(self):
+        engine = _make_engine()
+        engine._record_strategy_exit("mkt_A", "copy_trading", "stop_loss")
+        # Watcher mutex only fires for the matching strategy
+        assert (
+            engine._strategy_exited_recently("mkt_A", "weather_trading") is False
+        )
+
+    def test_record_exit_with_empty_strategy_is_noop(self):
+        engine = _make_engine()
+        engine._record_strategy_exit("mkt_A", "", "noop")
+        assert engine._strategy_exited_recently("mkt_A", "") is False
+        assert len(engine._recent_strategy_exits) == 0
+
+    @pytest.mark.asyncio
+    async def test_process_exits_sets_cooldown_and_records_exit(self):
+        """After a stop_loss exit, the same strategy is in cooldown."""
+        engine = _make_engine()
+        pos = make_position(market_id="mkt_weather_1")
+        pos.strategy = "weather_trading"
+        engine.portfolio = MagicMock()
+        engine.portfolio.positions = [pos]
+        engine.analyzer.check_exits = AsyncMock(
+            return_value=[("mkt_weather_1", "stop_loss (27% loss)")]
+        )
+        engine.closer.close_position = AsyncMock(return_value=None)
+        engine._bayesian_update_positions = AsyncMock(return_value=None)
+        engine._llm_review_positions = AsyncMock(return_value=None)
+        engine.watcher_manager = MagicMock()
+        engine.watcher_manager.kill_watchers_for_market = AsyncMock(return_value=0)
+
+        await engine._process_exits()
+
+        # Cooldown must be set so weather_trading cannot re-enter in 30min
+        assert engine._is_in_cooldown("mkt_weather_1", "weather_trading") is True
+        # Strategy exit must be recorded so watcher mutex can see it
+        assert (
+            engine._strategy_exited_recently("mkt_weather_1", "weather_trading")
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_exits_kills_watcher_on_copy_trading_exit(self):
+        """When copy_trading exits, any watcher for that market is killed."""
+        engine = _make_engine()
+        pos = make_position(market_id="mkt_copy_1")
+        pos.strategy = "copy_trading"
+        engine.portfolio = MagicMock()
+        engine.portfolio.positions = [pos]
+        engine.analyzer.check_exits = AsyncMock(
+            return_value=[("mkt_copy_1", "stop_loss")]
+        )
+        engine.closer.close_position = AsyncMock(return_value=None)
+        engine._bayesian_update_positions = AsyncMock(return_value=None)
+        engine._llm_review_positions = AsyncMock(return_value=None)
+        engine.watcher_manager = MagicMock()
+        engine.watcher_manager.kill_watchers_for_market = AsyncMock(return_value=1)
+
+        await engine._process_exits()
+
+        engine.watcher_manager.kill_watchers_for_market.assert_awaited_once()
+        call_kwargs = engine.watcher_manager.kill_watchers_for_market.await_args
+        # First positional arg is the market id
+        assert call_kwargs.args[0] == "mkt_copy_1"
+
+    @pytest.mark.asyncio
+    async def test_process_exits_does_not_kill_watcher_on_non_copy_exit(self):
+        """Weather_trading exits should NOT kill watchers (different concern)."""
+        engine = _make_engine()
+        pos = make_position(market_id="mkt_w_2")
+        pos.strategy = "weather_trading"
+        engine.portfolio = MagicMock()
+        engine.portfolio.positions = [pos]
+        engine.analyzer.check_exits = AsyncMock(
+            return_value=[("mkt_w_2", "stop_loss")]
+        )
+        engine.closer.close_position = AsyncMock(return_value=None)
+        engine._bayesian_update_positions = AsyncMock(return_value=None)
+        engine._llm_review_positions = AsyncMock(return_value=None)
+        engine.watcher_manager = MagicMock()
+        engine.watcher_manager.kill_watchers_for_market = AsyncMock(return_value=0)
+
+        await engine._process_exits()
+
+        engine.watcher_manager.kill_watchers_for_market.assert_not_awaited()
