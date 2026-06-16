@@ -18,6 +18,23 @@ PROXY_INIT_CODE_HASH = bytes.fromhex(
     "d21df8dc65880a8606f09fe0ce3df9b8869287ab0b058be05aa9e8af6330a00b"
 )
 
+# pUSD — Polymarket's wrapped USDC collateral token (ERC-20, 6 decimals)
+# Since the CLOB V2 migration (April 2026), new accounts hold collateral as
+# pUSD instead of raw USDC.  get_balance_allowance(COLLATERAL) returns $0 for
+# these accounts, so we fall back to a direct on-chain balanceOf() read.
+PUSD_CONTRACT = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
+
+# Minimal ERC-20 ABI — only balanceOf is needed for balance reads
+ERC20_BALANCE_ABI = [
+    {
+        "constant": True,
+        "inputs": [{"name": "account", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function",
+    }
+]
+
 # Tick size constants for Polymarket CLOB
 TICK_SIZE = 0.01
 # Minimum order constraints.  Polymarket requires a minimum notional value;
@@ -137,7 +154,11 @@ class PolymarketClient:
 
     @async_retry(max_attempts=3, min_wait=1, max_wait=15)
     async def get_balance(self) -> float | None:
-        """Fetch real USDC balance from Polymarket.
+        """Fetch real collateral balance from Polymarket.
+
+        Tries the CLOB API first (get_balance_allowance). If it returns $0,
+        falls back to an on-chain pUSD balanceOf() read — required for accounts
+        created after the CLOB V2 / pUSD migration (April 2026).
 
         Returns None if not connected (no private key).
         Works in both paper and live mode.
@@ -145,6 +166,9 @@ class PolymarketClient:
         if self._clob_client is None:
             return None
 
+        balance_usd = 0.0
+
+        # Step 1: Try the CLOB API (works for legacy USDC accounts)
         try:
             from py_clob_client.clob_types import BalanceAllowanceParams
 
@@ -152,13 +176,50 @@ class PolymarketClient:
             result = await asyncio.to_thread(
                 self._clob_client.get_balance_allowance, params
             )
-            balance = float(result.get("balance", 0))
-            # USDC has 6 decimals on Polygon
-            balance_usd = balance / 1e6
-            logger.debug("polymarket_balance_fetched", balance_usd=balance_usd)
+            raw = float(result.get("balance", 0))
+            balance_usd = raw / 1e6  # USDC has 6 decimals on Polygon
+        except Exception as e:
+            logger.warning("clob_balance_failed", error=str(e))
+
+        # Step 2: If CLOB returned $0, try on-chain pUSD balanceOf
+        if balance_usd < 0.001 and self._proxy_wallet:
+            onchain = await self._get_pusd_balance_onchain()
+            if onchain is not None and onchain > balance_usd:
+                balance_usd = onchain
+
+        logger.debug("polymarket_balance_fetched", balance_usd=balance_usd)
+        return balance_usd
+
+    async def _get_pusd_balance_onchain(self) -> float | None:
+        """Read pUSD balance directly from the Polygon blockchain.
+
+        Uses web3 to call balanceOf() on the pUSD ERC-20 contract.
+        Returns balance in USD (pUSD has 6 decimals, 1:1 with USDC).
+        """
+        if not self._proxy_wallet:
+            return None
+
+        try:
+            from web3 import Web3
+
+            w3 = Web3(Web3.HTTPProvider(settings.polygon_rpc_url))
+            contract = w3.eth.contract(
+                address=Web3.to_checksum_address(PUSD_CONTRACT),
+                abi=ERC20_BALANCE_ABI,
+            )
+            wallet = Web3.to_checksum_address(self._proxy_wallet)
+            raw_balance = await asyncio.to_thread(
+                contract.functions.balanceOf(wallet).call
+            )
+            balance_usd = raw_balance / 1e6
+            logger.debug(
+                "pusd_onchain_balance",
+                balance_usd=balance_usd,
+                wallet=self._proxy_wallet[:10] + "...",
+            )
             return balance_usd
         except Exception as e:
-            logger.error("get_balance_failed", error=str(e))
+            logger.warning("pusd_onchain_balance_failed", error=str(e))
             return None
 
     @async_retry(max_attempts=3, min_wait=1, max_wait=15)

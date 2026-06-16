@@ -11,6 +11,7 @@ import pytest
 from bot.polymarket.client import (
     MIN_ORDER_SHARES,
     MIN_ORDER_SIZE_USD,
+    PUSD_CONTRACT,
     TICK_SIZE,
     PolymarketClient,
     derive_proxy_wallet,
@@ -502,36 +503,124 @@ class TestLiveModeCancelAll:
 
 
 class TestLiveModeGetBalance:
-    """Live mode: get_balance fetches from CLOB and divides by 1e6."""
+    """Live mode: get_balance with CLOB + pUSD on-chain fallback."""
 
     @pytest.mark.asyncio
-    async def test_balance_conversion(self, live_client_with_clob):
-        """Raw USDC balance in micro-units is converted to dollars."""
-        live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
-            return_value={"balance": "5000000"}  # $5.00
-        )
+    async def test_clob_balance_returns_value(self, live_client_with_clob):
+        """When CLOB returns a real balance, use it (no on-chain fallback)."""
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
+                return_value={"balance": "5000000"}  # $5.00
+            )
+            result = await live_client_with_clob.get_balance()
+            assert result == 5.0
 
-        with patch("bot.polymarket.client.BalanceAllowanceParams", create=True):
-            # We need to patch the import inside get_balance
-            with patch(
-                "bot.polymarket.client.asyncio.to_thread",
-                new_callable=lambda: _make_to_thread_passthrough,
+    @pytest.mark.asyncio
+    async def test_clob_returns_zero_falls_back_to_pusd(self, live_client_with_clob):
+        """When CLOB returns $0, fall back to on-chain pUSD read."""
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
+                return_value={"balance": "0"}
+            )
+            # Mock the on-chain fallback
+            with patch.object(
+                live_client_with_clob, "_get_pusd_balance_onchain",
+                new_callable=AsyncMock, return_value=97.50,
             ):
-                pass
-
-        # Direct approach: mock asyncio.to_thread to call the function directly
-        result = await live_client_with_clob.get_balance()
-        # get_balance uses asyncio.to_thread which calls the actual mock
-        assert result == 5.0 or result is None  # None if import fails in test env
+                result = await live_client_with_clob.get_balance()
+                assert result == 97.50
 
     @pytest.mark.asyncio
-    async def test_balance_error_returns_none(self, live_client_with_clob):
-        """If get_balance_allowance raises, returns None."""
-        live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
-            side_effect=RuntimeError("Connection lost")
-        )
-        # The method catches exceptions and returns None
-        result = await live_client_with_clob.get_balance()
+    async def test_clob_returns_zero_pusd_also_zero(self, live_client_with_clob):
+        """Both CLOB and pUSD return $0 — result is $0."""
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
+                return_value={"balance": "0"}
+            )
+            with patch.object(
+                live_client_with_clob, "_get_pusd_balance_onchain",
+                new_callable=AsyncMock, return_value=0.0,
+            ):
+                result = await live_client_with_clob.get_balance()
+                assert result == 0.0
+
+    @pytest.mark.asyncio
+    async def test_clob_error_falls_back_to_pusd(self, live_client_with_clob):
+        """When CLOB API raises, still try on-chain pUSD."""
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
+                side_effect=RuntimeError("Connection lost")
+            )
+            with patch.object(
+                live_client_with_clob, "_get_pusd_balance_onchain",
+                new_callable=AsyncMock, return_value=42.0,
+            ):
+                result = await live_client_with_clob.get_balance()
+                assert result == 42.0
+
+    @pytest.mark.asyncio
+    async def test_clob_error_pusd_also_fails(self, live_client_with_clob):
+        """Both CLOB and pUSD fail — returns $0 (not None, since client exists)."""
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
+                side_effect=RuntimeError("Connection lost")
+            )
+            with patch.object(
+                live_client_with_clob, "_get_pusd_balance_onchain",
+                new_callable=AsyncMock, return_value=None,
+            ):
+                result = await live_client_with_clob.get_balance()
+                assert result == 0.0
+
+    @pytest.mark.asyncio
+    async def test_no_proxy_wallet_skips_pusd(self, live_client_with_clob):
+        """Without a proxy wallet, pUSD fallback is skipped."""
+        live_client_with_clob._proxy_wallet = None
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            live_client_with_clob._clob_client.get_balance_allowance = MagicMock(
+                return_value={"balance": "0"}
+            )
+            result = await live_client_with_clob.get_balance()
+            assert result == 0.0
+
+
+class TestPusdOnchainBalance:
+    """Direct tests for _get_pusd_balance_onchain()."""
+
+    @pytest.mark.asyncio
+    async def test_reads_balance_from_contract(self, live_client_with_clob):
+        """Reads pUSD balanceOf via web3 and converts from 6 decimals."""
+        mock_call = MagicMock(return_value=97_500_000)  # $97.50
+        mock_balance_of = MagicMock()
+        mock_balance_of.return_value.call = mock_call
+        mock_contract = MagicMock()
+        mock_contract.functions.balanceOf = mock_balance_of
+
+        MockWeb3 = MagicMock()
+        MockWeb3.HTTPProvider.return_value = "mock_provider"
+        mock_w3 = MagicMock()
+        MockWeb3.return_value = mock_w3
+        mock_w3.eth.contract.return_value = mock_contract
+        MockWeb3.to_checksum_address = lambda addr: addr
+
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            with patch.dict("sys.modules", {"web3": MagicMock(Web3=MockWeb3)}):
+                result = await live_client_with_clob._get_pusd_balance_onchain()
+                assert result == 97.50
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_error(self, live_client_with_clob):
+        """Returns None when web3 call fails."""
+        with patch("bot.polymarket.client.asyncio.to_thread", new=_sync_to_thread):
+            with patch.dict("sys.modules", {"web3": None}):
+                result = await live_client_with_clob._get_pusd_balance_onchain()
+                assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_without_proxy_wallet(self, live_client_with_clob):
+        """Returns None when no proxy wallet is set."""
+        live_client_with_clob._proxy_wallet = None
+        result = await live_client_with_clob._get_pusd_balance_onchain()
         assert result is None
 
 
@@ -573,16 +662,15 @@ class TestConstants:
     def test_min_order_size_usd(self):
         assert MIN_ORDER_SIZE_USD == 1.0
 
+    def test_pusd_contract_address(self):
+        assert PUSD_CONTRACT == "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
+
 
 # ===========================================================================
 # Helper
 # ===========================================================================
 
 
-def _make_to_thread_passthrough():
-    """Create an AsyncMock that calls the function directly (no thread)."""
-
-    async def _passthrough(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    return AsyncMock(side_effect=_passthrough)
+async def _sync_to_thread(func, *args, **kwargs):
+    """Call a sync function directly (replaces asyncio.to_thread in tests)."""
+    return func(*args, **kwargs)
